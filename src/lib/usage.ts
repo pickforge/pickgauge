@@ -15,6 +15,44 @@ export type UsageSnapshot = {
   details: Record<string, unknown>;
 };
 
+export type AppConfig = {
+  version: number;
+  enabledServices: {
+    codex: boolean;
+    claude: boolean;
+  };
+  providers: {
+    localEnabled: boolean;
+    webEnabled: boolean;
+  };
+  intervals: {
+    localSeconds: number;
+    webMinutes: number;
+    manualWebRefreshCooldownSeconds: number;
+    gaugeSwitchSeconds: number;
+  };
+  lowUsageThreshold: number;
+};
+
+export const defaultConfig: AppConfig = {
+  version: 1,
+  enabledServices: {
+    codex: true,
+    claude: true,
+  },
+  providers: {
+    localEnabled: true,
+    webEnabled: false,
+  },
+  intervals: {
+    localSeconds: 45,
+    webMinutes: 30,
+    manualWebRefreshCooldownSeconds: 60,
+    gaugeSwitchSeconds: 6,
+  },
+  lowUsageThreshold: 20,
+};
+
 export const fallbackSnapshots: UsageSnapshot[] = [
   {
     service: "codex",

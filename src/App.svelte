@@ -7,11 +7,14 @@
   import patternUrl from "../assets/branding/brand-pattern.svg";
   import trayClaudeUrl from "../assets/branding/tray-claude.svg";
   import trayCodexUrl from "../assets/branding/tray-codex.svg";
-  import { fallbackSnapshots, type UsageSnapshot } from "./lib/usage";
+  import { defaultConfig, fallbackSnapshots, type AppConfig, type UsageSnapshot } from "./lib/usage";
 
+  let config = $state<AppConfig>(defaultConfig);
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
   let loading = $state(true);
+  let saving = $state(false);
   let error = $state<string | null>(null);
+  let statusMessage = $state<string | null>(null);
 
   const serviceLabels: Record<UsageSnapshot["service"], string> = {
     codex: "Codex",
@@ -34,13 +37,35 @@
 
   onMount(async () => {
     try {
-      snapshots = await invoke<UsageSnapshot[]>("get_usage_snapshots");
+      const [loadedConfig, loadedSnapshots] = await Promise.all([
+        invoke<AppConfig>("get_app_config"),
+        invoke<UsageSnapshot[]>("get_usage_snapshots"),
+      ]);
+
+      config = loadedConfig;
+      snapshots = loadedSnapshots;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : "Running in browser preview mode";
     } finally {
       loading = false;
     }
   });
+
+  async function saveSettings() {
+    saving = true;
+    statusMessage = null;
+
+    try {
+      config = await invoke<AppConfig>("update_app_config", { config });
+      snapshots = await invoke<UsageSnapshot[]>("get_usage_snapshots");
+      error = null;
+      statusMessage = "Settings saved";
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : "Settings are only persisted in the app";
+    } finally {
+      saving = false;
+    }
+  }
 </script>
 
 <main class="shell" style={`--brand-pattern: url(${patternUrl});`}>
@@ -54,6 +79,13 @@
   </section>
 
   <section class="cards" aria-label="Usage snapshots">
+    {#if snapshots.length === 0}
+      <article class="usage-card empty">
+        <h2>No services enabled</h2>
+        <p>Enable Codex or Claude Code in settings to show usage snapshots.</p>
+      </article>
+    {/if}
+
     {#each snapshots as snapshot}
       <article class={`usage-card ${serviceTone[snapshot.service]}`}>
         <div class="usage-header">
@@ -89,8 +121,59 @@
     {/each}
   </section>
 
+  <section class="settings-panel" aria-label="Settings">
+    <div>
+      <p class="eyebrow">Settings</p>
+      <h2>Provider controls</h2>
+    </div>
+
+    <div class="settings-grid">
+      <label>
+        <input type="checkbox" bind:checked={config.enabledServices.codex} />
+        Codex
+      </label>
+      <label>
+        <input type="checkbox" bind:checked={config.enabledServices.claude} />
+        Claude Code
+      </label>
+      <label>
+        <input type="checkbox" bind:checked={config.providers.localEnabled} />
+        Local providers
+      </label>
+      <label>
+        <input type="checkbox" bind:checked={config.providers.webEnabled} />
+        Experimental web providers
+      </label>
+    </div>
+
+    <div class="number-grid">
+      <label>
+        Local refresh
+        <input type="number" min="30" max="60" bind:value={config.intervals.localSeconds} />
+      </label>
+      <label>
+        Web refresh
+        <input type="number" min="15" max="60" bind:value={config.intervals.webMinutes} />
+      </label>
+      <label>
+        Tray switch
+        <input type="number" min="5" max="10" bind:value={config.intervals.gaugeSwitchSeconds} />
+      </label>
+      <label>
+        Low threshold
+        <input type="number" min="1" max="100" bind:value={config.lowUsageThreshold} />
+      </label>
+    </div>
+
+    <button class="save-button" type="button" disabled={saving} onclick={saveSettings}>
+      {saving ? "Saving…" : "Save settings"}
+    </button>
+  </section>
+
   {#if loading}
     <p class="status">Loading local ForgeGauge state…</p>
+  {:else if statusMessage}
+    <p class="status">{statusMessage}</p>
   {:else if error}
     <p class="status muted">{error}</p>
   {/if}

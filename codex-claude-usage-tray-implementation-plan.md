@@ -348,6 +348,11 @@ Acceptance:
 
 - Settings survive app restart and drive fake/provider behavior.
 
+Current MVP status:
+
+- Basic settings persistence is implemented for service toggles, provider toggles, refresh intervals, tray switch interval, and low-usage threshold.
+- Config migration/path hardening and browser profile validation remain future work.
+
 ### Phase 4 — Usage Engine and Scheduler
 
 Deliverables:
@@ -373,6 +378,11 @@ Validation:
 Acceptance:
 
 - Popup updates automatically from scheduled fake provider refreshes.
+
+Current MVP status:
+
+- A fake usage snapshot command is implemented and driven by the persisted enabled-service settings.
+- Scheduler/backoff/event streaming remains future work.
 
 ### Phase 5 — Claude Local Provider
 

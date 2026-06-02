@@ -6,7 +6,7 @@
 
 ForgeGauge is a privacy-conscious Linux tray app concept for tracking remaining AI usage across Codex and Claude Code. It is designed to keep quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
 
-> **Status:** early Tauri/Svelte MVP scaffold with fake usage data, branded tray wiring, app icons, and release automation.
+> **Status:** early Tauri/Svelte MVP scaffold with fake usage data, persisted settings, branded tray wiring, app icons, and release automation.
 
 ## Why this name?
 
@@ -17,6 +17,7 @@ ForgeGauge is a privacy-conscious Linux tray app concept for tracking remaining 
 - Show Codex and Claude Code usage from a KDE/Linux system tray icon.
 - Alternate the tray gauge between services on a configurable interval.
 - Open a compact popup with remaining percentage, source, confidence, and last update time.
+- Persist basic provider/service settings locally.
 - Combine local CLI usage estimates with optional official-page readings.
 - Clearly label data as `high`, `medium`, `low`, or `unknown` confidence.
 - Fail gracefully when local files are missing, login expires, MFA appears, or official pages change.
@@ -85,6 +86,13 @@ After changing the source app icon, regenerate platform icons with:
 ```bash
 npm run tauri -- icon assets/branding/app-icon.svg
 ```
+
+## Current MVP behavior
+
+- Branded Tauri tray app shell.
+- Branded popup with fake Codex and Claude Code snapshots.
+- Local settings persistence for enabled services, provider toggles, refresh intervals, tray switch interval, and low-usage threshold.
+- Branded tray icons that rotate between Codex and Claude Code and can switch to low/unknown states.
 
 ## Why Tauri?
 

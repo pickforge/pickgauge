@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">ForgeGauge favicon</title>
+  <circle cx="32" cy="32" r="28" fill="#f6f7fb" stroke="#cbd3df" stroke-width="3"/>
+  <path d="M20 46A18 18 0 0 1 20 18" fill="none" stroke="#2563eb" stroke-width="8" stroke-linecap="round"/>
+  <path d="M44 18A18 18 0 0 1 44 46" fill="none" stroke="#c75b12" stroke-width="8" stroke-linecap="round"/>
+  <path d="M32 24l10 4v8c0 7-4 12-10 15-6-3-10-8-10-15v-8l10-4z" fill="#ffffff" stroke="#647084" stroke-width="3" stroke-linejoin="round"/>
+</svg>

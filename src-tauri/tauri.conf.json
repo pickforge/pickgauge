@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ForgeGauge",
+  "version": "0.1.0",
+  "identifier": "com.pickforge.forgegauge",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ForgeGauge",
+        "width": 420,
+        "height": 640,
+        "minWidth": 360,
+        "minHeight": 520,
+        "resizable": true,
+        "center": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "copyright": "Copyright © 2026 Pickforge",
+    "publisher": "Pickforge",
+    "shortDescription": "Pickforge AI usage tray",
+    "longDescription": "ForgeGauge tracks Codex and Claude Code usage from a lightweight desktop tray app.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,214 @@
+name: Release ForgeGauge
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forgegauge-release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      has_tauri_app: ${{ steps.detect.outputs.has_tauri_app }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Tauri app
+        id: detect
+        run: |
+          if [[ -f package.json && -f src-tauri/Cargo.toml ]]; then
+            echo "has_tauri_app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tauri_app=false" >> "$GITHUB_OUTPUT"
+            echo "ForgeGauge app source is not present yet; skipping release build."
+          fi
+
+      - name: Set release metadata
+        id: version
+        run: |
+          if [[ -f package.json ]]; then
+            version="$(python3 -c "import json; print(json.load(open('package.json')).get('version') or '0.0.0')")"
+          else
+            version="0.0.0"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=forgegauge-v${version}-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.has_tauri_app == 'true'
+    steps:
+      - name: Create GitHub release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          release_notes="$(cat <<'EOF'
+          ## Platform support
+
+          ForgeGauge is Linux/KDE-first. Windows and macOS builds are generated automatically, but they are currently untested.
+
+          If you try ForgeGauge on Windows or macOS, personal experience reports, issues, and pull requests are very welcome so these builds can improve over time.
+          EOF
+          )"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; reusing it."
+          else
+            gh release create "$RELEASE_TAG" \
+              --draft \
+              --title "ForgeGauge ${RELEASE_VERSION} (${GITHUB_SHA::7})" \
+              --target "$GITHUB_SHA" \
+              --notes "$release_notes" \
+              --generate-notes
+          fi
+
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    needs:
+      - preflight
+      - create-release
+    if: needs.preflight.outputs.has_tauri_app == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-appimage
+            os: ubuntu-22.04
+          - name: windows
+            os: windows-latest
+          - name: macos-intel
+            os: macos-13
+          - name: macos-apple-silicon
+            os: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            libfuse2 \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev || \
+            sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
+
+      - name: Install frontend dependencies
+        run: |
+          if [[ -f pnpm-lock.yaml ]]; then
+            corepack enable
+            corepack prepare pnpm@latest --activate
+            pnpm install --frozen-lockfile
+            echo "PACKAGE_MANAGER=pnpm" >> "$GITHUB_ENV"
+          elif [[ -f yarn.lock ]]; then
+            corepack enable
+            yarn install --immutable || yarn install --frozen-lockfile
+            echo "PACKAGE_MANAGER=yarn" >> "$GITHUB_ENV"
+          elif [[ -f package-lock.json ]]; then
+            npm ci
+            echo "PACKAGE_MANAGER=npm" >> "$GITHUB_ENV"
+          else
+            npm install
+            echo "PACKAGE_MANAGER=npm" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Tauri bundles
+        run: |
+          bundle_args=()
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            export NO_STRIP=1
+            bundle_args=(--bundles appimage)
+          fi
+
+          case "$PACKAGE_MANAGER" in
+            pnpm) pnpm exec tauri build "${bundle_args[@]}" || pnpm run tauri -- build "${bundle_args[@]}" ;;
+            yarn) yarn tauri build "${bundle_args[@]}" ;;
+            npm) npm run tauri -- build "${bundle_args[@]}" || npx tauri build "${bundle_args[@]}" ;;
+            *) echo "Unsupported package manager: $PACKAGE_MANAGER" && exit 1 ;;
+          esac
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          while IFS= read -r -d '' asset; do
+            cp "$asset" "release-assets/${{ matrix.name }}-$(basename "$asset")"
+          done < <(
+            find src-tauri/target/release/bundle -type f \
+              \( -name '*.AppImage' \
+              -o -name '*.deb' \
+              -o -name '*.rpm' \
+              -o -name '*.msi' \
+              -o -name '*.exe' \
+              -o -name '*.dmg' \
+              -o -name '*.app.tar.gz' \
+              -o -name '*.app.tar.gz.sig' \) \
+              -print0
+          )
+
+          asset_count="$(find release-assets -type f | wc -l | tr -d ' ')"
+          if [[ "$asset_count" == "0" ]]; then
+            echo "No release assets were produced."
+            exit 1
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+
+  publish-release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs:
+      - preflight
+      - build
+    if: needs.preflight.outputs.has_tauri_app == 'true' && success()
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false

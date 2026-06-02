@@ -1,0 +1,27 @@
+{
+  "name": "forgegauge",
+  "version": "0.1.0",
+  "description": "The Pickforge AI usage tray for Codex and Claude Code.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "tauri": "tauri",
+    "build:appimage": "NO_STRIP=1 tauri build --bundles appimage"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "svelte": "^5.43.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tauri-apps/cli": "^2.9.3",
+    "@tsconfig/svelte": "^5.0.5",
+    "svelte-check": "^4.3.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
+  }
+}

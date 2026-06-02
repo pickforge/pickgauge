@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">ForgeGauge social preview</title>
+  <desc id="desc">Social preview card for ForgeGauge using the generated hero artwork.</desc>
+  <rect width="1200" height="630" fill="#f6f7fb"/>
+  <image href="hero-art.png" x="0" y="0" width="1200" height="630" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="1200" height="630" fill="#f6f7fb" opacity="0.54"/>
+  <rect x="60" y="60" width="1080" height="510" rx="32" fill="none" stroke="#d8dee9" stroke-width="2" opacity="0.78"/>
+  <g transform="translate(96 100) scale(0.32)">
+    <circle cx="256" cy="256" r="218" fill="#f6f7fb" stroke="#d8dee9" stroke-width="12"/>
+    <circle cx="256" cy="256" r="172" fill="none" stroke="#e4e8ef" stroke-width="56"/>
+    <path d="M 139 382 A 172 172 0 0 1 139 130" fill="none" stroke="#2563eb" stroke-width="56" stroke-linecap="round"/>
+    <path d="M 373 130 A 172 172 0 0 1 373 382" fill="none" stroke="#c75b12" stroke-width="56" stroke-linecap="round"/>
+    <circle cx="256" cy="256" r="105" fill="#ffffff" stroke="#d8dee9" stroke-width="7"/>
+    <path d="M256 176l72 29v57c0 47-28 84-72 105-44-21-72-58-72-105v-57l72-29z" fill="#f6f7fb" stroke="#647084" stroke-width="8" stroke-linejoin="round"/>
+    <rect x="228" y="256" width="56" height="52" rx="10" fill="#172033"/>
+    <path d="M238 256v-18c0-24 14-40 18-40s18 16 18 40v18" fill="none" stroke="#172033" stroke-width="12" stroke-linecap="round"/>
+  </g>
+  <text x="280" y="205" fill="#172033" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="82" font-weight="800">ForgeGauge</text>
+  <text x="285" y="265" fill="#647084" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Privacy-conscious AI usage tray for Codex and Claude Code</text>
+  <g transform="translate(286 330)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">
+    <rect width="160" height="46" rx="23" fill="#2563eb"/>
+    <text x="34" y="31" fill="#ffffff">Codex</text>
+    <rect x="184" width="172" height="46" rx="23" fill="#c75b12"/>
+    <text x="220" y="31" fill="#ffffff">Claude</text>
+    <rect x="380" width="206" height="46" rx="23" fill="#172033"/>
+    <text x="416" y="31" fill="#ffffff">Local-first</text>
+  </g>
+  <text x="286" y="452" fill="#172033" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="34" font-weight="800">Quota awareness without credential storage.</text>
+</svg>

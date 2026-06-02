@@ -48,7 +48,7 @@ Official usage pages:
 - **Tauri v2**
 - **Rust backend**
 - **Svelte frontend**
-- Linux/KDE-first packaging initially.
+- Linux/KDE-first packaging initially, with automated GitHub release artifacts for Linux AppImage, Windows, and macOS once the app source exists.
 
 ### Persistence
 
@@ -292,29 +292,29 @@ Acceptance:
 
 - Tray icon is visible and popup can be opened/closed reliably.
 
-### Phase 2 — Dynamic Gauge Icon
+### Phase 2 — Branded Tray State Icons
 
 Deliverables:
 
-- Render gauge icons for known, low, and unknown usage states using discrete cached runtime icons for percentage steps plus low/unknown states.
-- Use deterministic icon cache keys by service, percentage bucket, low/unknown state, size, and scale; render RGBA tray bitmaps at the platform-required size, starting with 32x32 plus higher scale variants if KDE requires them.
-- Bucket percentages in fixed steps, such as 5% increments from 0 to 100, and map colors consistently before cache lookup.
+- Use branded tray assets from `assets/branding/` for Codex, Claude, low-usage, and unknown states.
+- Keep dynamic percentage gauges as a future enhancement once provider values are calibrated enough to justify per-bucket icons.
+- Use deterministic icon selection by service, low/unknown state, size, and scale; start with the bundled 64px assets plus generated platform icons where needed.
 - Alternate Codex/Claude display every configured `5–10s`.
 - Tray controller owns the gauge switch timer, reads the current config, and emits alternation/update events without competing frontend timers.
-- Use color mapping:
-  - Codex: blue
-  - Claude: orange
-  - unknown: gray
-  - low threshold: red accent
+- Use the brand color mapping:
+  - Codex: `#2563eb`
+  - Claude: `#c75b12`
+  - unknown: gray/slate
+  - low threshold: red
 
 Validation:
 
-- Unit tests for gauge state/color selection.
+- Unit tests for tray state/icon selection.
 - Manual visual smoke test.
 
 Acceptance:
 
-- Tray icon visibly changes between both services and reflects fake percentages.
+- Tray icon visibly changes between Codex and Claude and can switch to low/unknown assets when provider state requires it.
 
 ### Phase 3 — Config Store
 
@@ -529,12 +529,14 @@ Acceptance:
 
 - Popup and tray use merged data consistently.
 
-### Phase 10 — KDE Polish and Packaging
+### Phase 10 — KDE Polish and Cross-Platform Packaging
 
 Deliverables:
 
 - KDE/Wayland manual testing.
-- AppImage or local binary packaging.
+- Linux AppImage packaging.
+- Automated GitHub Releases with generated release notes on mainline pushes.
+- Windows installer artifacts and macOS Intel/Apple Silicon artifacts marked as untested until validated by real users.
 - Optional autostart setting.
 - Basic failure logging view or log file location.
 
@@ -547,10 +549,15 @@ Validation:
   - gauge alternates
   - settings persist
   - providers fail gracefully
+- GitHub Actions release smoke test:
+  - queued release workflow runs on mainline push
+  - Linux AppImage artifact is uploaded
+  - Windows and macOS artifacts are uploaded with untested-platform release notes
 
 Acceptance:
 
 - App is usable as a daily personal tray utility.
+- Windows and macOS artifacts are available for community testing, with issues and pull requests encouraged.
 
 ## Testing Strategy
 
@@ -587,6 +594,8 @@ Baseline validators should include `cargo fmt --check`, `cargo clippy -- -D warn
 - Network unavailable state.
 - Missing local data state.
 - Expired login state.
+- Windows tray/install smoke test when a tester is available.
+- macOS tray/install smoke test when a tester is available.
 
 ## Security and Privacy Review Checklist
 
@@ -624,6 +633,7 @@ Baseline validators should include `cargo fmt --check`, `cargo clippy -- -D warn
 | False precision in merged estimates | Show source, confidence, and last official check time |
 | Popup focus-loss dismissal is unreliable on Wayland | Require explicit close/click-outside/utility-window fallback in Phase 1 |
 | Scheduler refreshes overlap or continue after disable | Enforce one active refresh per provider, skip overlaps, and cancel on disable |
+| Windows/macOS artifacts are initially untested | Mark them clearly in release notes and invite experience reports, issues, and pull requests |
 
 ## Review Gates
 
@@ -648,7 +658,7 @@ Before moving past each gate:
    - Confirm web provider reliability is acceptable for personal use.
 
 7. **Before packaging**
-   - Run automated checks and complete the KDE manual smoke test.
+   - Run automated checks, complete the KDE manual smoke test, and confirm release notes mark Windows/macOS artifacts as untested.
 
 ## MVP Cut Line
 

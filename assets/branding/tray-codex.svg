@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">ForgeGauge tray icon, Codex</title>
+  <circle cx="32" cy="32" r="27" fill="#f6f7fb" stroke="#cbd3df" stroke-width="3"/>
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#d8dee9" stroke-width="7"/>
+  <path d="M20 46A18 18 0 1 1 47 41" fill="none" stroke="#2563eb" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="7" fill="#172033"/>
+</svg>

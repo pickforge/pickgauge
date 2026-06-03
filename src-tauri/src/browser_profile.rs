@@ -20,7 +20,7 @@ pub struct BrowserProfilePaths {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum BrowserProfileService {
+pub enum BrowserProfileService {
     Codex,
     Claude,
 }
@@ -56,6 +56,54 @@ pub fn prepare_browser_profiles(
     ensure_profile_directory(&paths.claude, BrowserProfileService::Claude)?;
 
     Ok(paths)
+}
+
+pub fn clear_browser_profile(
+    settings: &BrowserProfileSettings,
+    app_data_dir: &Path,
+    service: BrowserProfileService,
+) -> Result<bool, String> {
+    let paths = resolve_browser_profile_paths(settings, app_data_dir)?;
+    let profile_path = paths.service_path(service);
+
+    if !profile_path.exists() {
+        return Ok(false);
+    }
+
+    reject_symlink_path(profile_path)?;
+    reject_known_default_browser_profile(profile_path)?;
+
+    if !profile_path.is_dir() {
+        return Err("Browser profile path must be a directory".to_string());
+    }
+
+    let marker_path = profile_path.join(PROFILE_MARKER_FILE_NAME);
+    let metadata = fs::symlink_metadata(&marker_path)
+        .map_err(|_| "Browser profile directory is not app-owned".to_string())?;
+
+    if metadata.file_type().is_symlink() {
+        return Err("Browser profile marker must not be a symlink".to_string());
+    }
+
+    if !metadata.is_file() {
+        return Err("Browser profile marker must be a file".to_string());
+    }
+
+    verify_marker(&marker_path, service)?;
+    fs::remove_dir_all(profile_path)
+        .map_err(|error| format!("Could not remove browser profile directory: {error}"))?;
+    remove_empty_profile_root(&paths.root)?;
+
+    Ok(true)
+}
+
+impl BrowserProfilePaths {
+    fn service_path(&self, service: BrowserProfileService) -> &Path {
+        match service {
+            BrowserProfileService::Codex => &self.codex,
+            BrowserProfileService::Claude => &self.claude,
+        }
+    }
 }
 
 fn prepare_app_data_dir(path: &Path) -> Result<PathBuf, String> {
@@ -258,6 +306,27 @@ fn directory_has_non_marker_contents(path: &Path) -> Result<bool, String> {
     }
 
     Ok(false)
+}
+
+fn remove_empty_profile_root(path: &Path) -> Result<(), String> {
+    if !path.exists() || !path.is_dir() {
+        return Ok(());
+    }
+
+    if !directory_is_empty(path)? {
+        return Ok(());
+    }
+
+    fs::remove_dir(path).map_err(|error| format!("Could not remove browser profile root: {error}"))
+}
+
+fn directory_is_empty(path: &Path) -> Result<bool, String> {
+    fs::read_dir(path)
+        .map_err(|error| format!("Could not inspect profile directory: {error}"))?
+        .next()
+        .transpose()
+        .map(|entry| entry.is_none())
+        .map_err(|error| format!("Could not inspect profile entry: {error}"))
 }
 
 fn verify_marker(path: &Path, service: BrowserProfileService) -> Result<(), String> {
@@ -589,5 +658,78 @@ mod tests {
             & 0o777;
 
         assert_eq!(marker_mode, 0o600);
+    }
+
+    #[test]
+    fn clear_browser_profile_removes_only_marked_service_directory() {
+        let dir = TestDir::new();
+        let paths =
+            prepare_browser_profiles(&empty_settings(), &dir.path).expect("profiles prepare");
+        fs::write(paths.codex.join("browser-data"), "data").expect("profile data is written");
+        fs::write(paths.claude.join("browser-data"), "data").expect("profile data is written");
+
+        let cleared =
+            clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Codex)
+                .expect("profile clears");
+
+        assert!(cleared);
+        assert!(!paths.codex.exists());
+        assert!(paths.claude.exists());
+    }
+
+    #[test]
+    fn clear_browser_profile_returns_false_for_missing_profile() {
+        let dir = TestDir::new();
+
+        let cleared =
+            clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Claude)
+                .expect("missing profile is safe");
+
+        assert!(!cleared);
+    }
+
+    #[test]
+    fn clear_browser_profile_rejects_unmarked_directory() {
+        let dir = TestDir::new();
+        let codex_path = dir.path.join("browser-profiles").join("codex");
+        fs::create_dir_all(&codex_path).expect("profile dir is created");
+
+        let error =
+            clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Codex)
+                .expect_err("unmarked profile is rejected");
+
+        assert!(error.contains("not app-owned"));
+        assert!(codex_path.exists());
+    }
+
+    #[test]
+    fn clear_browser_profile_rejects_mismatched_marker() {
+        let dir = TestDir::new();
+        let paths =
+            prepare_browser_profiles(&empty_settings(), &dir.path).expect("profiles prepare");
+
+        let error =
+            clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Codex)
+                .expect("codex profile clears");
+        assert!(error);
+
+        let error =
+            clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Codex)
+                .expect("missing cleared profile is safe");
+        assert!(!error);
+
+        fs::create_dir_all(&paths.codex).expect("profile dir is recreated");
+        fs::write(
+            paths.codex.join(PROFILE_MARKER_FILE_NAME),
+            r#"{"schemaVersion":1,"appIdentifier":"com.pickforge.forgegauge","service":"claude","createdAt":"2026-06-03T00:00:00Z"}"#,
+        )
+        .expect("marker is written");
+
+        let error =
+            clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Codex)
+                .expect_err("mismatched marker is rejected");
+
+        assert!(error.contains("does not match"));
+        assert!(paths.codex.exists());
     }
 }

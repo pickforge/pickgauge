@@ -126,7 +126,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Calibrated local quota/window merge deltas.
 - [x] Config migration and atomic persistence layer.
 - [x] Browser profile path configuration, validation, and ownership markers.
-- [ ] Browser profile cleanup guardrails.
+- [x] Browser profile cleanup guardrails.
 - [ ] Browser automation spike for official usage pages.
 - [ ] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
@@ -407,7 +407,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [ ] `start_provider_login`
 - [ ] `reset_provider_session`
 - [x] `clear_cached_snapshots`
-- [ ] `clear_provider_profile`
+- [x] `clear_provider_profile`
 - [ ] `get_log_location`
 
 ### Emitted Events

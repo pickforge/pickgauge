@@ -52,6 +52,14 @@ struct OfficialUsagePage {
     opened_at: String,
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearedProviderProfile {
+    service: Service,
+    cleared: bool,
+    cleared_at: String,
+}
+
 type CommandResult<T> = Result<T, CommandError>;
 
 impl CommandError {
@@ -92,7 +100,7 @@ fn map_browser_profile_error(error: String) -> CommandError {
     let message = if error.starts_with("Browser profile ") {
         error
     } else {
-        "Could not prepare browser profiles".to_string()
+        "Could not update browser profiles".to_string()
     };
 
     CommandError::new("browser_profile_unavailable", message)
@@ -141,6 +149,13 @@ fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
         Service::Claude => CLAUDE_USAGE_URL,
+    }
+}
+
+fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileService {
+    match service {
+        Service::Codex => browser_profile::BrowserProfileService::Codex,
+        Service::Claude => browser_profile::BrowserProfileService::Claude,
     }
 }
 
@@ -248,6 +263,28 @@ fn clear_cached_snapshots(
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
         .map_err(map_event_emit_error)?;
     Ok(display_state)
+}
+
+#[tauri::command]
+fn clear_provider_profile(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+    service: Service,
+) -> CommandResult<ClearedProviderProfile> {
+    let config = engine.config().map_err(map_usage_state_error)?;
+    let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
+    let cleared = browser_profile::clear_browser_profile(
+        &config.browser_profiles,
+        &app_data_dir,
+        browser_profile_service(service),
+    )
+    .map_err(map_browser_profile_error)?;
+
+    Ok(ClearedProviderProfile {
+        service,
+        cleared,
+        cleared_at: usage::now_rfc3339(),
+    })
 }
 
 fn emit_refresh_event(
@@ -541,6 +578,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             clear_cached_snapshots,
+            clear_provider_profile,
             get_app_config,
             get_display_state,
             get_usage_snapshots,
@@ -650,6 +688,25 @@ mod tests {
         assert_eq!(
             official_usage_url(Service::Claude),
             "https://claude.ai/new#settings/usage"
+        );
+    }
+
+    #[test]
+    fn cleared_provider_profile_serializes_to_ipc_shape() {
+        let cleared = ClearedProviderProfile {
+            service: Service::Codex,
+            cleared: true,
+            cleared_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        let value = serde_json::to_value(cleared).expect("cleared profile serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "service": "codex",
+                "cleared": true,
+                "clearedAt": "2026-06-03T00:00:00Z"
+            })
         );
     }
 

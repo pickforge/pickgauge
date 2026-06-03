@@ -31,6 +31,12 @@ export type OfficialUsagePage = {
   openedAt: string;
 };
 
+export type ClearedProviderProfile = {
+  service: Service;
+  cleared: boolean;
+  clearedAt: string;
+};
+
 export type LocalServiceQuotaSettings = {
   enabled: boolean;
   planLabel: string;

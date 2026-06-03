@@ -5,7 +5,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State,
+    AppHandle, Manager, State, WindowEvent,
 };
 use usage::{Service, UsageDisplayState, UsageEngine, UsageSnapshot};
 
@@ -115,8 +115,22 @@ fn start_gauge_rotation(tray: TrayIcon, app: AppHandle) {
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn setup_window_lifecycle(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let window_on_close = window.clone();
+
+        window.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window_on_close.hide();
+            }
+        });
     }
 }
 
@@ -184,6 +198,7 @@ pub fn run() {
             if let Err(error) = app.state::<UsageEngine>().refresh_all_and_emit(&app_handle) {
                 eprintln!("Could not refresh initial usage state: {error}");
             }
+            setup_window_lifecycle(&app_handle);
             setup_tray(app)?;
             start_usage_scheduler(app_handle);
             Ok(())

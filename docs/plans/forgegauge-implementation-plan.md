@@ -10,6 +10,8 @@ Last readiness review: source checked against this plan after consolidation. The
 
 Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone for the fake-provider path. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Browser preview smoke checks covered desktop and mobile layouts, settings checkbox interaction, and overflow checks via Playwright; full KDE/Wayland tray smoke testing remains unchecked.
 
+Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -95,7 +97,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 
 ### Not Fully Implemented
 
-- [ ] Main window lifecycle as a tray-first app: start hidden or minimize-to-tray, tray-relative popup behavior where practical, close-to-tray behavior, and reliable explicit close fallback.
+- [ ] Remaining tray-first window lifecycle polish: tray-relative popup behavior where practical, popup dismissal fallback, and KDE/Wayland confirmation.
 - [ ] Full KDE/Wayland smoke test for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
 - [ ] GitHub release workflow remote/mainline run verification.
 - [ ] Windows artifact testing.
@@ -145,7 +147,7 @@ ForgeGauge uses two data sources and one display pipeline:
 
 - Current source has a **central `UsageEngine` with a fake provider registry, latest snapshot cache, shared display-state cache, and snapshot update event**; real providers are not implemented yet.
 - Current tray values read from the shared display-state cache instead of hard-coded fake values in `src-tauri/src/lib.rs`.
-- Current app window is configured as visible, centered, and resizable in `src-tauri/tauri.conf.json`; Phase 1/10 must decide and implement tray-first window lifecycle behavior.
+- Current app window starts hidden from `src-tauri/tauri.conf.json`, can be shown from tray/menu actions, and hides back to tray on normal close requests; Phase 0.5/10 must still confirm KDE/Wayland tray behavior manually.
 - Current Rust dependencies are intentionally minimal: `serde`, `serde_json`, and `tauri`. Any async runtime, time, logging, filesystem walking, browser automation, opener, or path-dialog dependencies must be added deliberately with validation.
 - Current Tauri permissions are only `core:default`; browser/session/open-url/path features will require explicit capability review before implementation.
 - Current CSP is `null`; web-provider UI and any opener/browser integration must include a security review before release.
@@ -155,7 +157,7 @@ ForgeGauge uses two data sources and one display pipeline:
 Build in this order to avoid rework:
 
 1. **Tray/window hardening**
-   - [ ] Decide tray-first window lifecycle.
+   - [x] Decide tray-first window lifecycle.
    - [ ] Validate KDE/Wayland tray and popup behavior.
    - [ ] Add fallback close/dismiss behavior if focus-loss dismissal is unreliable.
 
@@ -522,9 +524,9 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Expose fake Codex and Claude snapshots from backend.
 - [x] Render fake snapshots in the popup.
 - [x] Show empty state when all services are disabled.
-- [ ] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
-- [ ] Implement close-to-tray behavior if the app should persist after window close.
-- [ ] Add explicit quit path that fully exits background tray process.
+- [x] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
+- [x] Implement close-to-tray behavior if the app should persist after window close.
+- [x] Add explicit quit path that fully exits background tray process.
 - [ ] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
 
 ### Phase 2 — Branded Tray State Icons
@@ -980,9 +982,9 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 
 ### Next Milestone Scope
 
-- [ ] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
-- [ ] Implement close-to-tray behavior if the app should persist after window close.
-- [ ] Add explicit quit path that fully exits background tray process.
+- [x] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
+- [x] Implement close-to-tray behavior if the app should persist after window close.
+- [x] Add explicit quit path that fully exits background tray process.
 - [ ] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
 - [ ] Complete KDE/Wayland smoke checks for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
 - [ ] Record runtime packages and packaging prerequisites discovered during testing.

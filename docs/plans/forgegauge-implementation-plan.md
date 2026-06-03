@@ -612,18 +612,18 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Replace hard-coded tray fake values in `lib.rs` with cached display state.
 - [x] Add Tauri commands/events for frontend usage updates.
 - [x] Define provider IDs for `codex.local`, `codex.web`, `claude.local`, `claude.web`, and `fake`.
-- [ ] Define provider timeout behavior.
-- [ ] Define provider cancellation behavior.
+- [x] Define provider timeout behavior.
+- [x] Define provider cancellation behavior.
 - [x] Define mockable clock/time source for tests.
 - [x] Ensure one active refresh per provider.
 - [x] Skip overlapping scheduled refresh ticks.
 - [x] Cancel pending refreshes when a provider is disabled.
 - [x] Enforce local and web refresh cadence from config.
 - [x] Enforce manual web-refresh cooldown and provider opt-in.
-- [ ] Document Tokio task ownership in scheduler module.
+- [x] Document Tokio task ownership in scheduler module.
 - [x] Add per-provider failure counters with bounded retry/backoff.
 - [x] Reset retry/backoff state on provider success.
-- [ ] Add sanitized tracing/logging policy for provider lifecycle events.
+- [x] Add sanitized tracing/logging policy for provider lifecycle events.
 - [x] Add unit tests for scheduler timing boundaries.
 - [ ] Add unit tests for overlap skipping, disable cancellation, retry/backoff reset, and stale snapshots.
 

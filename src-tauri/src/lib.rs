@@ -12,6 +12,7 @@ use tauri::{
 };
 use usage::{Service, UsageDisplayState, UsageEngine, UsageSnapshot, UsageSource};
 
+const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
 const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
 const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.png");
 const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
@@ -88,6 +89,8 @@ fn update_app_config(
     let config = config::save(&app, &config)?;
     config_load.clear_error()?;
     engine.update_config(config.clone())?;
+    app.emit(SETTINGS_UPDATED_EVENT, &config)
+        .map_err(|error| format!("Could not emit settings update: {error}"))?;
     engine.refresh_all_and_emit(&app)?;
     Ok(config)
 }

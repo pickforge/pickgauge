@@ -13,7 +13,7 @@ The app must be privacy-conscious, explicit about data confidence, and useful ev
 
 This plan implements:
 
-- `codex-claude-usage-tray-spec.md`
+- `../specs/codex-claude-usage-tray-spec.md`
 
 Official usage pages:
 

@@ -100,7 +100,7 @@ ForgeGauge needs a real desktop shell: a persistent tray icon, native windows, l
 
 ## Releases and platform support
 
-GitHub Actions is configured to create queued releases from `main` and `master` pushes once the Tauri app source exists. Release notes are generated automatically and artifacts are uploaded for:
+GitHub Actions is configured to create queued releases from `main` pushes once the Tauri app source exists. Release notes are generated automatically and artifacts are uploaded for:
 
 - Linux AppImage
 - Windows installers
@@ -129,5 +129,5 @@ npm run build:appimage
 
 ## Project documents
 
-- [`codex-claude-usage-tray-spec.md`](codex-claude-usage-tray-spec.md) — product and architecture spec.
-- [`codex-claude-usage-tray-implementation-plan.md`](codex-claude-usage-tray-implementation-plan.md) — phased implementation plan, validation gates, and security checklist.
+- [`docs/specs/codex-claude-usage-tray-spec.md`](docs/specs/codex-claude-usage-tray-spec.md) — product and architecture spec.
+- [`docs/plans/codex-claude-usage-tray-implementation-plan.md`](docs/plans/codex-claude-usage-tray-implementation-plan.md) — phased implementation plan, validation gates, and security checklist.

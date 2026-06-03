@@ -116,6 +116,7 @@ h1 {
 
 .usage-card,
 .settings-panel {
+  box-sizing: border-box;
   border: 1px solid rgba(216, 222, 233, 0.22);
   border-radius: 28px;
   padding: 20px;
@@ -241,7 +242,9 @@ dd {
 
 .settings-grid,
 .number-grid,
-.path-grid {
+.path-grid,
+.quota-grid,
+.quota-fields {
   display: grid;
   gap: 10px;
 }
@@ -258,6 +261,23 @@ dd {
   grid-template-columns: 1fr;
 }
 
+.quota-grid {
+  gap: 14px;
+}
+
+.quota-group {
+  display: grid;
+  gap: 10px;
+}
+
+.quota-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quota-fields label:first-child {
+  grid-column: 1 / -1;
+}
+
 label {
   display: flex;
   gap: 8px;
@@ -268,7 +288,8 @@ label {
 }
 
 .number-grid label,
-.path-grid label {
+.path-grid label,
+.quota-fields label {
   display: grid;
   gap: 6px;
   color: #647084;
@@ -323,4 +344,15 @@ input[type="text"] {
 
 .status.muted {
   color: #d8dee9;
+}
+
+@media (max-width: 380px) {
+  .gauge-row {
+    display: grid;
+    justify-items: center;
+  }
+
+  .gauge-row dl {
+    width: 100%;
+  }
 }

@@ -20,6 +20,15 @@ export type UsageDisplayState = {
   updatedAt: string;
 };
 
+export type LocalServiceQuotaSettings = {
+  enabled: boolean;
+  planLabel: string;
+  limitKind: "rollingWindow";
+  windowHours: number;
+  usageUnit: "tokens";
+  limit: number;
+};
+
 export type AppConfig = {
   version: number;
   enabledServices: {
@@ -42,10 +51,14 @@ export type AppConfig = {
     codexPath: string | null;
     claudePath: string | null;
   };
+  localQuotas: {
+    codex: LocalServiceQuotaSettings;
+    claude: LocalServiceQuotaSettings;
+  };
 };
 
 export const defaultConfig: AppConfig = {
-  version: 2,
+  version: 3,
   enabledServices: {
     codex: true,
     claude: true,
@@ -65,6 +78,24 @@ export const defaultConfig: AppConfig = {
     rootPath: null,
     codexPath: null,
     claudePath: null,
+  },
+  localQuotas: {
+    codex: {
+      enabled: false,
+      planLabel: "",
+      limitKind: "rollingWindow",
+      windowHours: 5,
+      usageUnit: "tokens",
+      limit: 0,
+    },
+    claude: {
+      enabled: false,
+      planLabel: "",
+      limitKind: "rollingWindow",
+      windowHours: 5,
+      usageUnit: "tokens",
+      limit: 0,
+    },
   },
 };
 

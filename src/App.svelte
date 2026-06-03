@@ -82,6 +82,16 @@
     config.browserProfiles[field] = value.length > 0 ? value : null;
   }
 
+  function updateQuotaLabel(service: keyof AppConfig["localQuotas"], event: Event) {
+    const target = event.currentTarget;
+
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    config.localQuotas[service].planLabel = target.value;
+  }
+
   onMount(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -285,6 +295,76 @@
           oninput={(event) => updateProfilePath("claudePath", event)}
         />
       </label>
+    </div>
+
+    <div class="quota-grid" aria-label="Local quota calibration">
+      <div class="quota-group">
+        <label class="quota-enabled">
+          <input type="checkbox" bind:checked={config.localQuotas.codex.enabled} />
+          Codex calibration
+        </label>
+        <div class="quota-fields">
+          <label>
+            Codex plan
+            <input
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Optional"
+              value={config.localQuotas.codex.planLabel}
+              oninput={(event) => updateQuotaLabel("codex", event)}
+            />
+          </label>
+          <label>
+            Token limit
+            <input type="number" min="0" step="1" bind:value={config.localQuotas.codex.limit} />
+          </label>
+          <label>
+            Window hours
+            <input
+              type="number"
+              min="1"
+              max="744"
+              step="1"
+              bind:value={config.localQuotas.codex.windowHours}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div class="quota-group">
+        <label class="quota-enabled">
+          <input type="checkbox" bind:checked={config.localQuotas.claude.enabled} />
+          Claude calibration
+        </label>
+        <div class="quota-fields">
+          <label>
+            Claude plan
+            <input
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Optional"
+              value={config.localQuotas.claude.planLabel}
+              oninput={(event) => updateQuotaLabel("claude", event)}
+            />
+          </label>
+          <label>
+            Token limit
+            <input type="number" min="0" step="1" bind:value={config.localQuotas.claude.limit} />
+          </label>
+          <label>
+            Window hours
+            <input
+              type="number"
+              min="1"
+              max="744"
+              step="1"
+              bind:value={config.localQuotas.claude.windowHours}
+            />
+          </label>
+        </div>
+      </div>
     </div>
 
     <button class="save-button" type="button" disabled={saving} onclick={saveSettings}>

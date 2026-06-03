@@ -9,7 +9,8 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 const CONFIG_FILE_NAME: &str = "config.json";
-const CONFIG_VERSION: u32 = 2;
+const CONFIG_VERSION: u32 = 3;
+const MAX_PLAN_LABEL_LENGTH: usize = 80;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +21,7 @@ pub struct AppConfig {
     pub intervals: RefreshIntervals,
     pub low_usage_threshold: f32,
     pub browser_profiles: BrowserProfileSettings,
+    pub local_quotas: LocalQuotaSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -53,6 +55,36 @@ pub struct BrowserProfileSettings {
     pub claude_path: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalQuotaSettings {
+    pub codex: LocalServiceQuotaSettings,
+    pub claude: LocalServiceQuotaSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalServiceQuotaSettings {
+    pub enabled: bool,
+    pub plan_label: String,
+    pub limit_kind: LocalQuotaLimitKind,
+    pub window_hours: u64,
+    pub usage_unit: LocalQuotaUsageUnit,
+    pub limit: f64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalQuotaLimitKind {
+    RollingWindow,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalQuotaUsageUnit {
+    Tokens,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -77,6 +109,20 @@ impl Default for AppConfig {
                 codex_path: None,
                 claude_path: None,
             },
+            local_quotas: LocalQuotaSettings::default(),
+        }
+    }
+}
+
+impl Default for LocalServiceQuotaSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            plan_label: String::new(),
+            limit_kind: LocalQuotaLimitKind::RollingWindow,
+            window_hours: 5,
+            usage_unit: LocalQuotaUsageUnit::Tokens,
+            limit: 0.0,
         }
     }
 }
@@ -90,7 +136,31 @@ impl AppConfig {
             self.intervals.manual_web_refresh_cooldown_seconds.max(60);
         self.intervals.gauge_switch_seconds = self.intervals.gauge_switch_seconds.clamp(5, 10);
         self.low_usage_threshold = self.low_usage_threshold.clamp(1.0, 100.0);
+        self.local_quotas.normalize();
         self
+    }
+}
+
+impl LocalQuotaSettings {
+    fn normalize(&mut self) {
+        self.codex.normalize();
+        self.claude.normalize();
+    }
+}
+
+impl LocalServiceQuotaSettings {
+    fn normalize(&mut self) {
+        self.plan_label = self
+            .plan_label
+            .trim()
+            .chars()
+            .take(MAX_PLAN_LABEL_LENGTH)
+            .collect();
+        self.window_hours = self.window_hours.clamp(1, 744);
+
+        if !self.limit.is_finite() || self.limit < 0.0 {
+            self.limit = 0.0;
+        }
     }
 }
 
@@ -190,6 +260,7 @@ fn migrate_config_value(value: &mut Value) -> Result<(), String> {
 
         match version {
             1 => migrate_v1_to_v2(value)?,
+            2 => migrate_v2_to_v3(value)?,
             _ => {
                 return Err(format!(
                     "No migration is available for config version {version}"
@@ -214,6 +285,21 @@ fn migrate_v1_to_v2(value: &mut Value) -> Result<(), String> {
         });
     object.insert("version".to_string(), Value::from(2));
     Ok(())
+}
+
+fn migrate_v2_to_v3(value: &mut Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Config root must be a JSON object".to_string())?;
+    object
+        .entry("localQuotas".to_string())
+        .or_insert_with(default_local_quotas_value);
+    object.insert("version".to_string(), Value::from(3));
+    Ok(())
+}
+
+fn default_local_quotas_value() -> Value {
+    serde_json::to_value(LocalQuotaSettings::default()).unwrap_or(Value::Null)
 }
 
 fn config_value_version(value: &Value) -> Result<u32, String> {
@@ -380,6 +466,17 @@ mod tests {
         }
     }
 
+    fn configured_quota(label: &str, limit: f64, window_hours: u64) -> LocalServiceQuotaSettings {
+        LocalServiceQuotaSettings {
+            enabled: true,
+            plan_label: label.to_string(),
+            limit_kind: LocalQuotaLimitKind::RollingWindow,
+            window_hours,
+            usage_unit: LocalQuotaUsageUnit::Tokens,
+            limit,
+        }
+    }
+
     #[test]
     fn missing_config_file_creates_default_config() {
         let dir = TestDir::new();
@@ -411,6 +508,10 @@ mod tests {
                 gauge_switch_seconds: 10,
             },
             low_usage_threshold: 12.0,
+            local_quotas: LocalQuotaSettings {
+                codex: configured_quota("Codex Pro", 250_000.0, 5),
+                claude: configured_quota("Claude Max", 500_000.0, 24),
+            },
             ..AppConfig::default()
         };
 
@@ -465,10 +566,11 @@ mod tests {
                 claude_path: None,
             }
         );
+        assert_eq!(config.local_quotas, LocalQuotaSettings::default());
     }
 
     #[test]
-    fn v1_config_migrates_to_v2_with_browser_profile_defaults() {
+    fn v1_config_migrates_to_current_with_browser_profile_and_quota_defaults() {
         let dir = TestDir::new();
         let path = dir.config_path();
         fs::write(
@@ -496,7 +598,7 @@ mod tests {
 
         let config = load_from_path(&path).expect("v1 config migrates");
 
-        assert_eq!(config.version, 2);
+        assert_eq!(config.version, CONFIG_VERSION);
         assert!(config.enabled_services.codex);
         assert!(!config.enabled_services.claude);
         assert!(config.providers.web_enabled);
@@ -508,6 +610,45 @@ mod tests {
                 claude_path: None,
             }
         );
+        assert_eq!(config.local_quotas, LocalQuotaSettings::default());
+    }
+
+    #[test]
+    fn v2_config_migrates_to_v3_with_quota_defaults() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        fs::write(
+            &path,
+            r#"{
+  "version": 2,
+  "enabledServices": {
+    "codex": true,
+    "claude": true
+  },
+  "providers": {
+    "localEnabled": true,
+    "webEnabled": false
+  },
+  "intervals": {
+    "localSeconds": 45,
+    "webMinutes": 30,
+    "manualWebRefreshCooldownSeconds": 60,
+    "gaugeSwitchSeconds": 6
+  },
+  "lowUsageThreshold": 20,
+  "browserProfiles": {
+    "rootPath": null,
+    "codexPath": null,
+    "claudePath": null
+  }
+}"#,
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("v2 config migrates");
+
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(config.local_quotas, LocalQuotaSettings::default());
     }
 
     #[test]
@@ -545,6 +686,24 @@ mod tests {
         let loaded = load_from_path(&path).expect("config loads");
 
         assert_eq!(loaded.browser_profiles, config.browser_profiles);
+    }
+
+    #[test]
+    fn current_config_preserves_local_quota_settings() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let config = AppConfig {
+            local_quotas: LocalQuotaSettings {
+                codex: configured_quota("Codex Team", 125_000.0, 12),
+                claude: configured_quota("Claude Max", 300_000.0, 5),
+            },
+            ..AppConfig::default()
+        };
+
+        save_to_path(&path, &config).expect("config saves");
+        let loaded = load_from_path(&path).expect("config loads");
+
+        assert_eq!(loaded.local_quotas, config.local_quotas);
     }
 
     #[test]
@@ -629,6 +788,35 @@ mod tests {
         assert_eq!(saved.intervals.gauge_switch_seconds, 10);
         assert_eq!(saved.low_usage_threshold, 100.0);
         assert_eq!(loaded, saved);
+    }
+
+    #[test]
+    fn save_normalizes_local_quota_fields() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let config = AppConfig {
+            local_quotas: LocalQuotaSettings {
+                codex: configured_quota(
+                    "  This label is intentionally long enough to exceed the stored label limit by a wide margin  ",
+                    -1.0,
+                    0,
+                ),
+                claude: configured_quota("  Claude Max  ", f64::INFINITY, 1_000),
+            },
+            ..AppConfig::default()
+        };
+
+        let saved = save_to_path(&path, &config).expect("config saves");
+
+        assert_eq!(saved.local_quotas.codex.limit, 0.0);
+        assert_eq!(saved.local_quotas.codex.window_hours, 1);
+        assert_eq!(
+            saved.local_quotas.codex.plan_label.chars().count(),
+            MAX_PLAN_LABEL_LENGTH
+        );
+        assert_eq!(saved.local_quotas.claude.limit, 0.0);
+        assert_eq!(saved.local_quotas.claude.window_hours, 744);
+        assert_eq!(saved.local_quotas.claude.plan_label, "Claude Max");
     }
 
     #[cfg(unix)]

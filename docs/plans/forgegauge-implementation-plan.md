@@ -12,7 +12,9 @@ Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone 
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
 
-Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added. Manual quota/window configuration remains unchecked.
+Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added.
+
+Calibration config progress, 2026-06-03: added config version `3` with per-service local quota settings for enablement, plan label, limit kind, rolling-window duration, usage unit, and user-entered token limit. The settings UI now persists those values, and config tests cover `v1 -> v2 -> v3` migration, `v2 -> v3` migration, round trips, and normalization. Providers still do not consume calibration values for percentages or deltas.
 
 Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, scan policy, and safe metadata boundaries without committing raw local records or authenticated data. Calibration schema, status-derived data, and captured fixture policy remain unchecked.
 
@@ -182,7 +184,7 @@ Build in this order to avoid rework:
 3. **Persistence hardening**
 - [x] Add config migrations, atomic writes, rollback, and tests.
    - [x] Add browser profile config fields only after migration support exists.
-   - [ ] Add quota/window config fields only after migration support exists.
+   - [x] Add quota/window config fields only after migration support exists.
 
 4. **Local providers**
    - [ ] Discover Claude and Codex local data formats.
@@ -465,7 +467,7 @@ Do not implement local percentage estimates until discovery answers these questi
 - [x] What source precedence should apply when multiple local sources exist?
 - [x] How should missing directories, unreadable files, invalid records, large files, and rotated logs behave?
 - [x] Which test fixtures can be safely sanitized and committed?
-- [ ] Which user-entered calibration fields are required to map local activity to percentages?
+- [x] Which user-entered calibration fields are required to map local activity to percentages?
 - [x] What does the provider return when calibration is absent?
 - [x] What exact `details` metadata is safe and useful for debugging?
 
@@ -576,14 +578,14 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add settings UI for manual web-refresh cooldown if user-facing control is needed.
 - [x] Add browser profile root setting.
 - [x] Add optional per-service browser profile path overrides.
-- [ ] Add optional manual plan/quota/window configuration for local estimates.
-- [ ] Define quota/window schema per service:
-  - [ ] plan label
-  - [ ] limit kind
-  - [ ] reset/window duration
-  - [ ] usage unit
-  - [ ] user-entered limit
-  - [ ] enabled flag
+- [x] Add optional manual plan/quota/window configuration for local estimates.
+- [x] Define quota/window schema per service:
+  - [x] plan label
+  - [x] limit kind
+  - [x] reset/window duration
+  - [x] usage unit
+  - [x] user-entered limit
+  - [x] enabled flag
 - [x] Add sequential config migrations.
 - [x] Preserve previous config file on failed migrations.
 - [x] Add browser profile path validation and ownership markers.
@@ -872,7 +874,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 ### Automated Tests To Add
 
 - [x] Config serialization.
-- [ ] Config migration ordering and failed migration rollback.
+- [x] Config migration ordering and failed migration rollback.
 - [x] Default web-provider opt-out behavior.
 - [x] Refresh interval validation/clamping.
 - [x] Manual web-refresh cooldown enforcement.

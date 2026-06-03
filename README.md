@@ -129,5 +129,4 @@ npm run build:appimage
 
 ## Project documents
 
-- [`docs/specs/codex-claude-usage-tray-spec.md`](docs/specs/codex-claude-usage-tray-spec.md) — product and architecture spec.
-- [`docs/plans/codex-claude-usage-tray-implementation-plan.md`](docs/plans/codex-claude-usage-tray-implementation-plan.md) — phased implementation plan, validation gates, and security checklist.
+- [`docs/plans/forgegauge-implementation-plan.md`](docs/plans/forgegauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.

@@ -422,10 +422,10 @@ Before real providers are wired, define and test the IPC boundary.
 
 ### IPC Safety Rules
 
-- [ ] IPC returns app models only.
-- [ ] IPC never returns raw browser profile content.
-- [ ] IPC never returns raw local log contents.
-- [ ] IPC never returns raw page HTML/text from authenticated pages.
+- [x] IPC returns app models only.
+- [x] IPC never returns raw browser profile content.
+- [x] IPC never returns raw local log contents.
+- [x] IPC never returns raw page HTML/text from authenticated pages.
 - [x] Every command has a stable error shape for frontend rendering.
 
 ## Merge Strategy

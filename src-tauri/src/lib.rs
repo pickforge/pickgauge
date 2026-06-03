@@ -103,6 +103,17 @@ fn get_display_state(engine: State<'_, UsageEngine>) -> Result<UsageDisplayState
 }
 
 #[tauri::command]
+fn clear_cached_snapshots(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+) -> Result<UsageDisplayState, String> {
+    let display_state = engine.clear_cached_snapshots()?;
+    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
+        .map_err(|error| format!("Could not emit usage update: {error}"))?;
+    Ok(display_state)
+}
+
+#[tauri::command]
 fn refresh_usage(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
@@ -271,6 +282,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            clear_cached_snapshots,
             get_app_config,
             get_display_state,
             get_usage_snapshots,

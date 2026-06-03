@@ -316,6 +316,15 @@ impl UsageEngine {
         Ok(self.display_state()?.snapshots)
     }
 
+    pub fn clear_cached_snapshots(&self) -> Result<UsageDisplayState, String> {
+        let now = self.clock.now_rfc3339();
+        let mut state = self.lock()?;
+
+        state.snapshots.clear();
+        state.last_updated = now;
+        Ok(state.display_state())
+    }
+
     pub fn refresh_all(&self) -> Result<UsageDisplayState, String> {
         let (providers, provider_services) = {
             let state = self.lock()?;
@@ -857,6 +866,31 @@ mod tests {
 
         assert_eq!(unconfigured, "Provider is not configured");
         assert_eq!(merged, "Provider source cannot be refreshed directly");
+    }
+
+    #[test]
+    fn clear_cached_snapshots_removes_display_state_without_changing_config() {
+        let engine = UsageEngine::with_clock(
+            config_with_services(true, true),
+            Box::new(FixedClock {
+                now: "2026-06-03T23:00:00Z".to_string(),
+            }),
+        );
+        engine.refresh_all().expect("refresh succeeds");
+
+        let display_state = engine
+            .clear_cached_snapshots()
+            .expect("cached snapshots clear");
+
+        assert!(display_state.snapshots.is_empty());
+        assert_eq!(display_state.updated_at, "2026-06-03T23:00:00Z");
+        assert!(
+            engine
+                .config()
+                .expect("config loads")
+                .enabled_services
+                .codex
+        );
     }
 
     #[test]

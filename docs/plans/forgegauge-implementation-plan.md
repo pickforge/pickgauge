@@ -133,7 +133,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Opt-in Claude web provider.
 - [ ] Merge engine for web baselines plus local deltas.
 - [ ] Autostart setting.
-- [ ] Clear/delete actions for cached snapshots.
+- [x] Clear/delete actions for cached snapshots.
 - [ ] Clear/delete actions for browser session data.
 - [ ] Basic failure logging view or log file location.
 
@@ -406,7 +406,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [ ] `open_official_usage_page`
 - [ ] `start_provider_login`
 - [ ] `reset_provider_session`
-- [ ] `clear_cached_snapshots`
+- [x] `clear_cached_snapshots`
 - [ ] `clear_provider_profile`
 - [ ] `get_log_location`
 

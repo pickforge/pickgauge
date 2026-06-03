@@ -606,7 +606,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Store `UsageEngine` in Tauri managed state.
 - [x] Add provider registry.
 - [x] Re-register providers when settings change.
-- [ ] Add refresh scheduler for local and web providers.
+- [x] Add refresh scheduler for local and web providers.
 - [x] Add latest snapshot cache.
 - [x] Add shared display-state cache consumed by both tray rotation and frontend commands.
 - [x] Replace hard-coded tray fake values in `lib.rs` with cached display state.
@@ -618,13 +618,13 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Ensure one active refresh per provider.
 - [x] Skip overlapping scheduled refresh ticks.
 - [x] Cancel pending refreshes when a provider is disabled.
-- [ ] Enforce local and web refresh cadence from config.
+- [x] Enforce local and web refresh cadence from config.
 - [ ] Enforce manual web-refresh cooldown and provider opt-in.
 - [ ] Document Tokio task ownership in scheduler module.
 - [x] Add per-provider failure counters with bounded retry/backoff.
 - [x] Reset retry/backoff state on provider success.
 - [ ] Add sanitized tracing/logging policy for provider lifecycle events.
-- [ ] Add unit tests for scheduler timing boundaries.
+- [x] Add unit tests for scheduler timing boundaries.
 - [ ] Add unit tests for overlap skipping, disable cancellation, retry/backoff reset, and stale snapshots.
 
 ### Phase 5 — Claude Code Local Provider

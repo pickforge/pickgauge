@@ -496,7 +496,7 @@ fn start_usage_scheduler(app: AppHandle) {
                 usage::REFRESH_STARTED_EVENT,
                 UsageRefreshStatus::Started,
             );
-            let refresh_result = engine.refresh_all_and_emit(&app);
+            let refresh_result = engine.refresh_due_and_emit(&app);
             if let Ok(display_state) = &refresh_result {
                 emit_provider_error_events(&app, display_state);
             }

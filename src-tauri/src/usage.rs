@@ -157,6 +157,7 @@ struct UsageEngineState {
     snapshots: HashMap<Service, UsageSnapshot>,
     active_provider_keys: HashSet<String>,
     provider_failures: HashMap<String, ProviderFailureState>,
+    scheduled_provider_refreshes: HashMap<String, String>,
     last_updated: String,
 }
 
@@ -179,6 +180,12 @@ struct SystemClock;
 struct LocalProviderRoots {
     codex: Option<PathBuf>,
     claude: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RefreshPolicy {
+    Manual,
+    Scheduled,
 }
 
 impl Service {
@@ -349,6 +356,7 @@ impl UsageEngine {
                 snapshots: HashMap::new(),
                 active_provider_keys: HashSet::new(),
                 provider_failures: HashMap::new(),
+                scheduled_provider_refreshes: HashMap::new(),
                 last_updated,
             }),
             clock,
@@ -381,6 +389,9 @@ impl UsageEngine {
         state
             .provider_failures
             .retain(|key, _| provider_keys.contains(key));
+        state
+            .scheduled_provider_refreshes
+            .retain(|key, _| provider_keys.contains(key));
 
         Ok(config)
     }
@@ -404,7 +415,15 @@ impl UsageEngine {
     }
 
     pub fn refresh_all(&self) -> Result<UsageDisplayState, String> {
-        let (providers, provider_services) = {
+        self.refresh_all_with_policy(RefreshPolicy::Manual)
+    }
+
+    pub fn refresh_due(&self) -> Result<UsageDisplayState, String> {
+        self.refresh_all_with_policy(RefreshPolicy::Scheduled)
+    }
+
+    fn refresh_all_with_policy(&self, policy: RefreshPolicy) -> Result<UsageDisplayState, String> {
+        let (providers, provider_services, config, scheduled_provider_refreshes) = {
             let state = self.lock()?;
             let providers = state
                 .providers
@@ -416,13 +435,28 @@ impl UsageEngine {
                 .map(|provider| provider.service)
                 .collect::<HashSet<_>>();
 
-            (providers, provider_services)
+            (
+                providers,
+                provider_services,
+                state.config.clone(),
+                state.scheduled_provider_refreshes.clone(),
+            )
         };
 
         let mut refreshed = Vec::new();
         let now = self.clock.now_rfc3339();
 
         for provider in providers {
+            if policy == RefreshPolicy::Scheduled
+                && !provider_refresh_due(
+                    scheduled_provider_refreshes.get(&provider.provider_key),
+                    &now,
+                    provider_refresh_interval(&config, provider.source),
+                )
+            {
+                continue;
+            }
+
             if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
                 continue;
             }
@@ -439,6 +473,7 @@ impl UsageEngine {
                     snapshot
                 }
             };
+            self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
             refreshed.push(snapshot);
             self.finish_refresh(&provider.provider_key)?;
         }
@@ -448,11 +483,15 @@ impl UsageEngine {
             .snapshots
             .retain(|service, _| provider_services.contains(service));
 
+        let refreshed_any = !refreshed.is_empty();
+
         for snapshot in refreshed {
             state.snapshots.insert(snapshot.service, snapshot);
         }
 
-        state.last_updated = now;
+        if policy == RefreshPolicy::Manual || refreshed_any {
+            state.last_updated = now;
+        }
         Ok(state.display_state())
     }
 
@@ -490,6 +529,7 @@ impl UsageEngine {
                 snapshot
             }
         };
+        self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
         self.finish_refresh(&provider.provider_key)?;
 
         let mut state = self.lock()?;
@@ -500,6 +540,13 @@ impl UsageEngine {
 
     pub fn refresh_all_and_emit(&self, app: &AppHandle) -> Result<UsageDisplayState, String> {
         let display_state = self.refresh_all()?;
+        app.emit(SNAPSHOTS_UPDATED_EVENT, &display_state)
+            .map_err(|error| format!("Could not emit usage update: {error}"))?;
+        Ok(display_state)
+    }
+
+    pub fn refresh_due_and_emit(&self, app: &AppHandle) -> Result<UsageDisplayState, String> {
+        let display_state = self.refresh_due()?;
         app.emit(SNAPSHOTS_UPDATED_EVENT, &display_state)
             .map_err(|error| format!("Could not emit usage update: {error}"))?;
         Ok(display_state)
@@ -599,6 +646,18 @@ impl UsageEngine {
     fn record_provider_success(&self, provider_key: &str) -> Result<(), String> {
         let mut state = self.lock()?;
         state.provider_failures.remove(provider_key);
+        Ok(())
+    }
+
+    fn record_scheduled_provider_refresh(
+        &self,
+        provider_key: &str,
+        now: &str,
+    ) -> Result<(), String> {
+        let mut state = self.lock()?;
+        state
+            .scheduled_provider_refreshes
+            .insert(provider_key.to_string(), now.to_string());
         Ok(())
     }
 
@@ -870,6 +929,30 @@ fn provider_backoff_active(failure: Option<&ProviderFailureState>, now: &str) ->
     now < retry_after
 }
 
+fn provider_refresh_interval(config: &AppConfig, source: UsageSource) -> Duration {
+    match source {
+        UsageSource::Web => Duration::from_secs(config.intervals.web_minutes.saturating_mul(60)),
+        UsageSource::Local | UsageSource::Fake | UsageSource::Merged => {
+            Duration::from_secs(config.intervals.local_seconds)
+        }
+    }
+}
+
+fn provider_refresh_due(last_refreshed_at: Option<&String>, now: &str, interval: Duration) -> bool {
+    let Some(last_refreshed_at) = last_refreshed_at else {
+        return true;
+    };
+    let Some(last_refreshed_at) = parse_rfc3339(last_refreshed_at) else {
+        return true;
+    };
+    let Some(now) = parse_rfc3339(now) else {
+        return true;
+    };
+    let seconds = i64::try_from(interval.as_secs()).unwrap_or(i64::MAX);
+
+    now >= last_refreshed_at + TimeDuration::seconds(seconds)
+}
+
 fn retry_after_rfc3339(now: &str, backoff_seconds: u64) -> String {
     let Some(now) = parse_rfc3339(now) else {
         return now.to_string();
@@ -895,12 +978,20 @@ pub(crate) fn now_rfc3339() -> String {
 mod tests {
     use super::*;
     use std::{
+        collections::VecDeque,
         fs,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Mutex as TestMutex,
+        },
     };
 
     struct FixedClock {
         now: String,
+    }
+
+    struct SequenceClock {
+        values: TestMutex<VecDeque<String>>,
     }
 
     static TEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -929,6 +1020,29 @@ mod tests {
     impl Clock for FixedClock {
         fn now_rfc3339(&self) -> String {
             self.now.clone()
+        }
+    }
+
+    impl SequenceClock {
+        fn new(values: &[&str]) -> Self {
+            Self {
+                values: TestMutex::new(values.iter().map(|value| value.to_string()).collect()),
+            }
+        }
+    }
+
+    impl Clock for SequenceClock {
+        fn now_rfc3339(&self) -> String {
+            let mut values = self.values.lock().expect("sequence clock lock succeeds");
+
+            if values.len() > 1 {
+                return values.pop_front().expect("sequence clock has a value");
+            }
+
+            values
+                .front()
+                .cloned()
+                .expect("sequence clock has a final value")
         }
     }
 
@@ -1297,6 +1411,95 @@ mod tests {
                 .expect("failure state reads"),
             None
         );
+    }
+
+    #[test]
+    fn provider_refresh_interval_uses_source_specific_config() {
+        let config = AppConfig {
+            intervals: crate::config::RefreshIntervals {
+                local_seconds: 30,
+                web_minutes: 15,
+                manual_web_refresh_cooldown_seconds: 60,
+                gauge_switch_seconds: 6,
+            },
+            ..AppConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(
+            provider_refresh_interval(&config, UsageSource::Local),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            provider_refresh_interval(&config, UsageSource::Fake),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            provider_refresh_interval(&config, UsageSource::Web),
+            Duration::from_secs(15 * 60)
+        );
+    }
+
+    #[test]
+    fn scheduled_refresh_respects_local_interval_boundary() {
+        let config = AppConfig {
+            intervals: crate::config::RefreshIntervals {
+                local_seconds: 30,
+                web_minutes: 15,
+                manual_web_refresh_cooldown_seconds: 60,
+                gauge_switch_seconds: 6,
+            },
+            ..config_with_services(true, false)
+        };
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(SequenceClock::new(&[
+                "2026-06-03T22:59:00Z",
+                "2026-06-03T23:00:00Z",
+                "2026-06-03T23:00:29Z",
+                "2026-06-03T23:00:30Z",
+            ])),
+        );
+
+        let first = engine.refresh_due().expect("first scheduled refresh runs");
+        let skipped = engine
+            .refresh_due()
+            .expect("second scheduled refresh is skipped");
+        let refreshed = engine.refresh_due().expect("third scheduled refresh runs");
+
+        assert_eq!(first.updated_at, "2026-06-03T23:00:00Z");
+        assert_eq!(skipped.updated_at, "2026-06-03T23:00:00Z");
+        assert_eq!(refreshed.updated_at, "2026-06-03T23:00:30Z");
+        assert_eq!(refreshed.snapshots.len(), 1);
+    }
+
+    #[test]
+    fn manual_refresh_bypasses_scheduled_interval() {
+        let config = AppConfig {
+            intervals: crate::config::RefreshIntervals {
+                local_seconds: 30,
+                web_minutes: 15,
+                manual_web_refresh_cooldown_seconds: 60,
+                gauge_switch_seconds: 6,
+            },
+            ..config_with_services(true, false)
+        };
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(SequenceClock::new(&[
+                "2026-06-03T22:59:00Z",
+                "2026-06-03T23:00:00Z",
+                "2026-06-03T23:00:01Z",
+            ])),
+        );
+
+        engine
+            .refresh_due()
+            .expect("scheduled refresh seeds last refresh");
+        let refreshed = engine.refresh_all().expect("manual refresh runs");
+
+        assert_eq!(refreshed.updated_at, "2026-06-03T23:00:01Z");
+        assert_eq!(refreshed.snapshots.len(), 1);
     }
 
     #[test]

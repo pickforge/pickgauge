@@ -16,7 +16,7 @@ Config progress, 2026-06-03: added a raw JSON config load boundary, default fill
 
 Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, and safe metadata boundaries without committing raw local records or authenticated data. Parser implementation, scan limits, calibration schema, and real local snapshots remain unchecked.
 
-Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, and emits sanitized unknown snapshots for missing project data or invalid records. Registry wiring, scan limits, calibration, and full local-provider completion remain unchecked.
+Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, and emits sanitized unknown snapshots for missing project data or invalid records. Scan limits, calibration, and full local-provider completion remain unchecked.
 
 Supersedes:
 

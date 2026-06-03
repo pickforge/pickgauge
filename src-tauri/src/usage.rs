@@ -1,7 +1,8 @@
-use crate::config::AppConfig;
+use crate::{config::AppConfig, local_provider::ClaudeLocalProvider};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::Mutex,
     time::Duration,
 };
@@ -93,6 +94,9 @@ trait UsageProvider: Send + Sync {
     fn service(&self) -> Service;
     fn source(&self) -> UsageSource;
     fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError>;
+    fn local_data_root(&self) -> Option<PathBuf> {
+        None
+    }
 
     fn provider_key(&self) -> String {
         self.provider_id().refresh_key(self.service())
@@ -106,6 +110,7 @@ trait Clock: Send + Sync {
 pub struct UsageEngine {
     inner: Mutex<UsageEngineState>,
     clock: Box<dyn Clock>,
+    local_roots: LocalProviderRoots,
 }
 
 struct UsageEngineState {
@@ -123,6 +128,11 @@ struct FakeUsageProvider {
 }
 
 struct SystemClock;
+
+#[derive(Clone, Debug, Default)]
+struct LocalProviderRoots {
+    claude: Option<PathBuf>,
+}
 
 impl Service {
     pub fn code(self) -> &'static str {
@@ -240,18 +250,27 @@ impl UsageEngine {
     }
 
     fn with_clock(config: AppConfig, clock: Box<dyn Clock>) -> Self {
+        Self::with_clock_and_local_roots(config, clock, LocalProviderRoots::default())
+    }
+
+    fn with_clock_and_local_roots(
+        config: AppConfig,
+        clock: Box<dyn Clock>,
+        local_roots: LocalProviderRoots,
+    ) -> Self {
         let config = config.normalized();
         let last_updated = clock.now_rfc3339();
 
         Self {
             inner: Mutex::new(UsageEngineState {
-                providers: providers_for_config(&config),
+                providers: providers_for_config(&config, &local_roots),
                 config,
                 snapshots: HashMap::new(),
                 active_provider_keys: HashSet::new(),
                 last_updated,
             }),
             clock,
+            local_roots,
         }
     }
 
@@ -262,7 +281,7 @@ impl UsageEngine {
 
     pub fn update_config(&self, config: AppConfig) -> Result<AppConfig, String> {
         let config = config.normalized();
-        let providers = providers_for_config(&config);
+        let providers = providers_for_config(&config, &self.local_roots);
         let provider_keys: HashSet<_> = providers
             .iter()
             .map(|provider| provider.provider_key())
@@ -301,6 +320,7 @@ impl UsageEngine {
                     provider_id: provider.provider_id(),
                     service: provider.service(),
                     source: provider.source(),
+                    local_data_root: provider.local_data_root(),
                 })
                 .collect::<Vec<_>>();
             let provider_services = providers
@@ -367,6 +387,12 @@ impl UsageEngine {
                 remaining_percent: 41.0,
             }
             .refresh(now),
+            (UsageProviderId::ClaudeLocal, Service::Claude) => provider
+                .local_data_root
+                .clone()
+                .map(ClaudeLocalProvider::new)
+                .ok_or(UsageProviderError::Internal)?
+                .refresh(now),
             _ => Err(UsageProviderError::Internal),
         }
     }
@@ -451,14 +477,40 @@ impl UsageProvider for FakeUsageProvider {
     }
 }
 
+impl UsageProvider for ClaudeLocalProvider {
+    fn provider_id(&self) -> UsageProviderId {
+        UsageProviderId::ClaudeLocal
+    }
+
+    fn service(&self) -> Service {
+        Service::Claude
+    }
+
+    fn source(&self) -> UsageSource {
+        UsageSource::Local
+    }
+
+    fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+        Ok(self.refresh_snapshot(now))
+    }
+
+    fn local_data_root(&self) -> Option<PathBuf> {
+        Some(self.data_root().to_path_buf())
+    }
+}
+
 struct ProviderDescriptor {
     provider_key: String,
     provider_id: UsageProviderId,
     service: Service,
     source: UsageSource,
+    local_data_root: Option<PathBuf>,
 }
 
-fn providers_for_config(config: &AppConfig) -> Vec<Box<dyn UsageProvider>> {
+fn providers_for_config(
+    config: &AppConfig,
+    local_roots: &LocalProviderRoots,
+) -> Vec<Box<dyn UsageProvider>> {
     let mut providers: Vec<Box<dyn UsageProvider>> = Vec::new();
 
     if config.enabled_services.codex {
@@ -469,10 +521,22 @@ fn providers_for_config(config: &AppConfig) -> Vec<Box<dyn UsageProvider>> {
     }
 
     if config.enabled_services.claude {
-        providers.push(Box::new(FakeUsageProvider {
-            service: Service::Claude,
-            remaining_percent: 41.0,
-        }));
+        if config.providers.local_enabled {
+            let provider = local_roots
+                .claude
+                .clone()
+                .map(ClaudeLocalProvider::new)
+                .or_else(ClaudeLocalProvider::from_default_root);
+
+            if let Some(provider) = provider {
+                providers.push(Box::new(provider));
+            }
+        } else {
+            providers.push(Box::new(FakeUsageProvider {
+                service: Service::Claude,
+                remaining_percent: 41.0,
+            }));
+        }
     }
 
     providers
@@ -522,13 +586,35 @@ mod tests {
     fn config_with_services(codex: bool, claude: bool) -> AppConfig {
         AppConfig {
             enabled_services: crate::config::ServiceToggles { codex, claude },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: false,
+            },
             ..AppConfig::default()
         }
     }
 
+    fn local_claude_config() -> AppConfig {
+        AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: true,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: true,
+                web_enabled: false,
+            },
+            ..AppConfig::default()
+        }
+    }
+
+    fn claude_fixture_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude-local")
+    }
+
     #[test]
     fn fake_provider_refreshes_enabled_services() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
         let display_state = engine.refresh_all().expect("refresh succeeds");
 
         assert_eq!(display_state.snapshots.len(), 2);
@@ -543,7 +629,7 @@ mod tests {
     fn refresh_uses_injected_clock_for_snapshots_and_display_state() {
         let now = "2026-06-03T21:30:00Z";
         let engine = UsageEngine::with_clock(
-            AppConfig::default(),
+            config_with_services(true, true),
             Box::new(FixedClock {
                 now: now.to_string(),
             }),
@@ -560,7 +646,7 @@ mod tests {
 
     #[test]
     fn disabled_services_clear_display_cache_and_tray_falls_back_to_unknown() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
         engine.refresh_all().expect("initial refresh succeeds");
         engine
             .update_config(config_with_services(false, false))
@@ -579,7 +665,7 @@ mod tests {
 
     #[test]
     fn disabling_one_service_removes_only_that_service_from_display_cache() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
         engine.refresh_all().expect("initial refresh succeeds");
         engine
             .update_config(config_with_services(false, true))
@@ -613,7 +699,7 @@ mod tests {
 
     #[test]
     fn provider_refresh_overlap_is_skipped_until_finished() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
 
         assert!(engine
             .try_begin_refresh("codex.fake".to_string())
@@ -632,7 +718,7 @@ mod tests {
 
     #[test]
     fn skipped_provider_refresh_keeps_existing_cached_snapshot() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
         engine.refresh_all().expect("initial refresh succeeds");
         assert!(engine
             .try_begin_refresh("codex.fake".to_string())
@@ -650,7 +736,7 @@ mod tests {
 
     #[test]
     fn disabling_a_provider_clears_pending_refresh_tracking() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
         assert!(engine
             .try_begin_refresh("codex.fake".to_string())
             .expect("begin succeeds"));
@@ -666,7 +752,7 @@ mod tests {
 
     #[test]
     fn display_state_serializes_to_expected_ipc_shape() {
-        let engine = UsageEngine::new(AppConfig::default());
+        let engine = UsageEngine::new(config_with_services(true, true));
         let display_state = engine.refresh_all().expect("refresh succeeds");
         let value = serde_json::to_value(display_state).expect("serializes");
         let first_snapshot = &value["snapshots"][0];
@@ -686,12 +772,39 @@ mod tests {
     }
 
     #[test]
+    fn local_claude_provider_is_registered_when_local_providers_are_enabled() {
+        let engine = UsageEngine::with_clock_and_local_roots(
+            local_claude_config(),
+            Box::new(FixedClock {
+                now: "2026-06-03T22:30:00Z".to_string(),
+            }),
+            LocalProviderRoots {
+                claude: Some(claude_fixture_root()),
+            },
+        );
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+
+        assert_eq!(display_state.snapshots.len(), 1);
+        assert_eq!(display_state.snapshots[0].service, Service::Claude);
+        assert_eq!(display_state.snapshots[0].source, UsageSource::Local);
+        assert_eq!(display_state.snapshots[0].confidence, UsageConfidence::Low);
+        assert_eq!(display_state.snapshots[0].remaining_percent, None);
+        assert_eq!(
+            display_state.snapshots[0].details["providerId"],
+            "claude.local"
+        );
+        assert_eq!(display_state.snapshots[0].details["usageRecords"], 2);
+    }
+
+    #[test]
     fn provider_errors_map_to_sanitized_unknown_snapshots() {
         let provider = ProviderDescriptor {
             provider_key: "codex.fake".to_string(),
             provider_id: UsageProviderId::Fake,
             service: Service::Codex,
             source: UsageSource::Fake,
+            local_data_root: None,
         };
         let snapshot = error_snapshot(
             &provider,

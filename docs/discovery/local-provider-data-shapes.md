@@ -89,10 +89,30 @@ Parser implications:
 - Captured real fixtures require explicit user consent before capture.
 - Any captured fixture must remove prompt/response text, paths, account identifiers, auth data, IDs, git metadata, and raw tool payloads before commit.
 
+## Local Scan Policy
+
+Before manual quota/window calibration exists, local providers aggregate all bounded machine-local activity they can parse and return `remaining_percent = None`. They do not apply a rolling usage window or infer account-wide remaining usage.
+
+Claude Code policy:
+
+- Scan only `~/.claude/projects/**/*.jsonl` files.
+- Use exact `.jsonl` extensions only; rotated or backup files such as `.jsonl.1` are ignored unless they are restored as normal `.jsonl` files.
+- Bound each refresh to 512 JSONL files and 100,000 non-empty records.
+- Count malformed, truncated, or non-JSON lines as `invalidRecords` without surfacing raw content.
+- Count unreadable files and continue scanning other files where possible.
+- Preserve source RFC3339 timestamps as metadata and expose first/last timestamp strings only.
+
+Codex policy:
+
+- Read only `~/.codex/state_5.sqlite` and never read `auth.json`.
+- Bound each refresh to the 10,000 most recently updated `threads` rows.
+- Treat `tokens_used` as usable only when it is a non-negative SQLite integer.
+- Count malformed token rows as `invalidRecords` without failing the whole snapshot when at least one usable row exists.
+- Treat missing, unreadable, corrupt, or schema-incompatible state databases as sanitized `unknown` snapshots.
+- Use Unix epoch milliseconds from `updated_at_ms`, falling back to `updated_at * 1000` for metadata.
+
 ## Open Implementation Decisions
 
-- Concrete scan limits for large Claude JSONL files and many project directories.
 - Incremental scan/cache strategy.
-- Time-window semantics for local-only estimates.
 - Manual calibration schema for mapping local tokens to plan/window percentages.
 - Whether Codex `threads.tokens_used` remains stable enough across versions to become the primary Codex local source.

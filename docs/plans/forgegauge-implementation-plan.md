@@ -4,7 +4,7 @@
 
 This is the canonical consolidated plan for ForgeGauge. It merges the previous product spec and phased implementation plan into one checklist-driven document.
 
-Current app state: **early Tauri/Svelte MVP with fake usage data, persisted settings, branded tray wiring, app icons, AppImage build support, and release workflow scaffolding.**
+Current app state: **early Tauri/Svelte MVP with fake usage data, uncalibrated local Claude/Codex providers, persisted settings, branded tray wiring, app icons, AppImage build support, and release workflow scaffolding.**
 
 Last readiness review: source checked against this plan after consolidation. The plan is now intended to be executable as the active backlog, with unchecked items representing the remaining implementation work.
 
@@ -14,11 +14,13 @@ Tray/window progress, 2026-06-03: decided on tray-first startup for normal runti
 
 Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added. Manual quota/window configuration remains unchecked.
 
-Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, and safe metadata boundaries without committing raw local records or authenticated data. Parser implementation, scan limits, calibration schema, and real local snapshots remain unchecked.
+Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, scan policy, and safe metadata boundaries without committing raw local records or authenticated data. Calibration schema, status-derived data, and captured fixture policy remain unchecked.
 
-Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Calibration, rotated/truncated file policy, and full local-provider completion remain unchecked.
+Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Calibration, status-derived data, ccusage compatibility, and full local-provider completion remain unchecked.
 
-Codex local provider progress, 2026-06-03: added an injectable Codex local data root and a read-only `state_5.sqlite` parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, and enforces bounded thread scans. Calibration, status-derived data, rotated/truncated database policy, and full local-provider completion remain unchecked.
+Codex local provider progress, 2026-06-03: added an injectable Codex local data root and a read-only `state_5.sqlite` parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, and enforces bounded thread scans. Calibration, status-derived data, fixture capture, and full local-provider completion remain unchecked.
+
+Local provider policy progress, 2026-06-03: hardened local-provider edge cases for malformed and truncated records. Claude scans only exact `.jsonl` files, ignores `.jsonl.1` style rotations, counts truncated lines as sanitized invalid records, and reports source RFC3339 timestamp metadata. Codex reads only `state_5.sqlite`, treats corrupt or schema-incompatible databases as sanitized parse failures, counts malformed token rows without leaking row data, and reports Unix epoch millisecond metadata. Both local providers still aggregate all bounded machine-local activity before calibration and do not infer rolling-window percentages.
 
 Supersedes:
 
@@ -112,8 +114,8 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Windows artifact testing.
 - [ ] macOS Intel artifact testing.
 - [ ] macOS Apple Silicon artifact testing.
-- [ ] Claude Code local provider.
-- [ ] Codex local provider.
+- [ ] Claude Code local provider calibration/statusline/ccusage completion.
+- [ ] Codex local provider calibration/statusline/fixture completion.
 - [ ] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
 - [x] Snapshot cache for latest provider results.
@@ -155,10 +157,10 @@ ForgeGauge uses two data sources and one display pipeline:
 
 ## Implementation Readiness Notes
 
-- Current source has a **central `UsageEngine` with a fake provider registry, latest snapshot cache, shared display-state cache, and snapshot update event**; real providers are not implemented yet.
+- Current source has a **central `UsageEngine` with fake, Claude local, and Codex local providers, latest snapshot cache, shared display-state cache, and snapshot update event**; web providers and merge behavior are not implemented yet.
 - Current tray values read from the shared display-state cache instead of hard-coded fake values in `src-tauri/src/lib.rs`.
 - Current app window starts hidden from `src-tauri/tauri.conf.json`, can be shown from tray/menu actions, and hides back to tray on normal close requests; Phase 0.5/10 must still confirm KDE/Wayland tray behavior manually.
-- Current Rust dependencies are intentionally minimal: `serde`, `serde_json`, and `tauri`. Any async runtime, time, logging, filesystem walking, browser automation, opener, or path-dialog dependencies must be added deliberately with validation.
+- Current Rust dependencies remain narrow: `serde`, `serde_json`, `rusqlite`, `tauri`, and `time`. Any async runtime, logging, filesystem walking, browser automation, opener, or path-dialog dependencies must be added deliberately with validation.
 - Current Tauri permissions are only `core:default`; browser/session/open-url/path features will require explicit capability review before implementation.
 - Current CSP is `null`; web-provider UI and any opener/browser integration must include a security review before release.
 
@@ -457,11 +459,11 @@ Confidence labels:
 Do not implement local percentage estimates until discovery answers these questions per service.
 
 - [x] Which files/directories exist on the target machine?
-- [ ] Which records are stable enough to parse?
+- [x] Which records are stable enough to parse?
 - [x] Which fields are timestamps, model names, token counts, costs, sessions, or status values?
 - [x] Which records are machine-local only versus account-wide?
 - [x] What source precedence should apply when multiple local sources exist?
-- [ ] How should missing directories, unreadable files, invalid records, large files, and rotated logs behave?
+- [x] How should missing directories, unreadable files, invalid records, large files, and rotated logs behave?
 - [x] Which test fixtures can be safely sanitized and committed?
 - [ ] Which user-entered calibration fields are required to map local activity to percentages?
 - [x] What does the provider return when calibration is absent?
@@ -632,9 +634,9 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Support ccusage-compatible parsing where practical.
 - [ ] Parse timestamps, model, input/output/cache tokens, session blocks, estimated cost/usage, and rolling window activity.
 - [x] Define file scanning limits for large logs and many project directories.
-- [ ] Define rotated/truncated file behavior.
+- [x] Define rotated/truncated file behavior.
 - [x] Define invalid JSONL line behavior.
-- [ ] Define timezone and rolling-window semantics.
+- [x] Define timezone and rolling-window semantics.
 - [x] Produce local estimated Claude usage snapshot.
 - [ ] Support manual quota/window calibration.
 - [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
@@ -652,9 +654,9 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Inspect available `~/.codex/*` local/session/status files.
 - [ ] Inspect Codex statusline or `/status`-derived data if available.
 - [x] Define file scanning limits for large logs and many sessions.
-- [ ] Define rotated/truncated file behavior.
-- [ ] Define invalid record behavior.
-- [ ] Define timezone and rolling-window semantics.
+- [x] Define rotated/truncated file behavior.
+- [x] Define invalid record behavior.
+- [x] Define timezone and rolling-window semantics.
 - [x] Produce local estimated Codex usage snapshot when possible.
 - [x] Mark confidence conservatively.
 - [ ] Support manual quota/window calibration.

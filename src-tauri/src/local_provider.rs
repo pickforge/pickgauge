@@ -1,5 +1,5 @@
 use crate::usage::{Service, UsageConfidence, UsageProviderId, UsageSnapshot, UsageSource};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{types::ValueRef, Connection, OpenFlags, Row};
 use serde::Deserialize;
 use std::{
     collections::HashSet,
@@ -15,6 +15,9 @@ const MAX_CLAUDE_JSONL_FILES: usize = 512;
 const MAX_CLAUDE_RECORDS_PER_REFRESH: u64 = 100_000;
 const CODEX_STATE_DB_FILE: &str = "state_5.sqlite";
 const MAX_CODEX_THREADS_PER_REFRESH: u64 = 10_000;
+const LOCAL_WINDOW_POLICY: &str = "all_scanned_local_activity";
+const CLAUDE_TIMESTAMP_SEMANTICS: &str = "source_rfc3339";
+const CODEX_TIMESTAMP_SEMANTICS: &str = "unix_epoch_ms";
 
 #[derive(Clone, Debug)]
 pub struct ClaudeLocalProvider {
@@ -48,6 +51,8 @@ struct ClaudeUsageSummary {
 #[derive(Debug, Default)]
 struct CodexUsageSummary {
     threads_read: u64,
+    usage_threads: u64,
+    invalid_records: u64,
     threads_skipped: u64,
     total_tokens: u64,
     first_updated_at_ms: Option<i64>,
@@ -117,6 +122,8 @@ impl ClaudeLocalProvider {
                     "recordsSkipped": summary.records_skipped,
                     "fileLimit": MAX_CLAUDE_JSONL_FILES,
                     "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
+                    "windowPolicy": LOCAL_WINDOW_POLICY,
+                    "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
                     "inputTokens": summary.input_tokens,
                     "outputTokens": summary.output_tokens,
                     "cacheCreationInputTokens": summary.cache_creation_input_tokens,
@@ -128,10 +135,17 @@ impl ClaudeLocalProvider {
                     "remainingPercentReason": "uncalibrated_local_activity",
                 }),
             },
-            Ok(summary) => unknown_snapshot(
-                now,
-                "missing_data",
-                serde_json::json!({
+            Ok(summary) => {
+                let status = if summary.records_read > 0 && summary.invalid_records > 0 {
+                    "parse_failed"
+                } else {
+                    "missing_data"
+                };
+
+                unknown_snapshot(
+                    now,
+                    status,
+                    serde_json::json!({
                     "filesScanned": summary.files_scanned,
                     "recordsRead": summary.records_read,
                     "usageRecords": summary.usage_records,
@@ -141,16 +155,23 @@ impl ClaudeLocalProvider {
                     "recordsSkipped": summary.records_skipped,
                     "fileLimit": MAX_CLAUDE_JSONL_FILES,
                     "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
-                }),
-            ),
+                    "windowPolicy": LOCAL_WINDOW_POLICY,
+                    "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
+                    }),
+                )
+            }
             Err(error) => unknown_snapshot(
                 now,
-                "missing_data",
+                claude_error_status(&error),
                 serde_json::json!({
                     "reason": error,
                     "filesScanned": 0,
                     "recordsRead": 0,
                     "usageRecords": 0,
+                    "fileLimit": MAX_CLAUDE_JSONL_FILES,
+                    "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
+                    "windowPolicy": LOCAL_WINDOW_POLICY,
+                    "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
                 }),
             ),
         }
@@ -233,7 +254,7 @@ impl CodexLocalProvider {
 
     pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
         match self.scan_usage_summary() {
-            Ok(summary) if summary.threads_read > 0 => UsageSnapshot {
+            Ok(summary) if summary.usage_threads > 0 => UsageSnapshot {
                 service: Service::Codex,
                 remaining_percent: None,
                 used_percent: None,
@@ -246,8 +267,12 @@ impl CodexLocalProvider {
                     "providerId": UsageProviderId::CodexLocal.code(),
                     "source": UsageSource::Local.code(),
                     "threadsRead": summary.threads_read,
+                    "usageThreads": summary.usage_threads,
+                    "invalidRecords": summary.invalid_records,
                     "threadsSkipped": summary.threads_skipped,
                     "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                    "windowPolicy": LOCAL_WINDOW_POLICY,
+                    "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
                     "totalTokens": summary.total_tokens,
                     "firstUpdatedAtMs": summary.first_updated_at_ms,
                     "lastUpdatedAtMs": summary.last_updated_at_ms,
@@ -255,24 +280,40 @@ impl CodexLocalProvider {
                     "remainingPercentReason": "uncalibrated_local_activity",
                 }),
             },
-            Ok(summary) => unknown_codex_snapshot(
-                now,
-                "missing_data",
-                serde_json::json!({
+            Ok(summary) => {
+                let status = if summary.threads_read > 0 && summary.invalid_records > 0 {
+                    "parse_failed"
+                } else {
+                    "missing_data"
+                };
+
+                unknown_codex_snapshot(
+                    now,
+                    status,
+                    serde_json::json!({
                     "threadsRead": summary.threads_read,
+                    "usageThreads": summary.usage_threads,
+                    "invalidRecords": summary.invalid_records,
                     "threadsSkipped": summary.threads_skipped,
                     "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                    "windowPolicy": LOCAL_WINDOW_POLICY,
+                    "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
                     "totalTokens": summary.total_tokens,
-                }),
-            ),
+                    }),
+                )
+            }
             Err(error) => unknown_codex_snapshot(
                 now,
-                "missing_data",
+                codex_error_status(&error),
                 serde_json::json!({
                     "reason": error,
                     "threadsRead": 0,
+                    "usageThreads": 0,
+                    "invalidRecords": 0,
                     "threadsSkipped": 0,
                     "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                    "windowPolicy": LOCAL_WINDOW_POLICY,
+                    "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
                     "totalTokens": 0,
                 }),
             ),
@@ -308,10 +349,10 @@ impl CodexLocalProvider {
             .map_err(|_| "codex_threads_query_failed".to_string())?;
         let rows = statement
             .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
-                let tokens_used = row.get::<_, Option<i64>>(0)?;
-                let updated_at_ms = row.get::<_, Option<i64>>(1)?;
-                let updated_at = row.get::<_, Option<i64>>(2)?;
-                let model = row.get::<_, Option<String>>(3)?;
+                let tokens_used = optional_i64_column(row, 0);
+                let updated_at_ms = optional_i64_column(row, 1);
+                let updated_at = optional_i64_column(row, 2);
+                let model = optional_string_column(row, 3);
 
                 Ok(CodexThreadRecord {
                     tokens_used,
@@ -378,12 +419,16 @@ impl CodexUsageSummary {
     fn record(&mut self, record: CodexThreadRecord) {
         self.threads_read += 1;
 
-        if let Some(tokens_used) = record
+        let Some(tokens_used) = record
             .tokens_used
             .and_then(|value| u64::try_from(value).ok())
-        {
-            self.total_tokens += tokens_used;
-        }
+        else {
+            self.invalid_records += 1;
+            return;
+        };
+
+        self.usage_threads += 1;
+        self.total_tokens = self.total_tokens.saturating_add(tokens_used);
 
         if let Some(updated_at_ms) = record.updated_at_ms {
             match self.first_updated_at_ms {
@@ -458,16 +503,14 @@ fn merge_json_objects(target: &mut serde_json::Value, source: serde_json::Value)
 }
 
 fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = fs::read_dir(root)
-        .map_err(|error| format!("Could not inspect Claude data root: {error}"))?;
+    let entries = fs::read_dir(root).map_err(|_| "claude_projects_unreadable".to_string())?;
 
     for entry in entries {
-        let entry =
-            entry.map_err(|error| format!("Could not inspect Claude data entry: {error}"))?;
+        let entry = entry.map_err(|_| "claude_project_entry_unreadable".to_string())?;
         let path = entry.path();
         let metadata = entry
             .metadata()
-            .map_err(|error| format!("Could not inspect Claude data metadata: {error}"))?;
+            .map_err(|_| "claude_project_metadata_unreadable".to_string())?;
 
         if metadata.is_dir() {
             collect_jsonl_files(&path, files)?;
@@ -480,6 +523,40 @@ fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), Stri
 
     files.sort();
     Ok(())
+}
+
+fn optional_i64_column(row: &Row<'_>, column_index: usize) -> Option<i64> {
+    match row.get_ref(column_index).ok()? {
+        ValueRef::Integer(value) => Some(value),
+        ValueRef::Null => None,
+        _ => None,
+    }
+}
+
+fn optional_string_column(row: &Row<'_>, column_index: usize) -> Option<String> {
+    match row.get_ref(column_index).ok()? {
+        ValueRef::Text(value) => std::str::from_utf8(value).ok().map(str::to_string),
+        ValueRef::Null => None,
+        _ => None,
+    }
+}
+
+fn claude_error_status(error: &str) -> &'static str {
+    match error {
+        "claude_projects_missing" => "missing_data",
+        "claude_projects_unreadable"
+        | "claude_project_entry_unreadable"
+        | "claude_project_metadata_unreadable" => "unavailable",
+        _ => "parse_failed",
+    }
+}
+
+fn codex_error_status(error: &str) -> &'static str {
+    match error {
+        "codex_state_db_missing" => "missing_data",
+        "codex_state_db_unreadable" => "unavailable",
+        _ => "parse_failed",
+    }
 }
 
 #[cfg(test)]
@@ -554,6 +631,12 @@ mod tests {
         }
     }
 
+    fn claude_usage_record(input_tokens: u64) -> String {
+        format!(
+            r#"{{"type":"assistant","timestamp":"2026-06-03T10:00:00Z","sessionId":"fixture-session","message":{{"role":"assistant","model":"claude-fixture","usage":{{"input_tokens":{input_tokens},"output_tokens":5}}}}}}"#
+        )
+    }
+
     #[test]
     fn claude_local_provider_parses_synthetic_usage_fixture() {
         let provider = ClaudeLocalProvider::new(fixture_root());
@@ -623,6 +706,38 @@ mod tests {
     }
 
     #[test]
+    fn claude_local_provider_ignores_rotated_files_and_counts_truncated_lines() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(
+            projects_dir.join("current.jsonl"),
+            format!("{}\n{{\"type\":\"assistant\"", claude_usage_record(12)),
+        )
+        .expect("current fixture file is written");
+        fs::write(
+            projects_dir.join("current.jsonl.1"),
+            claude_usage_record(900),
+        )
+        .expect("rotated fixture file is written");
+        let provider = ClaudeLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(snapshot.details["filesScanned"], 1);
+        assert_eq!(snapshot.details["recordsRead"], 2);
+        assert_eq!(snapshot.details["usageRecords"], 1);
+        assert_eq!(snapshot.details["invalidRecords"], 1);
+        assert_eq!(snapshot.details["inputTokens"], 12);
+        assert_eq!(snapshot.details["windowPolicy"], LOCAL_WINDOW_POLICY);
+        assert_eq!(
+            snapshot.details["timestampSemantics"],
+            CLAUDE_TIMESTAMP_SEMANTICS
+        );
+    }
+
+    #[test]
     fn codex_local_provider_parses_synthetic_state_database() {
         let dir = TestDir::new();
         create_codex_state_db(
@@ -644,9 +759,16 @@ mod tests {
         assert_eq!(snapshot.details["status"], "parsed");
         assert_eq!(snapshot.details["providerId"], "codex.local");
         assert_eq!(snapshot.details["threadsRead"], 2);
+        assert_eq!(snapshot.details["usageThreads"], 2);
+        assert_eq!(snapshot.details["invalidRecords"], 0);
         assert_eq!(snapshot.details["threadsSkipped"], 0);
         assert_eq!(snapshot.details["totalTokens"], 2000);
         assert_eq!(snapshot.details["modelCount"], 1);
+        assert_eq!(snapshot.details["windowPolicy"], LOCAL_WINDOW_POLICY);
+        assert_eq!(
+            snapshot.details["timestampSemantics"],
+            CODEX_TIMESTAMP_SEMANTICS
+        );
         assert_eq!(
             snapshot.details["remainingPercentReason"],
             "uncalibrated_local_activity"
@@ -670,7 +792,69 @@ mod tests {
         assert_eq!(snapshot.details["status"], "missing_data");
         assert_eq!(snapshot.details["reason"], "codex_state_db_missing");
         assert_eq!(snapshot.details["threadsRead"], 0);
+        assert_eq!(snapshot.details["usageThreads"], 0);
+        assert_eq!(snapshot.details["invalidRecords"], 0);
         assert_eq!(snapshot.details["totalTokens"], 0);
+    }
+
+    #[test]
+    fn codex_local_provider_counts_malformed_thread_rows() {
+        let dir = TestDir::new();
+        fs::create_dir_all(&dir.path).expect("codex root is created");
+        let connection =
+            Connection::open(dir.path.join(CODEX_STATE_DB_FILE)).expect("state db is created");
+        connection
+            .execute(
+                "CREATE TABLE threads (
+                    tokens_used INTEGER,
+                    updated_at INTEGER,
+                    updated_at_ms INTEGER,
+                    model TEXT
+                )",
+                [],
+            )
+            .expect("threads table is created");
+        connection
+            .execute(
+                "INSERT INTO threads (tokens_used, updated_at, updated_at_ms, model)
+                 VALUES (500, 1780000000, 1780000000000, 'codex-fixture')",
+                [],
+            )
+            .expect("valid thread row is inserted");
+        connection
+            .execute(
+                "INSERT INTO threads (tokens_used, updated_at, updated_at_ms, model)
+                 VALUES ('not tokens', 1780000010, 1780000010000, 'codex-fixture')",
+                [],
+            )
+            .expect("malformed thread row is inserted");
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(snapshot.details["threadsRead"], 2);
+        assert_eq!(snapshot.details["usageThreads"], 1);
+        assert_eq!(snapshot.details["invalidRecords"], 1);
+        assert_eq!(snapshot.details["totalTokens"], 500);
+    }
+
+    #[test]
+    fn codex_local_provider_reports_corrupt_state_database_as_parse_failed() {
+        let dir = TestDir::new();
+        fs::write(dir.path.join(CODEX_STATE_DB_FILE), "not a sqlite database")
+            .expect("corrupt state db fixture is written");
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
+        assert_eq!(snapshot.details["status"], "parse_failed");
+        assert_eq!(snapshot.details["reason"], "codex_threads_query_failed");
+        assert_eq!(snapshot.details["threadsRead"], 0);
+        assert_eq!(snapshot.details["usageThreads"], 0);
+        assert_eq!(snapshot.details["invalidRecords"], 0);
     }
 
     #[test]

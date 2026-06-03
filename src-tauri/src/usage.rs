@@ -158,6 +158,7 @@ struct UsageEngineState {
     active_provider_keys: HashSet<String>,
     provider_failures: HashMap<String, ProviderFailureState>,
     scheduled_provider_refreshes: HashMap<String, String>,
+    manual_web_refreshes: HashMap<Service, String>,
     last_updated: String,
 }
 
@@ -357,6 +358,7 @@ impl UsageEngine {
                 active_provider_keys: HashSet::new(),
                 provider_failures: HashMap::new(),
                 scheduled_provider_refreshes: HashMap::new(),
+                manual_web_refreshes: HashMap::new(),
                 last_updated,
             }),
             clock,
@@ -392,6 +394,13 @@ impl UsageEngine {
         state
             .scheduled_provider_refreshes
             .retain(|key, _| provider_keys.contains(key));
+        if config.providers.web_enabled {
+            state
+                .manual_web_refreshes
+                .retain(|service, _| config.service_enabled(*service));
+        } else {
+            state.manual_web_refreshes.clear();
+        }
 
         Ok(config)
     }
@@ -502,6 +511,12 @@ impl UsageEngine {
     ) -> Result<UsageDisplayState, String> {
         let provider_id = UsageProviderId::for_service_source(service, source)
             .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
+        let now = self.clock.now_rfc3339();
+
+        if source == UsageSource::Web {
+            self.ensure_manual_web_refresh_allowed(service, &now)?;
+        }
+
         let provider = {
             let state = self.lock()?;
             state
@@ -511,7 +526,6 @@ impl UsageEngine {
                 .find(|provider| provider.service == service && provider.provider_id == provider_id)
         }
         .ok_or_else(|| "Provider is not configured".to_string())?;
-        let now = self.clock.now_rfc3339();
 
         if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
             return self.display_state();
@@ -530,6 +544,9 @@ impl UsageEngine {
             }
         };
         self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
+        if source == UsageSource::Web {
+            self.record_manual_web_refresh(service, &now)?;
+        }
         self.finish_refresh(&provider.provider_key)?;
 
         let mut state = self.lock()?;
@@ -658,6 +675,32 @@ impl UsageEngine {
         state
             .scheduled_provider_refreshes
             .insert(provider_key.to_string(), now.to_string());
+        Ok(())
+    }
+
+    fn ensure_manual_web_refresh_allowed(&self, service: Service, now: &str) -> Result<(), String> {
+        let state = self.lock()?;
+
+        if !state.config.providers.web_enabled {
+            return Err("Web providers are disabled".to_string());
+        }
+
+        let cooldown =
+            Duration::from_secs(state.config.intervals.manual_web_refresh_cooldown_seconds);
+        if manual_web_refresh_cooldown_active(
+            state.manual_web_refreshes.get(&service),
+            now,
+            cooldown,
+        ) {
+            return Err("Manual web refresh is cooling down".to_string());
+        }
+
+        Ok(())
+    }
+
+    fn record_manual_web_refresh(&self, service: Service, now: &str) -> Result<(), String> {
+        let mut state = self.lock()?;
+        state.manual_web_refreshes.insert(service, now.to_string());
         Ok(())
     }
 
@@ -953,6 +996,14 @@ fn provider_refresh_due(last_refreshed_at: Option<&String>, now: &str, interval:
     now >= last_refreshed_at + TimeDuration::seconds(seconds)
 }
 
+fn manual_web_refresh_cooldown_active(
+    last_refreshed_at: Option<&String>,
+    now: &str,
+    cooldown: Duration,
+) -> bool {
+    last_refreshed_at.is_some() && !provider_refresh_due(last_refreshed_at, now, cooldown)
+}
+
 fn retry_after_rfc3339(now: &str, backoff_seconds: u64) -> String {
     let Some(now) = parse_rfc3339(now) else {
         return now.to_string();
@@ -1080,6 +1131,20 @@ mod tests {
             providers: crate::config::ProviderSettings {
                 local_enabled: true,
                 web_enabled: false,
+            },
+            ..AppConfig::default()
+        }
+    }
+
+    fn web_enabled_config() -> AppConfig {
+        AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: true,
+                claude: true,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: true,
             },
             ..AppConfig::default()
         }
@@ -1411,6 +1476,65 @@ mod tests {
                 .expect("failure state reads"),
             None
         );
+    }
+
+    #[test]
+    fn manual_web_refresh_requires_provider_opt_in() {
+        let engine = UsageEngine::new(config_with_services(true, true));
+
+        let error = engine
+            .refresh_provider_source(Service::Codex, UsageSource::Web)
+            .expect_err("web refresh requires opt-in");
+
+        assert_eq!(error, "Web providers are disabled");
+    }
+
+    #[test]
+    fn manual_web_refresh_passes_opt_in_before_provider_lookup() {
+        let engine = UsageEngine::new(web_enabled_config());
+
+        let error = engine
+            .refresh_provider_source(Service::Codex, UsageSource::Web)
+            .expect_err("web provider is not implemented yet");
+
+        assert_eq!(error, "Provider is not configured");
+    }
+
+    #[test]
+    fn manual_web_refresh_cooldown_uses_configured_boundary() {
+        let engine = UsageEngine::new(web_enabled_config());
+
+        engine
+            .record_manual_web_refresh(Service::Codex, "2026-06-03T23:00:00Z")
+            .expect("manual web refresh records");
+
+        let early = engine
+            .ensure_manual_web_refresh_allowed(Service::Codex, "2026-06-03T23:00:59Z")
+            .expect_err("refresh is cooling down");
+        assert_eq!(early, "Manual web refresh is cooling down");
+
+        engine
+            .ensure_manual_web_refresh_allowed(Service::Codex, "2026-06-03T23:01:00Z")
+            .expect("cooldown boundary allows refresh");
+    }
+
+    #[test]
+    fn disabling_web_providers_clears_manual_web_refresh_cooldown() {
+        let engine = UsageEngine::new(web_enabled_config());
+
+        engine
+            .record_manual_web_refresh(Service::Codex, "2026-06-03T23:00:00Z")
+            .expect("manual web refresh records");
+        engine
+            .update_config(config_with_services(true, true))
+            .expect("web providers disable");
+        engine
+            .update_config(web_enabled_config())
+            .expect("web providers re-enable");
+
+        engine
+            .ensure_manual_web_refresh_allowed(Service::Codex, "2026-06-03T23:00:01Z")
+            .expect("cooldown state was cleared when web providers disabled");
     }
 
     #[test]

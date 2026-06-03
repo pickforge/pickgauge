@@ -619,7 +619,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Skip overlapping scheduled refresh ticks.
 - [x] Cancel pending refreshes when a provider is disabled.
 - [x] Enforce local and web refresh cadence from config.
-- [ ] Enforce manual web-refresh cooldown and provider opt-in.
+- [x] Enforce manual web-refresh cooldown and provider opt-in.
 - [ ] Document Tokio task ownership in scheduler module.
 - [x] Add per-provider failure counters with bounded retry/backoff.
 - [x] Reset retry/backoff state on provider success.

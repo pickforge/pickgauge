@@ -142,7 +142,10 @@ fn map_usage_refresh_error(_: String) -> CommandError {
 
 fn map_provider_refresh_error(error: String) -> CommandError {
     let message = match error.as_str() {
-        "Provider source cannot be refreshed directly" | "Provider is not configured" => error,
+        "Provider source cannot be refreshed directly"
+        | "Provider is not configured"
+        | "Web providers are disabled"
+        | "Manual web refresh is cooling down" => error,
         _ => "Could not refresh provider".to_string(),
     };
 

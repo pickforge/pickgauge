@@ -666,7 +666,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Support manual quota/window calibration.
 - [x] Expose calibrated percentage deltas only when records map to the current plan/window.
 - [x] Return `remaining_percent = None` instead of inventing precision when local data is incomplete or stale.
-- [ ] Add parser tests with captured/sanitized fixture data.
+- [x] Add parser tests with captured/sanitized fixture data.
 - [x] Add missing-directory test.
 - [x] Add calibrated and uncalibrated local estimate tests.
 

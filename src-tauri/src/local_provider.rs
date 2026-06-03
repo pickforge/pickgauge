@@ -872,6 +872,17 @@ mod tests {
         }
     }
 
+    fn create_codex_state_db_from_fixture(root: &Path) {
+        fs::create_dir_all(root).expect("codex root is created");
+        let connection =
+            Connection::open(root.join(CODEX_STATE_DB_FILE)).expect("state db is created");
+        connection
+            .execute_batch(include_str!(
+                "../tests/fixtures/codex-local/sanitized-state.sql"
+            ))
+            .expect("sanitized fixture loads");
+    }
+
     fn claude_usage_record(input_tokens: u64) -> String {
         format!(
             r#"{{"type":"assistant","timestamp":"2026-06-03T10:00:00Z","sessionId":"fixture-session","message":{{"role":"assistant","model":"claude-fixture","usage":{{"input_tokens":{input_tokens},"output_tokens":5}}}}}}"#
@@ -1090,6 +1101,28 @@ mod tests {
         assert!(snapshot.details.get("title").is_none());
         assert!(snapshot.details.get("cwd").is_none());
         assert!(snapshot.details.get("preview").is_none());
+    }
+
+    #[test]
+    fn codex_local_provider_parses_sanitized_state_fixture() {
+        let dir = TestDir::new();
+        create_codex_state_db_from_fixture(&dir.path);
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(snapshot.details["threadsRead"], 2);
+        assert_eq!(snapshot.details["usageThreads"], 2);
+        assert_eq!(snapshot.details["invalidRecords"], 0);
+        assert_eq!(snapshot.details["totalTokens"], 2000);
+        assert_eq!(snapshot.details["modelCount"], 1);
+        assert!(snapshot.details.get("id").is_none());
+        assert!(snapshot.details.get("title").is_none());
+        assert!(snapshot.details.get("cwd").is_none());
+        assert!(snapshot.details.get("preview").is_none());
+        assert!(snapshot.details.get("gitBranch").is_none());
     }
 
     #[test]

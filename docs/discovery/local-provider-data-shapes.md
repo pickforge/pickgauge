@@ -86,6 +86,7 @@ Parser implications:
 ## Fixture Strategy
 
 - Prefer synthetic fixtures that preserve only key structure and numeric usage fields.
+- `src-tauri/tests/fixtures/codex-local/sanitized-state.sql` preserves the discovered Codex `threads` schema shape and numeric token/timestamp fields with redacted placeholder text only.
 - Captured real fixtures require explicit user consent before capture.
 - Any captured fixture must remove prompt/response text, paths, account identifiers, auth data, IDs, git metadata, and raw tool payloads before commit.
 

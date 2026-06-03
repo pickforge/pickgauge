@@ -67,6 +67,21 @@
     }).format(parsed);
   }
 
+  function profilePathValue(value: string | null) {
+    return value ?? "";
+  }
+
+  function updateProfilePath(field: keyof AppConfig["browserProfiles"], event: Event) {
+    const target = event.currentTarget;
+
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const value = target.value.trim();
+    config.browserProfiles[field] = value.length > 0 ? value : null;
+  }
+
   onMount(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -233,6 +248,42 @@
       <label>
         Low threshold
         <input type="number" min="1" max="100" bind:value={config.lowUsageThreshold} />
+      </label>
+    </div>
+
+    <div class="path-grid" aria-label="Browser profile paths">
+      <label>
+        Profile root
+        <input
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Default app data path"
+          value={profilePathValue(config.browserProfiles.rootPath)}
+          oninput={(event) => updateProfilePath("rootPath", event)}
+        />
+      </label>
+      <label>
+        Codex profile
+        <input
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Default under root"
+          value={profilePathValue(config.browserProfiles.codexPath)}
+          oninput={(event) => updateProfilePath("codexPath", event)}
+        />
+      </label>
+      <label>
+        Claude profile
+        <input
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Default under root"
+          value={profilePathValue(config.browserProfiles.claudePath)}
+          oninput={(event) => updateProfilePath("claudePath", event)}
+        />
       </label>
     </div>
 

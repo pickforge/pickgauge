@@ -240,7 +240,8 @@ dd {
 }
 
 .settings-grid,
-.number-grid {
+.number-grid,
+.path-grid {
   display: grid;
   gap: 10px;
 }
@@ -253,6 +254,10 @@ dd {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.path-grid {
+  grid-template-columns: 1fr;
+}
+
 label {
   display: flex;
   gap: 8px;
@@ -262,7 +267,8 @@ label {
   font-weight: 700;
 }
 
-.number-grid label {
+.number-grid label,
+.path-grid label {
   display: grid;
   gap: 6px;
   color: #647084;
@@ -277,7 +283,8 @@ input[type="checkbox"] {
   accent-color: #2563eb;
 }
 
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid #d8dee9;

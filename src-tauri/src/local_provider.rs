@@ -10,6 +10,8 @@ use std::{
 
 const CLAUDE_PROJECTS_DIR: &str = "projects";
 const JSONL_EXTENSION: &str = "jsonl";
+const MAX_CLAUDE_JSONL_FILES: usize = 512;
+const MAX_CLAUDE_RECORDS_PER_REFRESH: u64 = 100_000;
 
 #[derive(Clone, Debug)]
 pub struct ClaudeLocalProvider {
@@ -23,6 +25,8 @@ struct ClaudeUsageSummary {
     usage_records: u64,
     invalid_records: u64,
     unreadable_files: u64,
+    files_skipped: u64,
+    records_skipped: u64,
     input_tokens: u64,
     output_tokens: u64,
     cache_creation_input_tokens: u64,
@@ -91,6 +95,10 @@ impl ClaudeLocalProvider {
                     "usageRecords": summary.usage_records,
                     "invalidRecords": summary.invalid_records,
                     "unreadableFiles": summary.unreadable_files,
+                    "filesSkipped": summary.files_skipped,
+                    "recordsSkipped": summary.records_skipped,
+                    "fileLimit": MAX_CLAUDE_JSONL_FILES,
+                    "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
                     "inputTokens": summary.input_tokens,
                     "outputTokens": summary.output_tokens,
                     "cacheCreationInputTokens": summary.cache_creation_input_tokens,
@@ -111,6 +119,10 @@ impl ClaudeLocalProvider {
                     "usageRecords": summary.usage_records,
                     "invalidRecords": summary.invalid_records,
                     "unreadableFiles": summary.unreadable_files,
+                    "filesSkipped": summary.files_skipped,
+                    "recordsSkipped": summary.records_skipped,
+                    "fileLimit": MAX_CLAUDE_JSONL_FILES,
+                    "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
                 }),
             ),
             Err(error) => unknown_snapshot(
@@ -137,7 +149,19 @@ impl ClaudeLocalProvider {
         let mut files = Vec::new();
         collect_jsonl_files(&projects_dir, &mut files)?;
 
+        if files.len() > MAX_CLAUDE_JSONL_FILES {
+            summary.files_skipped = (files.len() - MAX_CLAUDE_JSONL_FILES) as u64;
+            files.truncate(MAX_CLAUDE_JSONL_FILES);
+        }
+
+        let mut record_limit_reached = false;
+
         for file_path in files {
+            if record_limit_reached {
+                summary.files_skipped += 1;
+                continue;
+            }
+
             summary.files_scanned += 1;
 
             let Ok(file) = File::open(&file_path) else {
@@ -154,6 +178,12 @@ impl ClaudeLocalProvider {
 
                 if line.is_empty() {
                     continue;
+                }
+
+                if summary.records_read >= MAX_CLAUDE_RECORDS_PER_REFRESH {
+                    summary.records_skipped += 1;
+                    record_limit_reached = true;
+                    break;
                 }
 
                 summary.records_read += 1;
@@ -340,6 +370,27 @@ mod tests {
         assert_eq!(snapshot.remaining_percent, None);
         assert_eq!(snapshot.details["status"], "missing_data");
         assert_eq!(snapshot.details["reason"], "claude_projects_missing");
+        assert_eq!(snapshot.details["usageRecords"], 0);
+    }
+
+    #[test]
+    fn claude_local_provider_limits_project_jsonl_file_scans() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+
+        for index in 0..=MAX_CLAUDE_JSONL_FILES {
+            fs::write(projects_dir.join(format!("{index:03}.jsonl")), "")
+                .expect("empty fixture file is written");
+        }
+
+        let provider = ClaudeLocalProvider::new(&dir.path);
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
+        assert_eq!(snapshot.details["filesScanned"], MAX_CLAUDE_JSONL_FILES);
+        assert_eq!(snapshot.details["filesSkipped"], 1);
+        assert_eq!(snapshot.details["fileLimit"], MAX_CLAUDE_JSONL_FILES);
         assert_eq!(snapshot.details["usageRecords"], 0);
     }
 }

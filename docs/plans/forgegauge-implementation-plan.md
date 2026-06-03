@@ -271,7 +271,7 @@ The current implementation starts smaller with `config.rs`, `usage.rs`, `lib.rs`
   - [x] Frontend snapshots are returned from the shared display cache, not recomputed separately.
   - [x] Fake provider remains a provider implementation, not special-case UI state.
 - Frontend and backend models must evolve together.
-  - [ ] Rust enum/string serialization is documented.
+  - [x] Rust enum/string serialization is documented.
   - [x] TypeScript types mirror the IPC payloads.
   - [x] Any new field has a default, migration path, and UI fallback.
 - User-facing precision must be justified.
@@ -833,10 +833,10 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Configure low-usage warning threshold.
 - [x] Configure browser profile/session path.
 - [x] Configure optional per-service browser profile path overrides.
-- [ ] Configure optional manual plan/limit/window values.
+- [x] Configure optional manual plan/limit/window values.
 - [ ] Configure autostart.
 - [ ] Reset browser session data.
-- [ ] Clear cached usage data.
+- [x] Clear cached usage data.
 
 ## Testing Strategy
 
@@ -880,14 +880,14 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Default web-provider opt-out behavior.
 - [x] Refresh interval validation/clamping.
 - [x] Manual web-refresh cooldown enforcement.
-- [ ] Provider enable/disable scheduler behavior.
+- [x] Provider enable/disable scheduler behavior.
 - [ ] Provider parsing.
 - [x] Local quota/window calibration.
 - [ ] Merge logic.
 - [ ] Merge fallback when local providers cannot produce a percentage delta.
 - [ ] No-double-count and stale-baseline merge behavior.
-- [ ] Stale data handling.
-- [ ] Gauge state mapping.
+- [x] Stale data handling.
+- [x] Gauge state mapping.
 - [ ] Frontend display formatting.
 - [ ] Frontend confidence/source labels.
 - [ ] Frontend settings form behavior.
@@ -919,16 +919,16 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Dedicated browser profiles are app-owned and marker-guarded.
 - [x] Dedicated browser profiles never use the user's default browser profile.
 - [ ] Clear/delete actions stop managed browser processes first.
-- [ ] Clear/delete actions only delete marker-owned paths.
-- [ ] Clear/delete actions reject symlinked paths.
-- [ ] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
+- [x] Clear/delete actions only delete marker-owned paths.
+- [x] Clear/delete actions reject symlinked paths.
+- [x] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
 - [ ] Dedicated profiles contain no saved credentials after login validation.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
 - [ ] Browser profile is isolated from the main browser profile.
-- [ ] Scheduler does not start web refreshes until explicit opt-in.
+- [x] Scheduler does not start web refreshes until explicit opt-in.
 - [ ] Disabling a web provider cancels future scheduled reads.
 - [ ] Clear UI label for experimental web provider.
-- [ ] User can reset/delete provider session data and cached snapshots.
+- [x] User can reset/delete provider session data and cached snapshots.
 - [x] Local app data uses restrictive file permissions where supported.
 - [ ] `details` metadata is sanitized and never contains raw page content or secrets.
 - [ ] Test fixtures are sanitized before being committed or shared.

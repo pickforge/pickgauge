@@ -233,6 +233,56 @@ Baseline semantics:
 
 ## Phase Plan
 
+### Implementation Status Checklist
+
+#### Completed in the current MVP
+
+- [x] Initial repository docs and product plan committed.
+- [x] MIT license added for Pickforge.
+- [x] Tauri v2 + Svelte app scaffold created.
+- [x] Rust backend and Svelte frontend wiring added.
+- [x] Tauri capabilities file added.
+- [x] ForgeGauge product naming, bundle identifier, and app metadata configured.
+- [x] `assets/branding/` added with app icon, logo, lockups, tray icons, hero, social card, palette, favicon, and pattern assets.
+- [x] Platform app icons generated from `assets/branding/app-icon.svg`.
+- [x] Branded popup UI added with fake Codex and Claude Code snapshots.
+- [x] Branded tray icon rotation added for Codex and Claude Code.
+- [x] Low-usage and unknown tray icon assets wired for future provider states.
+- [x] Local persisted app config added under the app config directory.
+- [x] Settings UI added for service toggles, provider toggles, refresh intervals, tray switch interval, and low-usage threshold.
+- [x] Fake usage snapshot command added and driven by enabled-service settings.
+- [x] AppImage build fixed on CachyOS/Arch-like systems with `NO_STRIP=1`.
+- [x] `npm run build:appimage` added.
+- [x] GitHub Actions release workflow added for queued Linux AppImage, Windows, macOS Intel, and macOS Apple Silicon artifacts.
+- [x] Release notes include the Windows/macOS untested caveat and invite reports/issues/PRs.
+- [x] README updated with branding, Tauri rationale, release support, AppImage workaround, and current MVP behavior.
+- [x] AppImage built successfully locally at `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`.
+- [x] Validators run successfully: `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`.
+- [x] Local commits created:
+  - `8f77832 docs: add initial app blueprint`
+  - `681b708 feat: scaffold branded Tauri app`
+  - `77190fe feat: add persisted app settings`
+
+#### Verified but not fully completed
+
+- [x] AppImage launched manually once from the generated artifact.
+- [ ] Full KDE/Wayland smoke test still needs user confirmation for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
+- [ ] GitHub release workflow still needs a remote push/mainline run to verify uploaded artifacts.
+- [ ] Windows and macOS generated artifacts remain untested by design.
+
+#### Not implemented yet
+
+- [ ] Claude Code local provider.
+- [ ] Codex local provider.
+- [ ] Provider registry with scheduled refresh/backoff/event streaming.
+- [ ] Calibrated local quota/window estimates.
+- [ ] Browser automation spike for official usage pages.
+- [ ] Isolated browser session manager.
+- [ ] Opt-in Codex and Claude web providers.
+- [ ] Merge engine for web baselines plus local deltas.
+- [ ] Autostart setting.
+- [ ] Clear/delete actions for cached snapshots and web session data.
+
 ### Phase 0 — Repository Bootstrap
 
 Deliverables:
@@ -674,12 +724,12 @@ Before moving past each gate:
 
 The first usable MVP should include:
 
-- tray shell
-- popup
-- dynamic gauge
-- config
-- usage engine
-- fake provider
-- at least one real local provider
+- [x] tray shell
+- [x] popup
+- [x] branded tray state icons
+- [x] config
+- [x] usage engine skeleton
+- [x] fake provider
+- [ ] at least one real local provider
 
 Web providers and merge logic can follow once KDE tray behavior and the core UI are stable.

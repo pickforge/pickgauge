@@ -1,6 +1,7 @@
 mod browser_profile;
 mod config;
-mod usage;
+pub mod local_provider;
+pub mod usage;
 
 use std::sync::Mutex;
 use tauri::{

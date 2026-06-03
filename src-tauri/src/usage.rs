@@ -141,7 +141,7 @@ impl Service {
 }
 
 impl UsageSource {
-    fn code(self) -> &'static str {
+    pub fn code(self) -> &'static str {
         match self {
             Self::Local => "local",
             Self::Web => "web",

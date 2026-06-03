@@ -16,6 +16,8 @@ Config progress, 2026-06-03: added a raw JSON config load boundary, default fill
 
 Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, and safe metadata boundaries without committing raw local records or authenticated data. Parser implementation, scan limits, calibration schema, and real local snapshots remain unchecked.
 
+Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, and emits sanitized unknown snapshots for missing project data or invalid records. Registry wiring, scan limits, calibration, and full local-provider completion remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -621,23 +623,23 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 - [x] Complete read-only discovery of available Claude Code local data shapes.
 - [x] Record source precedence order for Claude local data.
-- [ ] Add injectable Claude data root for tests and development.
+- [x] Add injectable Claude data root for tests and development.
 - [x] Discover Claude Code local usage files.
-- [ ] Parse `~/.claude/projects/**/*.jsonl` where available.
+- [x] Parse `~/.claude/projects/**/*.jsonl` where available.
 - [ ] Inspect Claude Code statusline-compatible data if available.
 - [ ] Support ccusage-compatible parsing where practical.
 - [ ] Parse timestamps, model, input/output/cache tokens, session blocks, estimated cost/usage, and rolling window activity.
 - [ ] Define file scanning limits for large logs and many project directories.
 - [ ] Define rotated/truncated file behavior.
-- [ ] Define invalid JSONL line behavior.
+- [x] Define invalid JSONL line behavior.
 - [ ] Define timezone and rolling-window semantics.
-- [ ] Produce local estimated Claude usage snapshot.
+- [x] Produce local estimated Claude usage snapshot.
 - [ ] Support manual quota/window calibration.
 - [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
-- [ ] Return `remaining_percent = None` instead of inventing precision when logs cannot be mapped reliably.
-- [ ] Gracefully handle missing files and unexpected log shapes.
-- [ ] Add parser tests with sanitized JSONL fixtures.
-- [ ] Add missing-directory test.
+- [x] Return `remaining_percent = None` instead of inventing precision when logs cannot be mapped reliably.
+- [x] Gracefully handle missing files and unexpected log shapes.
+- [x] Add parser tests with sanitized JSONL fixtures.
+- [x] Add missing-directory test.
 - [ ] Add calibrated and uncalibrated local estimate tests.
 
 ### Phase 6 — Codex Local Provider

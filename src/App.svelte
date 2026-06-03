@@ -50,6 +50,59 @@
     return value === null ? "Unknown" : `${Math.round(value)}%`;
   }
 
+  function formatCount(value: number) {
+    return new Intl.NumberFormat().format(value);
+  }
+
+  function detailNumber(snapshot: UsageSnapshot, key: string) {
+    const value = snapshot.details[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  function plural(value: number, singular: string, pluralValue = `${singular}s`) {
+    return value === 1 ? singular : pluralValue;
+  }
+
+  function localActivitySummary(snapshot: UsageSnapshot) {
+    if (snapshot.source !== "local" || snapshot.remainingPercent !== null) {
+      return null;
+    }
+
+    const totalTokens =
+      detailNumber(snapshot, "totalTokens") ??
+      (detailNumber(snapshot, "inputTokens") ?? 0) +
+        (detailNumber(snapshot, "outputTokens") ?? 0) +
+        (detailNumber(snapshot, "cacheCreationInputTokens") ?? 0) +
+        (detailNumber(snapshot, "cacheReadInputTokens") ?? 0);
+
+    if (totalTokens <= 0) {
+      return null;
+    }
+
+    const activityCount =
+      detailNumber(snapshot, "sessionCount") ??
+      detailNumber(snapshot, "usageThreads") ??
+      detailNumber(snapshot, "usageRecords");
+    const activityLabel =
+      detailNumber(snapshot, "sessionCount") !== null
+        ? plural(activityCount ?? 0, "session")
+        : detailNumber(snapshot, "usageThreads") !== null
+          ? plural(activityCount ?? 0, "thread")
+          : plural(activityCount ?? 0, "record");
+    const modelCount = detailNumber(snapshot, "modelCount");
+    const parts = [`${formatCount(totalTokens)} tokens`];
+
+    if (activityCount !== null && activityCount > 0) {
+      parts.push(`${formatCount(activityCount)} ${activityLabel}`);
+    }
+
+    if (modelCount !== null && modelCount > 0) {
+      parts.push(`${formatCount(modelCount)} ${plural(modelCount, "model")}`);
+    }
+
+    return `Local activity: ${parts.join(" | ")}`;
+  }
+
   function isCommandError(caught: unknown): caught is CommandError {
     if (typeof caught !== "object" || caught === null) {
       return false;
@@ -305,6 +358,10 @@
 
         {#if snapshotIsStale(snapshot)}
           <p class="snapshot-note">Stale data</p>
+        {/if}
+
+        {#if localActivitySummary(snapshot)}
+          <p class="activity-summary">{localActivitySummary(snapshot)}</p>
         {/if}
 
         <div class="card-actions">

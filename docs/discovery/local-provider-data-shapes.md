@@ -41,6 +41,8 @@ Parser implications:
 - Do not persist or surface `content`, `cwd`, `gitBranch`, raw IDs, tool payloads, or debug text.
 - Return `remaining_percent = None` until manual calibration maps local token activity to a plan/window.
 - Missing or unreadable roots should produce `unknown` snapshots with stable status codes.
+- `ccusage` compatibility is practical for the shared source and aggregate field families: current `ccusage` docs show it reads Claude Code project JSONL roots and can emit JSON reports with input, output, cache, total token, model, session, cost, and block fields. ForgeGauge directly parses the same project JSONL roots and exposes token/model/session/window aggregates without shelling out to `ccusage`; cost and block reports remain deferred because no local cost fields were observed in the raw Claude Code JSONL scan.
+- No Claude Code usage statusline data was configured on the inspected machine. The only statusline-like file found was a plugin badge script, not a usage source.
 
 ## Codex
 
@@ -111,6 +113,7 @@ Codex policy:
 - Count malformed token rows as `invalidRecords` without failing the whole snapshot when at least one usable row exists.
 - Treat missing, unreadable, corrupt, or schema-incompatible state databases as sanitized `unknown` snapshots.
 - Use Unix epoch milliseconds from `updated_at_ms`, falling back to `updated_at * 1000` for metadata.
+- No Codex statusline or `/status`-derived usage data was found in the inspected local files or installed Codex CLI help. `state_5.sqlite` remains the only implemented Codex local usage source.
 
 ## Open Implementation Decisions
 

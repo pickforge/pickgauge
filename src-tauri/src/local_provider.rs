@@ -163,8 +163,10 @@ impl ClaudeLocalProvider {
                         "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
                         "windowPolicy": LOCAL_WINDOW_POLICY,
                         "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
+                        "totalTokens": summary.total_tokens(),
                         "inputTokens": summary.input_tokens,
                         "outputTokens": summary.output_tokens,
+                        "cacheTokens": summary.cache_tokens(),
                         "cacheCreationInputTokens": summary.cache_creation_input_tokens,
                         "cacheReadInputTokens": summary.cache_read_input_tokens,
                         "windowUsageRecords": summary.window_usage_records,
@@ -499,6 +501,17 @@ struct CalibrationSnapshotValues {
 }
 
 impl ClaudeUsageSummary {
+    fn cache_tokens(&self) -> u64 {
+        self.cache_creation_input_tokens
+            .saturating_add(self.cache_read_input_tokens)
+    }
+
+    fn total_tokens(&self) -> u64 {
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cache_tokens())
+    }
+
     fn record(&mut self, record: ClaudeJsonlRecord, window: Option<LocalUsageWindow>) {
         let Some(message) = record.message else {
             return;
@@ -914,8 +927,10 @@ mod tests {
         assert_eq!(snapshot.details["recordsRead"], 4);
         assert_eq!(snapshot.details["usageRecords"], 2);
         assert_eq!(snapshot.details["invalidRecords"], 1);
+        assert_eq!(snapshot.details["totalTokens"], 420);
         assert_eq!(snapshot.details["inputTokens"], 320);
         assert_eq!(snapshot.details["outputTokens"], 70);
+        assert_eq!(snapshot.details["cacheTokens"], 30);
         assert_eq!(snapshot.details["cacheCreationInputTokens"], 10);
         assert_eq!(snapshot.details["cacheReadInputTokens"], 20);
         assert_eq!(snapshot.details["modelCount"], 1);

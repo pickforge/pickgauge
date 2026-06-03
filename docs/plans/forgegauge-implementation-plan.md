@@ -276,7 +276,7 @@ The current implementation starts smaller with `config.rs`, `usage.rs`, `lib.rs`
   - [x] Any new field has a default, migration path, and UI fallback.
 - User-facing precision must be justified.
   - [ ] Show percentages only for official web values or calibrated local estimates.
-  - [ ] Show token/cost/activity summaries without percentages when local data cannot be mapped to plan limits.
+  - [x] Show token/cost/activity summaries without percentages when local data cannot be mapped to plan limits.
   - [ ] Never derive account-wide remaining usage from machine-local logs unless clearly labeled as partial.
 
 ## Config Migration and Persistence Contract
@@ -634,8 +634,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add injectable Claude data root for tests and development.
 - [x] Discover Claude Code local usage files.
 - [x] Parse `~/.claude/projects/**/*.jsonl` where available.
-- [ ] Inspect Claude Code statusline-compatible data if available.
-- [ ] Support ccusage-compatible parsing where practical.
+- [x] Inspect Claude Code statusline-compatible data if available.
+- [x] Support ccusage-compatible parsing where practical.
 - [ ] Parse timestamps, model, input/output/cache tokens, session blocks, estimated cost/usage, and rolling window activity.
 - [x] Define file scanning limits for large logs and many project directories.
 - [x] Define rotated/truncated file behavior.
@@ -656,7 +656,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Record source precedence order for Codex local data.
 - [x] Add injectable Codex data root for tests and development.
 - [x] Inspect available `~/.codex/*` local/session/status files.
-- [ ] Inspect Codex statusline or `/status`-derived data if available.
+- [x] Inspect Codex statusline or `/status`-derived data if available.
 - [x] Define file scanning limits for large logs and many sessions.
 - [x] Define rotated/truncated file behavior.
 - [x] Define invalid record behavior.

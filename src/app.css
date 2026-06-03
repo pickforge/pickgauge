@@ -238,6 +238,14 @@ dl {
   text-transform: uppercase;
 }
 
+.activity-summary {
+  margin-top: 12px;
+  color: #465469;
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 dt {
   color: #647084;
   font-size: 0.72rem;

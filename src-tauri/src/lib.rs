@@ -1,3 +1,4 @@
+mod browser_profile;
 mod config;
 mod usage;
 
@@ -64,6 +65,17 @@ fn update_app_config(
     config_load: State<'_, ConfigLoadState>,
     config: config::AppConfig,
 ) -> Result<config::AppConfig, String> {
+    if browser_profile::should_prepare_browser_profiles(
+        &config.browser_profiles,
+        config.providers.web_enabled,
+    ) {
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("Could not resolve app data directory: {error}"))?;
+        browser_profile::prepare_browser_profiles(&config.browser_profiles, &app_data_dir)?;
+    }
+
     let config = config::save(&app, &config)?;
     config_load.clear_error()?;
     engine.update_config(config.clone())?;

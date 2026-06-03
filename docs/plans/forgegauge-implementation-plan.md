@@ -12,7 +12,7 @@ Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone 
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
 
-Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, interval/cooldown clamping, and v1 migration. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the cooldown control was added. Failed-migration rollback tests, browser profile path validation/ownership markers, and browser profile path UI controls remain unchecked.
+Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the cooldown control was added. Failed-migration rollback tests and browser profile path UI controls remain unchecked.
 
 Supersedes:
 
@@ -277,7 +277,7 @@ Config changes must be implemented before adding browser profile paths, quota/wi
 - [ ] Preserve the previous config file if migration fails.
 - [x] Write atomically through a temporary file and rename.
 - [x] Avoid partially written config files on crash where practical.
-- [ ] Use restrictive file permissions for config and profile marker files where supported.
+- [x] Use restrictive file permissions for config and profile marker files where supported.
 - [ ] Add tests for:
   - [x] missing config file
   - [x] current config round trip
@@ -576,12 +576,12 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [ ] enabled flag
 - [x] Add sequential config migrations.
 - [ ] Preserve previous config file on failed migrations.
-- [ ] Add browser profile path validation and ownership markers.
+- [x] Add browser profile path validation and ownership markers.
 - [x] Add unit tests for config defaults and round-trip serialization.
 - [ ] Add unit tests for migrations and failed migration rollback.
 - [x] Add unit tests proving web providers are disabled by default.
 - [x] Add unit tests for refresh interval and cooldown validation.
-- [ ] Add unit tests for safe/unsafe browser profile path handling.
+- [x] Add unit tests for safe/unsafe browser profile path handling.
 
 ### Phase 4 — Usage Engine and Scheduler
 
@@ -680,15 +680,15 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 ### Phase 7 — Browser Session Manager
 
-- [ ] Add dedicated app-owned browser profile directory per service.
-- [ ] Add default profile paths under app data directory.
-- [ ] Define profile ownership marker filename and JSON schema.
-- [ ] Store marker with app identifier, service, created timestamp, and schema version.
-- [ ] Canonicalize configured profile paths.
-- [ ] Reject known default browser profile paths.
-- [ ] Reject non-app-owned or non-empty directories without ownership marker.
-- [ ] Require ownership marker before use.
-- [ ] Prevent import from user's default browser profile.
+- [x] Add dedicated app-owned browser profile directory per service.
+- [x] Add default profile paths under app data directory.
+- [x] Define profile ownership marker filename and JSON schema.
+- [x] Store marker with app identifier, service, created timestamp, and schema version.
+- [x] Canonicalize configured profile paths.
+- [x] Reject known default browser profile paths.
+- [x] Reject non-app-owned or non-empty directories without ownership marker.
+- [x] Require ownership marker before use.
+- [x] Prevent import from user's default browser profile.
 - [ ] Maintain separate cookie jar/session state per service.
 - [ ] Track managed child process ownership per service with PID/handle metadata.
 - [ ] Add graceful browser shutdown with timeout/kill fallback.
@@ -700,7 +700,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Add guarded clear/delete action for browser profile data.
 - [ ] Stop managed browser before deleting browser session data.
 - [ ] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
-- [ ] Add negative tests for unsafe browser profile paths.
+- [x] Add negative tests for unsafe browser profile paths.
 - [ ] Add tests for browser shutdown, orphan detection, and cleanup refusal.
 - [ ] Verify profile/cache paths use restrictive local permissions where supported.
 - [ ] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
@@ -901,9 +901,9 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Current fake provider does not read or upload account data.
 - [ ] No password storage.
 - [ ] Managed browser launch disables password manager/autofill/save-password prompts where supported.
-- [ ] Dedicated browser profiles are separate per service.
-- [ ] Dedicated browser profiles are app-owned and marker-guarded.
-- [ ] Dedicated browser profiles never use the user's default browser profile.
+- [x] Dedicated browser profiles are separate per service.
+- [x] Dedicated browser profiles are app-owned and marker-guarded.
+- [x] Dedicated browser profiles never use the user's default browser profile.
 - [ ] Clear/delete actions stop managed browser processes first.
 - [ ] Clear/delete actions only delete marker-owned paths.
 - [ ] Clear/delete actions reject symlinked paths.
@@ -915,7 +915,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Disabling a web provider cancels future scheduled reads.
 - [ ] Clear UI label for experimental web provider.
 - [ ] User can reset/delete provider session data and cached snapshots.
-- [ ] Local app data uses restrictive file permissions where supported.
+- [x] Local app data uses restrictive file permissions where supported.
 - [ ] `details` metadata is sanitized and never contains raw page content or secrets.
 - [ ] Test fixtures are sanitized before being committed or shared.
 - [ ] Fixture regeneration requires explicit user-consented captures.

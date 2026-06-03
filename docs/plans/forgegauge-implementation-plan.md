@@ -426,7 +426,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [ ] IPC never returns raw browser profile content.
 - [ ] IPC never returns raw local log contents.
 - [ ] IPC never returns raw page HTML/text from authenticated pages.
-- [ ] Every command has a stable error shape for frontend rendering.
+- [x] Every command has a stable error shape for frontend rendering.
 
 ## Merge Strategy
 

@@ -12,6 +12,7 @@
     defaultConfig,
     fallbackSnapshots,
     type AppConfig,
+    type CommandError,
     type UsageDisplayState,
     type UsageSnapshot,
   } from "./lib/usage";
@@ -42,7 +43,20 @@
     return value === null ? "Unknown" : `${Math.round(value)}%`;
   }
 
+  function isCommandError(caught: unknown): caught is CommandError {
+    if (typeof caught !== "object" || caught === null) {
+      return false;
+    }
+
+    const error = caught as Partial<CommandError>;
+    return typeof error.code === "string" && typeof error.message === "string";
+  }
+
   function formatError(caught: unknown, fallback: string) {
+    if (isCommandError(caught) && caught.message.length > 0) {
+      return caught.message;
+    }
+
     if (caught instanceof Error && caught.message) {
       return caught.message;
     }

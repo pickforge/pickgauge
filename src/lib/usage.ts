@@ -20,6 +20,11 @@ export type UsageDisplayState = {
   updatedAt: string;
 };
 
+export type CommandError = {
+  code: string;
+  message: string;
+};
+
 export type LocalServiceQuotaSettings = {
   enabled: boolean;
   planLabel: string;

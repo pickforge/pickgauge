@@ -33,6 +33,91 @@ struct ConfigLoadState {
     error: Mutex<Option<String>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandError {
+    code: String,
+    message: String,
+}
+
+type CommandResult<T> = Result<T, CommandError>;
+
+impl CommandError {
+    fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+}
+
+fn command_error(code: &'static str, message: &'static str) -> CommandError {
+    CommandError::new(code, message)
+}
+
+fn map_config_state_error(_: String) -> CommandError {
+    command_error(
+        "config_state_unavailable",
+        "Configuration state is unavailable",
+    )
+}
+
+fn map_recovered_config_error(_: String) -> CommandError {
+    command_error(
+        "config_recovered_with_defaults",
+        "Recovered with default settings after config load failed",
+    )
+}
+
+fn map_app_data_dir_error(_: tauri::Error) -> CommandError {
+    command_error(
+        "app_data_dir_unavailable",
+        "App data directory is unavailable",
+    )
+}
+
+fn map_browser_profile_error(error: String) -> CommandError {
+    let message = if error.starts_with("Browser profile ") {
+        error
+    } else {
+        "Could not prepare browser profiles".to_string()
+    };
+
+    CommandError::new("browser_profile_unavailable", message)
+}
+
+fn map_config_save_error(_: String) -> CommandError {
+    command_error("config_save_failed", "Could not save app settings")
+}
+
+fn map_usage_state_error(_: String) -> CommandError {
+    command_error("usage_state_unavailable", "Usage state is unavailable")
+}
+
+fn map_snapshot_cache_error(_: String) -> CommandError {
+    command_error(
+        "snapshot_cache_unavailable",
+        "Could not clear cached usage snapshots",
+    )
+}
+
+fn map_event_emit_error(_: tauri::Error) -> CommandError {
+    command_error("event_emit_failed", "Could not emit app event")
+}
+
+fn map_usage_refresh_error(_: String) -> CommandError {
+    command_error("usage_refresh_failed", "Could not refresh usage state")
+}
+
+fn map_provider_refresh_error(error: String) -> CommandError {
+    let message = match error.as_str() {
+        "Provider source cannot be refreshed directly" | "Provider is not configured" => error,
+        _ => "Could not refresh provider".to_string(),
+    };
+
+    CommandError::new("provider_refresh_failed", message)
+}
+
 impl ConfigLoadState {
     fn new(error: Option<String>) -> Self {
         Self {
@@ -61,14 +146,15 @@ impl ConfigLoadState {
 fn get_app_config(
     engine: State<'_, UsageEngine>,
     config_load: State<'_, ConfigLoadState>,
-) -> Result<config::AppConfig, String> {
-    if let Some(error) = config_load.current_error()? {
-        return Err(format!(
-            "Recovered with default settings after config load failed: {error}"
-        ));
+) -> CommandResult<config::AppConfig> {
+    if let Some(error) = config_load
+        .current_error()
+        .map_err(map_config_state_error)?
+    {
+        return Err(map_recovered_config_error(error));
     }
 
-    engine.config()
+    engine.config().map_err(map_usage_state_error)
 }
 
 #[tauri::command]
@@ -77,45 +163,49 @@ fn update_app_config(
     engine: State<'_, UsageEngine>,
     config_load: State<'_, ConfigLoadState>,
     config: config::AppConfig,
-) -> Result<config::AppConfig, String> {
+) -> CommandResult<config::AppConfig> {
     if browser_profile::should_prepare_browser_profiles(
         &config.browser_profiles,
         config.providers.web_enabled,
     ) {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("Could not resolve app data directory: {error}"))?;
-        browser_profile::prepare_browser_profiles(&config.browser_profiles, &app_data_dir)?;
+        let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
+        browser_profile::prepare_browser_profiles(&config.browser_profiles, &app_data_dir)
+            .map_err(map_browser_profile_error)?;
     }
 
-    let config = config::save(&app, &config)?;
-    config_load.clear_error()?;
-    engine.update_config(config.clone())?;
+    let config = config::save(&app, &config).map_err(map_config_save_error)?;
+    config_load.clear_error().map_err(map_config_state_error)?;
+    engine
+        .update_config(config.clone())
+        .map_err(map_usage_state_error)?;
     app.emit(SETTINGS_UPDATED_EVENT, &config)
-        .map_err(|error| format!("Could not emit settings update: {error}"))?;
-    engine.refresh_all_and_emit(&app)?;
+        .map_err(map_event_emit_error)?;
+    engine
+        .refresh_all_and_emit(&app)
+        .map_err(map_usage_refresh_error)?;
     Ok(config)
 }
 
 #[tauri::command]
-fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> Result<Vec<UsageSnapshot>, String> {
-    engine.snapshots()
+fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> CommandResult<Vec<UsageSnapshot>> {
+    engine.snapshots().map_err(map_usage_state_error)
 }
 
 #[tauri::command]
-fn get_display_state(engine: State<'_, UsageEngine>) -> Result<UsageDisplayState, String> {
-    engine.display_state()
+fn get_display_state(engine: State<'_, UsageEngine>) -> CommandResult<UsageDisplayState> {
+    engine.display_state().map_err(map_usage_state_error)
 }
 
 #[tauri::command]
 fn clear_cached_snapshots(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
-) -> Result<UsageDisplayState, String> {
-    let display_state = engine.clear_cached_snapshots()?;
+) -> CommandResult<UsageDisplayState> {
+    let display_state = engine
+        .clear_cached_snapshots()
+        .map_err(map_snapshot_cache_error)?;
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-        .map_err(|error| format!("Could not emit usage update: {error}"))?;
+        .map_err(map_event_emit_error)?;
     Ok(display_state)
 }
 
@@ -125,10 +215,9 @@ fn emit_refresh_event(
     source: Option<UsageSource>,
     event_name: &str,
     status: UsageRefreshStatus,
-) -> Result<(), String> {
+) -> CommandResult<()> {
     let event = UsageRefreshEvent::new(service, source, status, usage::now_rfc3339());
-    app.emit(event_name, &event)
-        .map_err(|error| format!("Could not emit usage refresh event: {error}"))
+    app.emit(event_name, &event).map_err(map_event_emit_error)
 }
 
 fn emit_provider_error_events(app: &AppHandle, display_state: &UsageDisplayState) {
@@ -165,7 +254,7 @@ fn emit_provider_error_events(app: &AppHandle, display_state: &UsageDisplayState
 fn refresh_usage(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
-) -> Result<UsageDisplayState, String> {
+) -> CommandResult<UsageDisplayState> {
     emit_refresh_event(
         &app,
         None,
@@ -194,7 +283,7 @@ fn refresh_usage(
                 usage::REFRESH_FINISHED_EVENT,
                 UsageRefreshStatus::Failed,
             );
-            Err(error)
+            Err(map_usage_refresh_error(error))
         }
     }
 }
@@ -205,7 +294,7 @@ fn refresh_provider(
     engine: State<'_, UsageEngine>,
     service: Service,
     source: UsageSource,
-) -> Result<UsageDisplayState, String> {
+) -> CommandResult<UsageDisplayState> {
     emit_refresh_event(
         &app,
         Some(service),
@@ -217,7 +306,7 @@ fn refresh_provider(
     match engine.refresh_provider_source(service, source) {
         Ok(display_state) => {
             app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-                .map_err(|error| format!("Could not emit usage update: {error}"))?;
+                .map_err(map_event_emit_error)?;
             emit_provider_error_events(&app, &display_state);
             emit_refresh_event(
                 &app,
@@ -236,7 +325,7 @@ fn refresh_provider(
                 usage::REFRESH_FINISHED_EVENT,
                 UsageRefreshStatus::Failed,
             );
-            Err(error)
+            Err(map_provider_refresh_error(error))
         }
     }
 }
@@ -462,6 +551,32 @@ mod tests {
         state.clear_error().expect("state clear succeeds");
 
         assert_eq!(state.current_error().expect("state lock succeeds"), None);
+    }
+
+    #[test]
+    fn command_error_serializes_to_stable_shape() {
+        let error = CommandError::new("usage_state_unavailable", "Usage state is unavailable");
+        let value = serde_json::to_value(error).expect("command error serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "code": "usage_state_unavailable",
+                "message": "Usage state is unavailable"
+            })
+        );
+    }
+
+    #[test]
+    fn command_error_mapping_hides_internal_config_details() {
+        let error = map_config_save_error(
+            "Could not save /home/dev/.config/private/config.json".to_string(),
+        );
+
+        assert_eq!(
+            error,
+            CommandError::new("config_save_failed", "Could not save app settings")
+        );
     }
 
     #[test]

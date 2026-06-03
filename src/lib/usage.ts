@@ -37,6 +37,13 @@ export type ClearedProviderProfile = {
   clearedAt: string;
 };
 
+export type LogLocation = {
+  path: string;
+  exists: boolean;
+  redactionPolicy: string;
+  updatedAt: string;
+};
+
 export type LocalServiceQuotaSettings = {
   enabled: boolean;
   planLabel: string;

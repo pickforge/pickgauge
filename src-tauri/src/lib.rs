@@ -3,7 +3,7 @@ mod config;
 pub mod local_provider;
 pub mod usage;
 
-use std::sync::Mutex;
+use std::{fs, path::Path, sync::Mutex};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -20,6 +20,8 @@ use tauri_plugin_opener::OpenerExt;
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
+const LOG_FILE_NAME: &str = "forgegauge.log";
+const LOG_REDACTION_POLICY_PATH: &str = "docs/security/log-redaction-policy.md";
 const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
 const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.png");
 const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
@@ -58,6 +60,15 @@ struct ClearedProviderProfile {
     service: Service,
     cleared: bool,
     cleared_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogLocation {
+    path: String,
+    exists: bool,
+    redaction_policy: String,
+    updated_at: String,
 }
 
 type CommandResult<T> = Result<T, CommandError>;
@@ -138,6 +149,10 @@ fn map_provider_refresh_error(error: String) -> CommandError {
     CommandError::new("provider_refresh_failed", message)
 }
 
+fn map_log_location_error() -> CommandError {
+    command_error("log_location_unavailable", "Log location is unavailable")
+}
+
 fn map_open_usage_page_error() -> CommandError {
     command_error(
         "open_usage_page_failed",
@@ -157,6 +172,23 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
         Service::Codex => browser_profile::BrowserProfileService::Codex,
         Service::Claude => browser_profile::BrowserProfileService::Claude,
     }
+}
+
+fn prepare_log_dir(path: &Path) -> CommandResult<()> {
+    fs::create_dir_all(path).map_err(|_| map_log_location_error())?;
+    set_restrictive_log_dir_permissions(path).map_err(|_| map_log_location_error())
+}
+
+#[cfg(unix)]
+fn set_restrictive_log_dir_permissions(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn set_restrictive_log_dir_permissions(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 impl ConfigLoadState {
@@ -235,6 +267,23 @@ fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> CommandResult<Vec<Usag
 #[tauri::command]
 fn get_display_state(engine: State<'_, UsageEngine>) -> CommandResult<UsageDisplayState> {
     engine.display_state().map_err(map_usage_state_error)
+}
+
+#[tauri::command]
+fn get_log_location(app: AppHandle) -> CommandResult<LogLocation> {
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|_| map_log_location_error())?;
+    prepare_log_dir(&log_dir)?;
+    let path = log_dir.join(LOG_FILE_NAME);
+
+    Ok(LogLocation {
+        exists: path.is_file(),
+        path: path.to_string_lossy().to_string(),
+        redaction_policy: LOG_REDACTION_POLICY_PATH.to_string(),
+        updated_at: usage::now_rfc3339(),
+    })
 }
 
 #[tauri::command]
@@ -581,6 +630,7 @@ pub fn run() {
             clear_provider_profile,
             get_app_config,
             get_display_state,
+            get_log_location,
             get_usage_snapshots,
             open_official_usage_page,
             refresh_provider,
@@ -706,6 +756,27 @@ mod tests {
                 "service": "codex",
                 "cleared": true,
                 "clearedAt": "2026-06-03T00:00:00Z"
+            })
+        );
+    }
+
+    #[test]
+    fn log_location_serializes_to_ipc_shape() {
+        let location = LogLocation {
+            path: "/tmp/forgegauge.log".to_string(),
+            exists: false,
+            redaction_policy: LOG_REDACTION_POLICY_PATH.to_string(),
+            updated_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        let value = serde_json::to_value(location).expect("log location serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "path": "/tmp/forgegauge.log",
+                "exists": false,
+                "redactionPolicy": "docs/security/log-redaction-policy.md",
+                "updatedAt": "2026-06-03T00:00:00Z"
             })
         );
     }

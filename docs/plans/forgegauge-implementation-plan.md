@@ -135,7 +135,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
 - [ ] Clear/delete actions for browser session data.
-- [ ] Basic failure logging view or log file location.
+- [x] Basic failure logging view or log file location.
 
 ## Core Concept
 
@@ -408,7 +408,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [ ] `reset_provider_session`
 - [x] `clear_cached_snapshots`
 - [x] `clear_provider_profile`
-- [ ] `get_log_location`
+- [x] `get_log_location`
 
 ### Emitted Events
 
@@ -788,7 +788,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Confirm release is published only after all build matrix jobs succeed.
 - [ ] Record any failing runner labels, action versions, package dependencies, or upload paths.
 - [ ] Add optional autostart setting.
-- [ ] Add basic failure logging view or log file location.
+- [x] Add basic failure logging view or log file location.
 
 ## UI Requirements
 

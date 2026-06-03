@@ -16,6 +16,14 @@ const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.
 const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
 const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TrayIconAsset {
+    Codex,
+    Claude,
+    Low,
+    Unknown,
+}
+
 struct ConfigLoadState {
     error: Mutex<Option<String>>,
 }
@@ -101,17 +109,30 @@ fn refresh_usage(
     engine.refresh_all_and_emit(&app)
 }
 
-fn tray_icon_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Image<'static> {
-    let bytes = match state.remaining_percent {
-        None => TRAY_UNKNOWN,
-        Some(percent) if percent <= low_usage_threshold => TRAY_LOW,
-        Some(_) => match state.service {
-            Service::Codex => TRAY_CODEX,
-            Service::Claude => TRAY_CLAUDE,
-        },
-    };
+impl TrayIconAsset {
+    fn bytes(self) -> &'static [u8] {
+        match self {
+            Self::Codex => TRAY_CODEX,
+            Self::Claude => TRAY_CLAUDE,
+            Self::Low => TRAY_LOW,
+            Self::Unknown => TRAY_UNKNOWN,
+        }
+    }
+}
 
-    Image::from_bytes(bytes)
+fn tray_icon_asset_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> TrayIconAsset {
+    match state.remaining_percent {
+        None => TrayIconAsset::Unknown,
+        Some(percent) if percent <= low_usage_threshold => TrayIconAsset::Low,
+        Some(_) => match state.service {
+            Service::Codex => TrayIconAsset::Codex,
+            Service::Claude => TrayIconAsset::Claude,
+        },
+    }
+}
+
+fn tray_icon_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Image<'static> {
+    Image::from_bytes(tray_icon_asset_for(state, low_usage_threshold).bytes())
         .expect("valid bundled tray icon")
         .to_owned()
 }
@@ -267,6 +288,13 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    fn tray_state(service: Service, remaining_percent: Option<f32>) -> usage::TrayGaugeState {
+        usage::TrayGaugeState {
+            service,
+            remaining_percent,
+        }
+    }
+
     #[test]
     fn config_load_state_reports_and_clears_startup_error() {
         let state = ConfigLoadState::new(Some("bad config".to_string()));
@@ -279,5 +307,37 @@ mod tests {
         state.clear_error().expect("state clear succeeds");
 
         assert_eq!(state.current_error().expect("state lock succeeds"), None);
+    }
+
+    #[test]
+    fn unknown_tray_state_uses_unknown_icon_asset() {
+        assert_eq!(
+            tray_icon_asset_for(tray_state(Service::Codex, None), 20.0),
+            TrayIconAsset::Unknown
+        );
+    }
+
+    #[test]
+    fn low_tray_state_uses_low_icon_asset_at_threshold() {
+        assert_eq!(
+            tray_icon_asset_for(tray_state(Service::Claude, Some(20.0)), 20.0),
+            TrayIconAsset::Low
+        );
+    }
+
+    #[test]
+    fn codex_tray_state_uses_codex_icon_asset_above_threshold() {
+        assert_eq!(
+            tray_icon_asset_for(tray_state(Service::Codex, Some(21.0)), 20.0),
+            TrayIconAsset::Codex
+        );
+    }
+
+    #[test]
+    fn claude_tray_state_uses_claude_icon_asset_above_threshold() {
+        assert_eq!(
+            tray_icon_asset_for(tray_state(Service::Claude, Some(21.0)), 20.0),
+            TrayIconAsset::Claude
+        );
     }
 }

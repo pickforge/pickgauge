@@ -544,7 +544,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Use configured low-usage threshold for low icon selection.
 - [x] Use unknown icon when no service has a known remaining value.
 - [x] Keep dynamic percentage gauges deferred until provider values are calibrated.
-- [ ] Add unit tests for tray state/icon selection.
+- [x] Add unit tests for tray state/icon selection.
 - [ ] Run manual visual smoke test on KDE.
 
 ### Phase 3 — Config Store

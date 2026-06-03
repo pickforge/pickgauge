@@ -230,6 +230,14 @@ dl {
   margin-top: 16px;
 }
 
+.snapshot-note {
+  margin-top: 14px;
+  color: #a1440c;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 dt {
   color: #647084;
   font-size: 0.72rem;

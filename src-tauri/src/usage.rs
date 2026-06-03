@@ -406,8 +406,9 @@ impl UsageEngine {
     }
 
     pub fn display_state(&self) -> Result<UsageDisplayState, String> {
+        let now = self.clock.now_rfc3339();
         let state = self.lock()?;
-        Ok(state.display_state())
+        Ok(state.display_state(&now))
     }
 
     pub fn snapshots(&self) -> Result<Vec<UsageSnapshot>, String> {
@@ -420,7 +421,7 @@ impl UsageEngine {
 
         state.snapshots.clear();
         state.last_updated = now;
-        Ok(state.display_state())
+        Ok(state.display_state(&state.last_updated))
     }
 
     pub fn refresh_all(&self) -> Result<UsageDisplayState, String> {
@@ -499,9 +500,9 @@ impl UsageEngine {
         }
 
         if policy == RefreshPolicy::Manual || refreshed_any {
-            state.last_updated = now;
+            state.last_updated = now.clone();
         }
-        Ok(state.display_state())
+        Ok(state.display_state(&now))
     }
 
     pub fn refresh_provider_source(
@@ -551,8 +552,8 @@ impl UsageEngine {
 
         let mut state = self.lock()?;
         state.snapshots.insert(snapshot.service, snapshot);
-        state.last_updated = now;
-        Ok(state.display_state())
+        state.last_updated = now.clone();
+        Ok(state.display_state(&now))
     }
 
     pub fn refresh_all_and_emit(&self, app: &AppHandle) -> Result<UsageDisplayState, String> {
@@ -721,8 +722,11 @@ impl UsageEngine {
 }
 
 impl UsageEngineState {
-    fn display_state(&self) -> UsageDisplayState {
+    fn display_state(&self, now: &str) -> UsageDisplayState {
         let mut snapshots = self.snapshots.values().cloned().collect::<Vec<_>>();
+        for snapshot in &mut snapshots {
+            add_stale_details(snapshot, &self.config, now);
+        }
         snapshots.sort_by_key(|snapshot| match snapshot.service {
             Service::Codex => 0,
             Service::Claude => 1,
@@ -945,6 +949,29 @@ fn add_failure_details(snapshot: &mut UsageSnapshot, failure: &ProviderFailureSt
             serde_json::json!(failure.retry_after),
         );
     }
+}
+
+fn add_stale_details(snapshot: &mut UsageSnapshot, config: &AppConfig, now: &str) {
+    let Some(stale_seconds) = snapshot_age_seconds(&snapshot.last_updated, now) else {
+        return;
+    };
+    let stale = stale_seconds > provider_refresh_interval(config, snapshot.source).as_secs();
+
+    if let Some(details) = snapshot.details.as_object_mut() {
+        details.insert("stale".to_string(), serde_json::json!(stale));
+        details.insert("staleSeconds".to_string(), serde_json::json!(stale_seconds));
+    }
+}
+
+fn snapshot_age_seconds(last_updated: &str, now: &str) -> Option<u64> {
+    let last_updated = parse_rfc3339(last_updated)?;
+    let now = parse_rfc3339(now)?;
+
+    if now < last_updated {
+        return Some(0);
+    }
+
+    u64::try_from((now - last_updated).whole_seconds()).ok()
 }
 
 fn provider_backoff_seconds(consecutive_failures: u32) -> u64 {
@@ -1624,6 +1651,34 @@ mod tests {
 
         assert_eq!(refreshed.updated_at, "2026-06-03T23:00:01Z");
         assert_eq!(refreshed.snapshots.len(), 1);
+    }
+
+    #[test]
+    fn display_state_marks_cached_snapshots_stale_after_source_interval() {
+        let config = AppConfig {
+            intervals: crate::config::RefreshIntervals {
+                local_seconds: 30,
+                web_minutes: 15,
+                manual_web_refresh_cooldown_seconds: 60,
+                gauge_switch_seconds: 6,
+            },
+            ..config_with_services(true, false)
+        };
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(SequenceClock::new(&[
+                "2026-06-03T22:59:00Z",
+                "2026-06-03T23:00:00Z",
+                "2026-06-03T23:00:31Z",
+            ])),
+        );
+
+        engine.refresh_all().expect("manual refresh succeeds");
+        let display_state = engine.display_state().expect("display state loads");
+        let details = &display_state.snapshots[0].details;
+
+        assert_eq!(details["stale"], true);
+        assert_eq!(details["staleSeconds"], 31);
     }
 
     #[test]

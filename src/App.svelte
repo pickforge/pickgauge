@@ -88,6 +88,10 @@
     }).format(parsed);
   }
 
+  function snapshotIsStale(snapshot: UsageSnapshot) {
+    return snapshot.details.stale === true;
+  }
+
   function profilePathValue(value: string | null) {
     return value ?? "";
   }
@@ -298,6 +302,10 @@
             </div>
           </dl>
         </div>
+
+        {#if snapshotIsStale(snapshot)}
+          <p class="snapshot-note">Stale data</p>
+        {/if}
 
         <div class="card-actions">
           <button

@@ -345,7 +345,7 @@ Current frontend and backend models include a temporary `fake` source while real
 - [x] Use RFC3339 timestamps for machine-readable `last_updated` values.
 - [x] Add separate human-readable formatting in the frontend instead of storing display strings in backend models.
 - [x] Add provider identifier fields such as `provider_id`, `source`, and sanitized `status`.
-- [ ] Add stale metadata: `stale`, `stale_seconds`, `baseline_at`, and `last_official_check_at` where relevant.
+- [x] Add stale metadata: `stale`, `stale_seconds`, `baseline_at`, and `last_official_check_at` where relevant.
 - [x] Add error metadata as stable codes, not raw error strings.
 - [x] Add serialization tests for expected IPC JSON payload shapes.
 
@@ -625,7 +625,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Reset retry/backoff state on provider success.
 - [x] Add sanitized tracing/logging policy for provider lifecycle events.
 - [x] Add unit tests for scheduler timing boundaries.
-- [ ] Add unit tests for overlap skipping, disable cancellation, retry/backoff reset, and stale snapshots.
+- [x] Add unit tests for overlap skipping, disable cancellation, retry/backoff reset, and stale snapshots.
 
 ### Phase 5 — Claude Code Local Provider
 
@@ -813,7 +813,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Shows last update text.
 - [x] Shows settings controls.
 - [ ] Shows last official check when web provider exists.
-- [ ] Shows stale data messaging.
+- [x] Shows stale data messaging.
 - [ ] Shows login-required state.
 - [x] Adds "Refresh now" action.
 - [x] Adds "Open official Codex page" action.

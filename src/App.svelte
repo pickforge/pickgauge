@@ -12,6 +12,7 @@
     defaultConfig,
     fallbackSnapshots,
     type AppConfig,
+    type ClearedProviderProfile,
     type CommandError,
     type OfficialUsagePage,
     type Service,
@@ -23,6 +24,9 @@
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
   let loading = $state(true);
   let saving = $state(false);
+  let refreshing = $state(false);
+  let clearingSnapshots = $state(false);
+  let clearingProfile = $state<Service | null>(null);
   let openingService = $state<Service | null>(null);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
@@ -184,6 +188,63 @@
       error = formatError(caught, `Could not open ${serviceLabels[service]} usage page`);
     } finally {
       openingService = null;
+    }
+  }
+
+  async function refreshNow() {
+    refreshing = true;
+    statusMessage = null;
+
+    try {
+      const displayState = await invoke<UsageDisplayState>("refresh_usage");
+      snapshots = displayState.snapshots;
+      error = null;
+      statusMessage = "Usage refreshed";
+    } catch (caught) {
+      error = formatError(caught, "Could not refresh usage");
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  async function clearSnapshotCache() {
+    if (!confirm("Clear cached usage snapshots?")) {
+      return;
+    }
+
+    clearingSnapshots = true;
+    statusMessage = null;
+
+    try {
+      const displayState = await invoke<UsageDisplayState>("clear_cached_snapshots");
+      snapshots = displayState.snapshots;
+      error = null;
+      statusMessage = "Cached usage snapshots cleared";
+    } catch (caught) {
+      error = formatError(caught, "Could not clear cached usage");
+    } finally {
+      clearingSnapshots = false;
+    }
+  }
+
+  async function clearProviderProfile(service: Service) {
+    if (!confirm(`Clear the app-owned ${serviceLabels[service]} browser profile?`)) {
+      return;
+    }
+
+    clearingProfile = service;
+    statusMessage = null;
+
+    try {
+      const result = await invoke<ClearedProviderProfile>("clear_provider_profile", { service });
+      error = null;
+      statusMessage = result.cleared
+        ? `Cleared ${serviceLabels[service]} browser profile`
+        : `${serviceLabels[service]} browser profile was already clear`;
+    } catch (caught) {
+      error = formatError(caught, `Could not clear ${serviceLabels[service]} browser profile`);
+    } finally {
+      clearingProfile = null;
     }
   }
 </script>
@@ -414,6 +475,36 @@
     <button class="save-button" type="button" disabled={saving} onclick={saveSettings}>
       {saving ? "Saving…" : "Save settings"}
     </button>
+
+    <div class="maintenance-grid" aria-label="Maintenance actions">
+      <button class="secondary-button" type="button" disabled={refreshing} onclick={refreshNow}>
+        {refreshing ? "Refreshing..." : "Refresh now"}
+      </button>
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={clearingSnapshots}
+        onclick={clearSnapshotCache}
+      >
+        {clearingSnapshots ? "Clearing..." : "Clear cache"}
+      </button>
+      <button
+        class="secondary-button danger"
+        type="button"
+        disabled={clearingProfile === "codex"}
+        onclick={() => clearProviderProfile("codex")}
+      >
+        {clearingProfile === "codex" ? "Clearing..." : "Clear Codex profile"}
+      </button>
+      <button
+        class="secondary-button danger"
+        type="button"
+        disabled={clearingProfile === "claude"}
+        onclick={() => clearProviderProfile("claude")}
+      >
+        {clearingProfile === "claude" ? "Clearing..." : "Clear Claude profile"}
+      </button>
+    </div>
   </section>
 
   {#if loading}

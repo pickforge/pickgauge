@@ -134,7 +134,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Merge engine for web baselines plus local deltas.
 - [ ] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
-- [ ] Clear/delete actions for browser session data.
+- [x] Clear/delete actions for browser session data.
 - [x] Basic failure logging view or log file location.
 
 ## Core Concept
@@ -711,7 +711,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Add manual login window flow.
 - [ ] Surface login-required state to UI.
 - [ ] Add session reset/logout action.
-- [ ] Add guarded clear/delete action for browser profile data.
+- [x] Add guarded clear/delete action for browser profile data.
 - [ ] Stop managed browser before deleting browser session data.
 - [ ] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
 - [x] Add negative tests for unsafe browser profile paths.
@@ -815,10 +815,10 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Shows last official check when web provider exists.
 - [ ] Shows stale data messaging.
 - [ ] Shows login-required state.
-- [ ] Adds "Refresh now" action.
+- [x] Adds "Refresh now" action.
 - [x] Adds "Open official Codex page" action.
 - [x] Adds "Open official Claude usage page" action.
-- [ ] Adds guarded reset/clear actions.
+- [x] Adds guarded reset/clear actions.
 
 ### Settings
 

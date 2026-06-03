@@ -10,8 +10,6 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub const SNAPSHOTS_UPDATED_EVENT: &str = "usage://snapshots-updated";
 
-const PROVIDER_FAKE: &str = "fake";
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Service {
@@ -81,14 +79,23 @@ pub enum UsageProviderError {
     Internal,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UsageProviderId {
+    CodexLocal,
+    CodexWeb,
+    ClaudeLocal,
+    ClaudeWeb,
+    Fake,
+}
+
 trait UsageProvider: Send + Sync {
-    fn provider_id(&self) -> &'static str;
+    fn provider_id(&self) -> UsageProviderId;
     fn service(&self) -> Service;
     fn source(&self) -> UsageSource;
     fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError>;
 
     fn provider_key(&self) -> String {
-        format!("{}.{}", self.service().code(), self.provider_id())
+        self.provider_id().refresh_key(self.service())
     }
 }
 
@@ -153,6 +160,36 @@ impl UsageProviderError {
             Self::UnexpectedUi => "unexpected_ui",
             Self::UnsafePath => "unsafe_path",
             Self::Internal => "internal",
+        }
+    }
+}
+
+impl UsageProviderId {
+    pub fn for_service_source(service: Service, source: UsageSource) -> Option<Self> {
+        match (service, source) {
+            (Service::Codex, UsageSource::Local) => Some(Self::CodexLocal),
+            (Service::Codex, UsageSource::Web) => Some(Self::CodexWeb),
+            (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
+            (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
+            (_, UsageSource::Fake) => Some(Self::Fake),
+            (_, UsageSource::Merged) => None,
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::CodexLocal => "codex.local",
+            Self::CodexWeb => "codex.web",
+            Self::ClaudeLocal => "claude.local",
+            Self::ClaudeWeb => "claude.web",
+            Self::Fake => "fake",
+        }
+    }
+
+    fn refresh_key(self, service: Service) -> String {
+        match self {
+            Self::Fake => format!("{}.{}", service.code(), self.code()),
+            _ => self.code().to_string(),
         }
     }
 }
@@ -301,12 +338,12 @@ impl UsageEngine {
         now: &str,
     ) -> Result<UsageSnapshot, UsageProviderError> {
         match (provider.provider_id, provider.service) {
-            (PROVIDER_FAKE, Service::Codex) => FakeUsageProvider {
+            (UsageProviderId::Fake, Service::Codex) => FakeUsageProvider {
                 service: Service::Codex,
                 remaining_percent: 72.0,
             }
             .refresh(now),
-            (PROVIDER_FAKE, Service::Claude) => FakeUsageProvider {
+            (UsageProviderId::Fake, Service::Claude) => FakeUsageProvider {
                 service: Service::Claude,
                 remaining_percent: 41.0,
             }
@@ -364,8 +401,9 @@ impl AppConfig {
 }
 
 impl UsageProvider for FakeUsageProvider {
-    fn provider_id(&self) -> &'static str {
-        PROVIDER_FAKE
+    fn provider_id(&self) -> UsageProviderId {
+        UsageProviderId::for_service_source(self.service(), self.source())
+            .expect("fake providers have a provider id")
     }
 
     fn service(&self) -> Service {
@@ -387,7 +425,7 @@ impl UsageProvider for FakeUsageProvider {
             last_updated: now.to_string(),
             details: serde_json::json!({
                 "status": "placeholder",
-                "providerId": self.provider_id(),
+                "providerId": self.provider_id().code(),
                 "source": self.source().code(),
             }),
         })
@@ -396,7 +434,7 @@ impl UsageProvider for FakeUsageProvider {
 
 struct ProviderDescriptor {
     provider_key: String,
-    provider_id: &'static str,
+    provider_id: UsageProviderId,
     service: Service,
     source: UsageSource,
 }
@@ -436,7 +474,7 @@ fn error_snapshot(
         last_updated: now.to_string(),
         details: serde_json::json!({
             "status": error.code(),
-            "providerId": provider.provider_id,
+            "providerId": provider.provider_id.code(),
             "source": provider.source.code(),
         }),
     }
@@ -603,7 +641,7 @@ mod tests {
     fn provider_errors_map_to_sanitized_unknown_snapshots() {
         let provider = ProviderDescriptor {
             provider_key: "codex.fake".to_string(),
-            provider_id: PROVIDER_FAKE,
+            provider_id: UsageProviderId::Fake,
             service: Service::Codex,
             source: UsageSource::Fake,
         };
@@ -617,7 +655,53 @@ mod tests {
         assert_eq!(snapshot.used_percent, None);
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "parse_failed");
-        assert_eq!(snapshot.details["providerId"], PROVIDER_FAKE);
+        assert_eq!(snapshot.details["providerId"], UsageProviderId::Fake.code());
         assert!(snapshot.details.get("raw").is_none());
+    }
+
+    #[test]
+    fn provider_ids_are_stable() {
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Codex, UsageSource::Local)
+                .expect("codex local id")
+                .code(),
+            "codex.local"
+        );
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Codex, UsageSource::Web)
+                .expect("codex web id")
+                .code(),
+            "codex.web"
+        );
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Claude, UsageSource::Local)
+                .expect("claude local id")
+                .code(),
+            "claude.local"
+        );
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Claude, UsageSource::Web)
+                .expect("claude web id")
+                .code(),
+            "claude.web"
+        );
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Codex, UsageSource::Fake)
+                .expect("fake id")
+                .code(),
+            "fake"
+        );
+    }
+
+    #[test]
+    fn fake_provider_refresh_keys_remain_per_service() {
+        assert_eq!(
+            UsageProviderId::Fake.refresh_key(Service::Codex),
+            "codex.fake"
+        );
+        assert_eq!(
+            UsageProviderId::Fake.refresh_key(Service::Claude),
+            "claude.fake"
+        );
     }
 }

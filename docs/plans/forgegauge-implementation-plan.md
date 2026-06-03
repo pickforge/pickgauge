@@ -599,7 +599,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add shared display-state cache consumed by both tray rotation and frontend commands.
 - [x] Replace hard-coded tray fake values in `lib.rs` with cached display state.
 - [x] Add Tauri commands/events for frontend usage updates.
-- [ ] Define provider IDs for `codex.local`, `codex.web`, `claude.local`, `claude.web`, and `fake`.
+- [x] Define provider IDs for `codex.local`, `codex.web`, `claude.local`, `claude.web`, and `fake`.
 - [ ] Define provider timeout behavior.
 - [ ] Define provider cancellation behavior.
 - [ ] Define mockable clock/time source for tests.

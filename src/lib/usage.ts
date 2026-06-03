@@ -25,6 +25,12 @@ export type CommandError = {
   message: string;
 };
 
+export type OfficialUsagePage = {
+  service: Service;
+  url: string;
+  openedAt: string;
+};
+
 export type LocalServiceQuotaSettings = {
   enabled: boolean;
   planLabel: string;

@@ -15,7 +15,11 @@ use usage::{
     UsageRefreshStatus, UsageSnapshot, UsageSource,
 };
 
+use tauri_plugin_opener::OpenerExt;
+
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
+const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
+const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
 const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
 const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.png");
 const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
@@ -38,6 +42,14 @@ struct ConfigLoadState {
 struct CommandError {
     code: String,
     message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfficialUsagePage {
+    service: Service,
+    url: String,
+    opened_at: String,
 }
 
 type CommandResult<T> = Result<T, CommandError>;
@@ -118,6 +130,20 @@ fn map_provider_refresh_error(error: String) -> CommandError {
     CommandError::new("provider_refresh_failed", message)
 }
 
+fn map_open_usage_page_error() -> CommandError {
+    command_error(
+        "open_usage_page_failed",
+        "Could not open official usage page",
+    )
+}
+
+fn official_usage_url(service: Service) -> &'static str {
+    match service {
+        Service::Codex => CODEX_USAGE_URL,
+        Service::Claude => CLAUDE_USAGE_URL,
+    }
+}
+
 impl ConfigLoadState {
     fn new(error: Option<String>) -> Self {
         Self {
@@ -194,6 +220,21 @@ fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> CommandResult<Vec<Usag
 #[tauri::command]
 fn get_display_state(engine: State<'_, UsageEngine>) -> CommandResult<UsageDisplayState> {
     engine.display_state().map_err(map_usage_state_error)
+}
+
+#[tauri::command]
+fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<OfficialUsagePage> {
+    let url = official_usage_url(service);
+
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|_| map_open_usage_page_error())?;
+
+    Ok(OfficialUsagePage {
+        service,
+        url: url.to_string(),
+        opened_at: usage::now_rfc3339(),
+    })
 }
 
 #[tauri::command]
@@ -503,10 +544,12 @@ pub fn run() {
             get_app_config,
             get_display_state,
             get_usage_snapshots,
+            open_official_usage_page,
             refresh_provider,
             refresh_usage,
             update_app_config
         ])
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let (config, config_error) = match config::load(&app_handle) {
@@ -576,6 +619,37 @@ mod tests {
         assert_eq!(
             error,
             CommandError::new("config_save_failed", "Could not save app settings")
+        );
+    }
+
+    #[test]
+    fn official_usage_page_serializes_to_ipc_shape() {
+        let page = OfficialUsagePage {
+            service: Service::Claude,
+            url: official_usage_url(Service::Claude).to_string(),
+            opened_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        let value = serde_json::to_value(page).expect("official page serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "service": "claude",
+                "url": "https://claude.ai/new#settings/usage",
+                "openedAt": "2026-06-03T00:00:00Z"
+            })
+        );
+    }
+
+    #[test]
+    fn official_usage_urls_match_services() {
+        assert_eq!(
+            official_usage_url(Service::Codex),
+            "https://chatgpt.com/codex/cloud/settings/analytics"
+        );
+        assert_eq!(
+            official_usage_url(Service::Claude),
+            "https://claude.ai/new#settings/usage"
         );
     }
 

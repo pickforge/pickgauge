@@ -403,7 +403,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `get_display_state`
 - [x] `refresh_usage`
 - [x] `refresh_provider`
-- [ ] `open_official_usage_page`
+- [x] `open_official_usage_page`
 - [ ] `start_provider_login`
 - [ ] `reset_provider_session`
 - [x] `clear_cached_snapshots`

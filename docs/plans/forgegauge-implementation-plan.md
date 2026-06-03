@@ -280,7 +280,7 @@ Config changes must be implemented before adding browser profile paths, quota/wi
 - [x] Write atomically through a temporary file and rename.
 - [x] Avoid partially written config files on crash where practical.
 - [x] Use restrictive file permissions for config and profile marker files where supported.
-- [ ] Add tests for:
+- [x] Add tests for:
   - [x] missing config file
   - [x] current config round trip
   - [x] old config migration

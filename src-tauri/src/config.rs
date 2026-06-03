@@ -9,7 +9,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 const CONFIG_FILE_NAME: &str = "config.json";
-const CONFIG_VERSION: u32 = 1;
+const CONFIG_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub providers: ProviderSettings,
     pub intervals: RefreshIntervals,
     pub low_usage_threshold: f32,
+    pub browser_profiles: BrowserProfileSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -44,6 +45,14 @@ pub struct RefreshIntervals {
     pub gauge_switch_seconds: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserProfileSettings {
+    pub root_path: Option<String>,
+    pub codex_path: Option<String>,
+    pub claude_path: Option<String>,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -63,6 +72,11 @@ impl Default for AppConfig {
                 gauge_switch_seconds: 6,
             },
             low_usage_threshold: 20.0,
+            browser_profiles: BrowserProfileSettings {
+                root_path: None,
+                codex_path: None,
+                claude_path: None,
+            },
         }
     }
 }
@@ -159,10 +173,57 @@ impl ConfigValueMigration for Value {
         }
 
         object.insert("version".to_string(), Value::from(version));
+        migrate_config_value(&mut self)?;
         fill_missing_defaults(&mut self)?;
 
         Ok(self)
     }
+}
+
+fn migrate_config_value(value: &mut Value) -> Result<(), String> {
+    loop {
+        let version = config_value_version(value)?;
+
+        if version == CONFIG_VERSION {
+            return Ok(());
+        }
+
+        match version {
+            1 => migrate_v1_to_v2(value)?,
+            _ => {
+                return Err(format!(
+                    "No migration is available for config version {version}"
+                ));
+            }
+        }
+    }
+}
+
+fn migrate_v1_to_v2(value: &mut Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Config root must be a JSON object".to_string())?;
+    object
+        .entry("browserProfiles".to_string())
+        .or_insert_with(|| {
+            serde_json::json!({
+                "rootPath": null,
+                "codexPath": null,
+                "claudePath": null,
+            })
+        });
+    object.insert("version".to_string(), Value::from(2));
+    Ok(())
+}
+
+fn config_value_version(value: &Value) -> Result<u32, String> {
+    let version = value
+        .as_object()
+        .and_then(|object| object.get("version"))
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "Config version must be an integer".to_string())?;
+
+    u32::try_from(version).map_err(|_| format!("Config version {version} is too large"))
 }
 
 fn fill_missing_defaults(value: &mut Value) -> Result<(), String> {
@@ -395,6 +456,77 @@ mod tests {
         assert_eq!(config.intervals.web_minutes, 30);
         assert_eq!(config.intervals.manual_web_refresh_cooldown_seconds, 60);
         assert_eq!(config.intervals.gauge_switch_seconds, 6);
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(
+            config.browser_profiles,
+            BrowserProfileSettings {
+                root_path: None,
+                codex_path: None,
+                claude_path: None,
+            }
+        );
+    }
+
+    #[test]
+    fn v1_config_migrates_to_v2_with_browser_profile_defaults() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        fs::write(
+            &path,
+            r#"{
+  "version": 1,
+  "enabledServices": {
+    "codex": true,
+    "claude": false
+  },
+  "providers": {
+    "localEnabled": true,
+    "webEnabled": true
+  },
+  "intervals": {
+    "localSeconds": 45,
+    "webMinutes": 30,
+    "manualWebRefreshCooldownSeconds": 90,
+    "gaugeSwitchSeconds": 6
+  },
+  "lowUsageThreshold": 15
+}"#,
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("v1 config migrates");
+
+        assert_eq!(config.version, 2);
+        assert!(config.enabled_services.codex);
+        assert!(!config.enabled_services.claude);
+        assert!(config.providers.web_enabled);
+        assert_eq!(
+            config.browser_profiles,
+            BrowserProfileSettings {
+                root_path: None,
+                codex_path: None,
+                claude_path: None,
+            }
+        );
+    }
+
+    #[test]
+    fn current_config_preserves_browser_profile_settings() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let config = AppConfig {
+            browser_profiles: BrowserProfileSettings {
+                root_path: Some("/tmp/forgegauge/browser".to_string()),
+                codex_path: Some("/tmp/forgegauge/codex".to_string()),
+                claude_path: Some("/tmp/forgegauge/claude".to_string()),
+            },
+            ..AppConfig::default()
+        };
+
+        save_to_path(&path, &config).expect("config saves");
+        let loaded = load_from_path(&path).expect("config loads");
+
+        assert_eq!(loaded.browser_profiles, config.browser_profiles);
     }
 
     #[test]

@@ -37,10 +37,15 @@ export type AppConfig = {
     gaugeSwitchSeconds: number;
   };
   lowUsageThreshold: number;
+  browserProfiles: {
+    rootPath: string | null;
+    codexPath: string | null;
+    claudePath: string | null;
+  };
 };
 
 export const defaultConfig: AppConfig = {
-  version: 1,
+  version: 2,
   enabledServices: {
     codex: true,
     claude: true,
@@ -56,6 +61,11 @@ export const defaultConfig: AppConfig = {
     gaugeSwitchSeconds: 6,
   },
   lowUsageThreshold: 20,
+  browserProfiles: {
+    rootPath: null,
+    codexPath: null,
+    claudePath: null,
+  },
 };
 
 export const fallbackSnapshots: UsageSnapshot[] = [

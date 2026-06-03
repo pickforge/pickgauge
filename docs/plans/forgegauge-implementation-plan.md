@@ -12,7 +12,7 @@ Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone 
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
 
-Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, and interval/cooldown clamping. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the cooldown control was added. Explicit sequential migrations beyond version 1, failed-migration rollback tests, and browser profile path handling remain unchecked.
+Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, interval/cooldown clamping, and v1 migration. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the cooldown control was added. Failed-migration rollback tests, browser profile path validation/ownership markers, and browser profile path UI controls remain unchecked.
 
 Supersedes:
 
@@ -271,8 +271,8 @@ Config changes must be implemented before adding browser profile paths, quota/wi
 
 - [x] Keep `version` as a monotonic integer.
 - [x] Parse raw JSON first so older configs can migrate before typed `AppConfig` deserialization.
-- [ ] Migrate sequentially: `v1 -> v2 -> v3`, never by skipping unknown versions.
-- [ ] Reject future config versions with a recoverable UI error.
+- [x] Migrate sequentially: `v1 -> v2 -> v3`, never by skipping unknown versions.
+- [x] Reject future config versions with a recoverable UI error.
 - [x] Fill defaults for newly introduced fields during migration.
 - [ ] Preserve the previous config file if migration fails.
 - [x] Write atomically through a temporary file and rename.
@@ -564,8 +564,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Preserve the previous config on parse, migration, serialization, or write failure.
 - [x] Surface recoverable config errors in the UI without crashing startup.
 - [x] Add settings UI for manual web-refresh cooldown if user-facing control is needed.
-- [ ] Add browser profile root setting.
-- [ ] Add optional per-service browser profile path overrides.
+- [x] Add browser profile root setting.
+- [x] Add optional per-service browser profile path overrides.
 - [ ] Add optional manual plan/quota/window configuration for local estimates.
 - [ ] Define quota/window schema per service:
   - [ ] plan label
@@ -574,7 +574,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [ ] usage unit
   - [ ] user-entered limit
   - [ ] enabled flag
-- [ ] Add sequential config migrations.
+- [x] Add sequential config migrations.
 - [ ] Preserve previous config file on failed migrations.
 - [ ] Add browser profile path validation and ownership markers.
 - [x] Add unit tests for config defaults and round-trip serialization.

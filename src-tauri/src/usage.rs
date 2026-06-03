@@ -99,8 +99,13 @@ trait UsageProvider: Send + Sync {
     }
 }
 
+trait Clock: Send + Sync {
+    fn now_rfc3339(&self) -> String;
+}
+
 pub struct UsageEngine {
     inner: Mutex<UsageEngineState>,
+    clock: Box<dyn Clock>,
 }
 
 struct UsageEngineState {
@@ -116,6 +121,8 @@ struct FakeUsageProvider {
     service: Service,
     remaining_percent: f32,
 }
+
+struct SystemClock;
 
 impl Service {
     pub fn code(self) -> &'static str {
@@ -194,6 +201,12 @@ impl UsageProviderId {
     }
 }
 
+impl Clock for SystemClock {
+    fn now_rfc3339(&self) -> String {
+        now_rfc3339()
+    }
+}
+
 impl UsageDisplayState {
     pub fn tray_states(&self) -> Vec<TrayGaugeState> {
         let mut states: Vec<_> = self
@@ -223,7 +236,12 @@ impl UsageDisplayState {
 
 impl UsageEngine {
     pub fn new(config: AppConfig) -> Self {
+        Self::with_clock(config, Box::new(SystemClock))
+    }
+
+    fn with_clock(config: AppConfig, clock: Box<dyn Clock>) -> Self {
         let config = config.normalized();
+        let last_updated = clock.now_rfc3339();
 
         Self {
             inner: Mutex::new(UsageEngineState {
@@ -231,8 +249,9 @@ impl UsageEngine {
                 config,
                 snapshots: HashMap::new(),
                 active_provider_keys: HashSet::new(),
-                last_updated: now_rfc3339(),
+                last_updated,
             }),
+            clock,
         }
     }
 
@@ -293,7 +312,7 @@ impl UsageEngine {
         };
 
         let mut refreshed = Vec::new();
-        let now = now_rfc3339();
+        let now = self.clock.now_rfc3339();
 
         for provider in providers {
             if !self.try_begin_refresh(provider.provider_key.clone())? {
@@ -490,6 +509,16 @@ fn now_rfc3339() -> String {
 mod tests {
     use super::*;
 
+    struct FixedClock {
+        now: String,
+    }
+
+    impl Clock for FixedClock {
+        fn now_rfc3339(&self) -> String {
+            self.now.clone()
+        }
+    }
+
     fn config_with_services(codex: bool, claude: bool) -> AppConfig {
         AppConfig {
             enabled_services: crate::config::ServiceToggles { codex, claude },
@@ -508,6 +537,25 @@ mod tests {
         assert_eq!(display_state.snapshots[0].source, UsageSource::Fake);
         assert_eq!(display_state.snapshots[1].service, Service::Claude);
         assert_eq!(display_state.snapshots[1].remaining_percent, Some(41.0));
+    }
+
+    #[test]
+    fn refresh_uses_injected_clock_for_snapshots_and_display_state() {
+        let now = "2026-06-03T21:30:00Z";
+        let engine = UsageEngine::with_clock(
+            AppConfig::default(),
+            Box::new(FixedClock {
+                now: now.to_string(),
+            }),
+        );
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+
+        assert_eq!(display_state.updated_at, now);
+        assert!(display_state
+            .snapshots
+            .iter()
+            .all(|snapshot| snapshot.last_updated == now));
     }
 
     #[test]

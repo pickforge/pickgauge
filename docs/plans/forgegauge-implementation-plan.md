@@ -602,7 +602,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Define provider IDs for `codex.local`, `codex.web`, `claude.local`, `claude.web`, and `fake`.
 - [ ] Define provider timeout behavior.
 - [ ] Define provider cancellation behavior.
-- [ ] Define mockable clock/time source for tests.
+- [x] Define mockable clock/time source for tests.
 - [x] Ensure one active refresh per provider.
 - [x] Skip overlapping scheduled refresh ticks.
 - [x] Cancel pending refreshes when a provider is disabled.

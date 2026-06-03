@@ -15,6 +15,11 @@ export type UsageSnapshot = {
   details: Record<string, unknown>;
 };
 
+export type UsageDisplayState = {
+  snapshots: UsageSnapshot[];
+  updatedAt: string;
+};
+
 export type AppConfig = {
   version: number;
   enabledServices: {

@@ -8,6 +8,8 @@ Current app state: **early Tauri/Svelte MVP with fake usage data, persisted sett
 
 Last readiness review: source checked against this plan after consolidation. The plan is now intended to be executable as the active backlog, with unchecked items representing the remaining implementation work.
 
+Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone for the fake-provider path. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Browser preview smoke checks covered desktop and mobile layouts, settings checkbox interaction, and overflow checks via Playwright; full KDE/Wayland tray smoke testing remains unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -71,6 +73,8 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Web providers default to disabled.
 - [x] Fake usage snapshot command added and driven by enabled-service settings.
 - [x] Tray tooltip reflects the active service and remaining percentage.
+- [x] Central `UsageEngine` added with a fake provider registry, latest snapshot cache, shared display-state cache, and snapshot update event.
+- [x] Tray rotation and frontend snapshot commands now read from the same display-state cache.
 - [x] AppImage build fixed on CachyOS/Arch-like systems with `NO_STRIP=1`.
 - [x] `npm run build:appimage` added.
 - [x] GitHub Actions release workflow added for queued Linux AppImage, Windows, macOS Intel, and macOS Apple Silicon artifacts.
@@ -100,8 +104,8 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Claude Code local provider.
 - [ ] Codex local provider.
 - [ ] Provider registry with scheduled refresh, backoff, and event streaming.
-- [ ] Shared display-state cache used by both tray rotation and frontend snapshots.
-- [ ] Snapshot cache for latest provider results.
+- [x] Shared display-state cache used by both tray rotation and frontend snapshots.
+- [x] Snapshot cache for latest provider results.
 - [ ] Calibrated local quota/window estimates.
 - [ ] Config migration and atomic persistence layer.
 - [ ] Browser profile path configuration, validation, ownership markers, and cleanup guardrails.
@@ -139,8 +143,8 @@ ForgeGauge uses two data sources and one display pipeline:
 
 ## Implementation Readiness Notes
 
-- Current source has a **usage snapshot model and fake snapshot command**, not a central usage engine yet.
-- Current tray values are hard-coded in `src-tauri/src/lib.rs` separately from `usage::current_snapshots`; Phase 4 must replace this with one shared display-state cache.
+- Current source has a **central `UsageEngine` with a fake provider registry, latest snapshot cache, shared display-state cache, and snapshot update event**; real providers are not implemented yet.
+- Current tray values read from the shared display-state cache instead of hard-coded fake values in `src-tauri/src/lib.rs`.
 - Current app window is configured as visible, centered, and resizable in `src-tauri/tauri.conf.json`; Phase 1/10 must decide and implement tray-first window lifecycle behavior.
 - Current Rust dependencies are intentionally minimal: `serde`, `serde_json`, and `tauri`. Any async runtime, time, logging, filesystem walking, browser automation, opener, or path-dialog dependencies must be added deliberately with validation.
 - Current Tauri permissions are only `core:default`; browser/session/open-url/path features will require explicit capability review before implementation.
@@ -156,10 +160,10 @@ Build in this order to avoid rework:
    - [ ] Add fallback close/dismiss behavior if focus-loss dismissal is unreliable.
 
 2. **Core data plumbing**
-   - [ ] Introduce shared Rust/TypeScript app models.
-   - [ ] Introduce `UsageEngine` Tauri state.
-   - [ ] Introduce provider registry, fake provider, scheduler, and shared display-state cache.
-   - [ ] Wire tray and frontend to the same display state.
+   - [x] Introduce shared Rust/TypeScript app models.
+   - [x] Introduce `UsageEngine` Tauri state.
+   - [x] Introduce provider registry, fake provider, scheduler, and shared display-state cache.
+   - [x] Wire tray and frontend to the same display state.
 
 3. **Persistence hardening**
    - [ ] Add config migrations, atomic writes, rollback, and tests.
@@ -244,12 +248,12 @@ The current implementation starts smaller with `config.rs`, `usage.rs`, `lib.rs`
 ## Source-of-Truth Rules
 
 - Usage display state must have one backend source of truth.
-  - [ ] Tray tooltip/icon selection reads the same display state as the popup.
-  - [ ] Frontend snapshots are returned from the shared display cache, not recomputed separately.
-  - [ ] Fake provider remains a provider implementation, not special-case UI state.
+  - [x] Tray tooltip/icon selection reads the same display state as the popup.
+  - [x] Frontend snapshots are returned from the shared display cache, not recomputed separately.
+  - [x] Fake provider remains a provider implementation, not special-case UI state.
 - Frontend and backend models must evolve together.
   - [ ] Rust enum/string serialization is documented.
-  - [ ] TypeScript types mirror the IPC payloads.
+  - [x] TypeScript types mirror the IPC payloads.
   - [ ] Any new field has a default, migration path, and UI fallback.
 - User-facing precision must be justified.
   - [ ] Show percentages only for official web values or calibrated local estimates.
@@ -317,14 +321,14 @@ Current frontend and backend models include a temporary `fake` source while real
 
 ### Model Readiness Checklist
 
-- [ ] Define canonical Rust `Service`, `UsageSource`, `UsageConfidence`, and `UsageSnapshot` modules.
-- [ ] Define matching TypeScript types in `src/lib/usage.ts`.
-- [ ] Use RFC3339 timestamps for machine-readable `last_updated` values.
-- [ ] Add separate human-readable formatting in the frontend instead of storing display strings in backend models.
-- [ ] Add provider identifier fields such as `provider_id`, `source`, and sanitized `status`.
+- [x] Define canonical Rust `Service`, `UsageSource`, `UsageConfidence`, and `UsageSnapshot` modules.
+- [x] Define matching TypeScript types in `src/lib/usage.ts`.
+- [x] Use RFC3339 timestamps for machine-readable `last_updated` values.
+- [x] Add separate human-readable formatting in the frontend instead of storing display strings in backend models.
+- [x] Add provider identifier fields such as `provider_id`, `source`, and sanitized `status`.
 - [ ] Add stale metadata: `stale`, `stale_seconds`, `baseline_at`, and `last_official_check_at` where relevant.
-- [ ] Add error metadata as stable codes, not raw error strings.
-- [ ] Add serialization tests for expected IPC JSON payload shapes.
+- [x] Add error metadata as stable codes, not raw error strings.
+- [x] Add serialization tests for expected IPC JSON payload shapes.
 
 ## Provider Contract
 
@@ -350,23 +354,23 @@ Local providers that participate in merged estimates must expose whether they ca
 
 ### Provider Error Contract
 
-- [ ] Define `UsageProviderError` with stable variants:
-  - [ ] `NotConfigured`
-  - [ ] `Disabled`
-  - [ ] `MissingData`
-  - [ ] `PermissionDenied`
-  - [ ] `ParseFailed`
-  - [ ] `LoginRequired`
-  - [ ] `MfaRequired`
-  - [ ] `CaptchaOrBotCheck`
-  - [ ] `NetworkUnavailable`
-  - [ ] `TimedOut`
-  - [ ] `UnexpectedUi`
-  - [ ] `UnsafePath`
-  - [ ] `Internal`
-- [ ] Map every provider error to a sanitized snapshot or UI event.
-- [ ] Keep raw filesystem paths, account identifiers, tokens, cookies, auth headers, and raw page text out of errors.
-- [ ] Add tests for error-to-snapshot mapping.
+- [x] Define `UsageProviderError` with stable variants:
+  - [x] `NotConfigured`
+  - [x] `Disabled`
+  - [x] `MissingData`
+  - [x] `PermissionDenied`
+  - [x] `ParseFailed`
+  - [x] `LoginRequired`
+  - [x] `MfaRequired`
+  - [x] `CaptchaOrBotCheck`
+  - [x] `NetworkUnavailable`
+  - [x] `TimedOut`
+  - [x] `UnexpectedUi`
+  - [x] `UnsafePath`
+  - [x] `Internal`
+- [x] Map every provider error to a sanitized snapshot or UI event.
+- [x] Keep raw filesystem paths, account identifiers, tokens, cookies, auth headers, and raw page text out of errors.
+- [x] Add tests for error-to-snapshot mapping.
 
 ## Tauri IPC and Event Contract
 
@@ -377,8 +381,8 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `get_app_config`
 - [x] `update_app_config`
 - [x] `get_usage_snapshots`
-- [ ] `get_display_state`
-- [ ] `refresh_usage`
+- [x] `get_display_state`
+- [x] `refresh_usage`
 - [ ] `refresh_provider`
 - [ ] `open_official_usage_page`
 - [ ] `start_provider_login`
@@ -389,7 +393,7 @@ Before real providers are wired, define and test the IPC boundary.
 
 ### Emitted Events
 
-- [ ] `usage://snapshots-updated`
+- [x] `usage://snapshots-updated`
 - [ ] `usage://refresh-started`
 - [ ] `usage://refresh-finished`
 - [ ] `usage://provider-error`
@@ -579,22 +583,22 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add usage snapshot model skeleton.
 - [x] Add fake usage snapshot command.
 - [x] Drive fake snapshots from enabled-service settings.
-- [ ] Add central usage engine.
-- [ ] Store `UsageEngine` in Tauri managed state.
-- [ ] Add provider registry.
-- [ ] Re-register providers when settings change.
+- [x] Add central usage engine.
+- [x] Store `UsageEngine` in Tauri managed state.
+- [x] Add provider registry.
+- [x] Re-register providers when settings change.
 - [ ] Add refresh scheduler for local and web providers.
-- [ ] Add latest snapshot cache.
-- [ ] Add shared display-state cache consumed by both tray rotation and frontend commands.
-- [ ] Replace hard-coded tray fake values in `lib.rs` with cached display state.
-- [ ] Add Tauri commands/events for frontend usage updates.
+- [x] Add latest snapshot cache.
+- [x] Add shared display-state cache consumed by both tray rotation and frontend commands.
+- [x] Replace hard-coded tray fake values in `lib.rs` with cached display state.
+- [x] Add Tauri commands/events for frontend usage updates.
 - [ ] Define provider IDs for `codex.local`, `codex.web`, `claude.local`, `claude.web`, and `fake`.
 - [ ] Define provider timeout behavior.
 - [ ] Define provider cancellation behavior.
 - [ ] Define mockable clock/time source for tests.
-- [ ] Ensure one active refresh per provider.
-- [ ] Skip overlapping scheduled refresh ticks.
-- [ ] Cancel pending refreshes when a provider is disabled.
+- [x] Ensure one active refresh per provider.
+- [x] Skip overlapping scheduled refresh ticks.
+- [x] Cancel pending refreshes when a provider is disabled.
 - [ ] Enforce local and web refresh cadence from config.
 - [ ] Enforce manual web-refresh cooldown and provider opt-in.
 - [ ] Document Tokio task ownership in scheduler module.
@@ -946,30 +950,39 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Usage snapshot model and fake snapshot command.
 - [x] Fake provider.
 - [ ] At least one real local provider.
-- [ ] Central usage engine, provider registry, scheduler, shared display cache, and event stream.
+- [x] Central usage engine, provider registry, scheduler, shared display cache, and event stream.
 
 Web providers and merge logic should follow once KDE tray behavior and core UI are stable.
 
 ## Next Implementation Milestone
 
-The next recommended milestone is **Phase 4 core data plumbing** before provider work.
+The Phase 4 core data plumbing milestone is complete for the fake-provider path. The next recommended milestone is **tray/window hardening and KDE/Wayland smoke validation** before real provider work.
 
-### Milestone Scope
+### Completed Phase 4 Milestone Scope
 
-- [ ] Move fake provider behind the same provider contract real providers will use.
-- [ ] Introduce a backend `UsageEngine` owned by Tauri state.
-- [ ] Introduce a shared display-state cache.
-- [ ] Make tray rotation read from the shared display-state cache.
-- [ ] Make `get_usage_snapshots` read from the shared display-state cache.
-- [ ] Add event emission for snapshot updates.
-- [ ] Add tests for display-state mapping and scheduler behavior.
+- [x] Move fake provider behind the same provider contract real providers will use.
+- [x] Introduce a backend `UsageEngine` owned by Tauri state.
+- [x] Introduce a shared display-state cache.
+- [x] Make tray rotation read from the shared display-state cache.
+- [x] Make `get_usage_snapshots` read from the shared display-state cache.
+- [x] Add event emission for snapshot updates.
+- [x] Add tests for display-state mapping and scheduler behavior.
 
-### Milestone Acceptance
+### Completed Phase 4 Milestone Acceptance
 
-- [ ] Popup and tray always show the same current fake provider data.
-- [ ] Disabling Codex or Claude updates both tray and popup through the same state path.
-- [ ] Scheduler cannot start overlapping refreshes for the same provider.
-- [ ] Disabling a provider cancels or skips future refreshes.
-- [ ] Provider errors become sanitized `unknown` snapshots or events.
-- [ ] `npm run check` passes.
-- [ ] Rust format, check, clippy, and tests pass.
+- [x] Popup and tray always show the same current fake provider data.
+- [x] Disabling Codex or Claude updates both tray and popup through the same state path.
+- [x] Scheduler cannot start overlapping refreshes for the same provider.
+- [x] Disabling a provider cancels or skips future refreshes.
+- [x] Provider errors become sanitized `unknown` snapshots or events.
+- [x] `npm run check` passes.
+- [x] Rust format, check, clippy, and tests pass.
+
+### Next Milestone Scope
+
+- [ ] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
+- [ ] Implement close-to-tray behavior if the app should persist after window close.
+- [ ] Add explicit quit path that fully exits background tray process.
+- [ ] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
+- [ ] Complete KDE/Wayland smoke checks for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
+- [ ] Record runtime packages and packaging prerequisites discovered during testing.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import heroArtUrl from "../assets/branding/hero-art.png";
   import lockupUrl from "../assets/branding/logo-lockup-on-dark.svg";
@@ -7,7 +8,13 @@
   import patternUrl from "../assets/branding/brand-pattern.svg";
   import trayClaudeUrl from "../assets/branding/tray-claude.svg";
   import trayCodexUrl from "../assets/branding/tray-codex.svg";
-  import { defaultConfig, fallbackSnapshots, type AppConfig, type UsageSnapshot } from "./lib/usage";
+  import {
+    defaultConfig,
+    fallbackSnapshots,
+    type AppConfig,
+    type UsageDisplayState,
+    type UsageSnapshot,
+  } from "./lib/usage";
 
   let config = $state<AppConfig>(defaultConfig);
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
@@ -35,20 +42,64 @@
     return value === null ? "Unknown" : `${Math.round(value)}%`;
   }
 
-  onMount(async () => {
-    try {
-      const [loadedConfig, loadedSnapshots] = await Promise.all([
-        invoke<AppConfig>("get_app_config"),
-        invoke<UsageSnapshot[]>("get_usage_snapshots"),
-      ]);
+  function formatTimestamp(value: string) {
+    const parsed = new Date(value);
 
-      config = loadedConfig;
-      snapshots = loadedSnapshots;
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : "Running in browser preview mode";
-    } finally {
-      loading = false;
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
     }
+
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsed);
+  }
+
+  onMount(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
+      snapshots = event.payload.snapshots;
+    })
+      .then((cleanup) => {
+        if (cancelled) {
+          cleanup();
+          return;
+        }
+
+        unlisten = cleanup;
+      })
+      .catch(() => {});
+
+    async function loadState() {
+      try {
+        const [loadedConfig, displayState] = await Promise.all([
+          invoke<AppConfig>("get_app_config"),
+          invoke<UsageDisplayState>("get_display_state"),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        config = loadedConfig;
+        snapshots = displayState.snapshots;
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : "Running in browser preview mode";
+      } finally {
+        if (!cancelled) {
+          loading = false;
+        }
+      }
+    }
+
+    void loadState();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   });
 
   async function saveSettings() {
@@ -57,7 +108,7 @@
 
     try {
       config = await invoke<AppConfig>("update_app_config", { config });
-      snapshots = await invoke<UsageSnapshot[]>("get_usage_snapshots");
+      snapshots = (await invoke<UsageDisplayState>("get_display_state")).snapshots;
       error = null;
       statusMessage = "Settings saved";
     } catch (caught) {
@@ -113,7 +164,7 @@
             </div>
             <div>
               <dt>Updated</dt>
-              <dd>{snapshot.lastUpdated}</dd>
+              <dd>{formatTimestamp(snapshot.lastUpdated)}</dd>
             </div>
           </dl>
         </div>

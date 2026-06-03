@@ -5,68 +5,51 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    AppHandle, Manager, State,
 };
-use usage::{Service, UsageSnapshot};
+use usage::{Service, UsageDisplayState, UsageEngine, UsageSnapshot};
 
 const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
 const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.png");
 const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
 const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
 
-#[derive(Clone, Copy)]
-struct GaugeState {
-    service: Service,
-    remaining_percent: Option<f32>,
-}
-
 #[tauri::command]
-fn get_app_config(app: AppHandle) -> Result<config::AppConfig, String> {
-    config::load(&app)
+fn get_app_config(engine: State<'_, UsageEngine>) -> Result<config::AppConfig, String> {
+    engine.config()
 }
 
 #[tauri::command]
 fn update_app_config(
     app: AppHandle,
+    engine: State<'_, UsageEngine>,
     config: config::AppConfig,
 ) -> Result<config::AppConfig, String> {
-    config::save(&app, &config)
+    let config = config::save(&app, &config)?;
+    engine.update_config(config.clone())?;
+    engine.refresh_all_and_emit(&app)?;
+    Ok(config)
 }
 
 #[tauri::command]
-fn get_usage_snapshots(app: AppHandle) -> Result<Vec<UsageSnapshot>, String> {
-    let config = config::load(&app)?;
-    Ok(usage::current_snapshots(&config))
+fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> Result<Vec<UsageSnapshot>, String> {
+    engine.snapshots()
 }
 
-fn gauge_states(config: &config::AppConfig) -> Vec<GaugeState> {
-    let mut states = Vec::new();
-
-    if config.enabled_services.codex {
-        states.push(GaugeState {
-            service: Service::Codex,
-            remaining_percent: Some(72.0),
-        });
-    }
-
-    if config.enabled_services.claude {
-        states.push(GaugeState {
-            service: Service::Claude,
-            remaining_percent: Some(41.0),
-        });
-    }
-
-    if states.is_empty() {
-        states.push(GaugeState {
-            service: Service::Codex,
-            remaining_percent: None,
-        });
-    }
-
-    states
+#[tauri::command]
+fn get_display_state(engine: State<'_, UsageEngine>) -> Result<UsageDisplayState, String> {
+    engine.display_state()
 }
 
-fn tray_icon_for(state: GaugeState, low_usage_threshold: f32) -> Image<'static> {
+#[tauri::command]
+fn refresh_usage(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+) -> Result<UsageDisplayState, String> {
+    engine.refresh_all_and_emit(&app)
+}
+
+fn tray_icon_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Image<'static> {
     let bytes = match state.remaining_percent {
         None => TRAY_UNKNOWN,
         Some(percent) if percent <= low_usage_threshold => TRAY_LOW,
@@ -81,13 +64,34 @@ fn tray_icon_for(state: GaugeState, low_usage_threshold: f32) -> Image<'static> 
         .to_owned()
 }
 
+fn start_usage_scheduler(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        let sleep_duration = {
+            let engine = app.state::<UsageEngine>();
+            let _ = engine.refresh_all_and_emit(&app);
+            engine
+                .scheduler_sleep_duration()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(45))
+        };
+
+        std::thread::sleep(sleep_duration);
+    });
+}
+
 fn start_gauge_rotation(tray: TrayIcon, app: AppHandle) {
     std::thread::spawn(move || {
         let mut index = 0usize;
 
         loop {
-            let config = config::load(&app).unwrap_or_default();
-            let states = gauge_states(&config);
+            let engine = app.state::<UsageEngine>();
+            let config = engine.config().unwrap_or_default();
+            let display_state = engine
+                .display_state()
+                .unwrap_or_else(|_| UsageDisplayState {
+                    snapshots: Vec::new(),
+                    updated_at: String::new(),
+                });
+            let states = display_state.tray_states();
             let state = states[index % states.len()];
             let label = format!(
                 "{}: {} remaining",
@@ -122,8 +126,19 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
     let app_handle = app.handle().clone();
     let click_app_handle = app_handle.clone();
-    let config = config::load(&app_handle).unwrap_or_default();
-    let initial_state = gauge_states(&config)[0];
+    let (config, initial_state) = {
+        let engine = app.state::<UsageEngine>();
+        let config = engine.config().unwrap_or_default();
+        let display_state = engine
+            .display_state()
+            .unwrap_or_else(|_| UsageDisplayState {
+                snapshots: Vec::new(),
+                updated_at: String::new(),
+            });
+        let initial_state = display_state.tray_states()[0];
+
+        (config, initial_state)
+    };
 
     let tray = TrayIconBuilder::with_id("main")
         .tooltip("ForgeGauge")
@@ -156,11 +171,21 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_app_config,
+            get_display_state,
             get_usage_snapshots,
+            refresh_usage,
             update_app_config
         ])
         .setup(|app| {
+            let app_handle = app.handle().clone();
+            let config = config::load(&app_handle).unwrap_or_default();
+
+            app.manage(UsageEngine::new(config));
+            if let Err(error) = app.state::<UsageEngine>().refresh_all_and_emit(&app_handle) {
+                eprintln!("Could not refresh initial usage state: {error}");
+            }
             setup_tray(app)?;
+            start_usage_scheduler(app_handle);
             Ok(())
         })
         .run(tauri::generate_context!())

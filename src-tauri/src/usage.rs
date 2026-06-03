@@ -1,4 +1,7 @@
-use crate::{config::AppConfig, local_provider::ClaudeLocalProvider};
+use crate::{
+    config::AppConfig,
+    local_provider::{ClaudeLocalProvider, CodexLocalProvider},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -131,6 +134,7 @@ struct SystemClock;
 
 #[derive(Clone, Debug, Default)]
 struct LocalProviderRoots {
+    codex: Option<PathBuf>,
     claude: Option<PathBuf>,
 }
 
@@ -393,6 +397,12 @@ impl UsageEngine {
                 .map(ClaudeLocalProvider::new)
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
+            (UsageProviderId::CodexLocal, Service::Codex) => provider
+                .local_data_root
+                .clone()
+                .map(CodexLocalProvider::new)
+                .ok_or(UsageProviderError::Internal)?
+                .refresh(now),
             _ => Err(UsageProviderError::Internal),
         }
     }
@@ -499,6 +509,28 @@ impl UsageProvider for ClaudeLocalProvider {
     }
 }
 
+impl UsageProvider for CodexLocalProvider {
+    fn provider_id(&self) -> UsageProviderId {
+        UsageProviderId::CodexLocal
+    }
+
+    fn service(&self) -> Service {
+        Service::Codex
+    }
+
+    fn source(&self) -> UsageSource {
+        UsageSource::Local
+    }
+
+    fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+        Ok(self.refresh_snapshot(now))
+    }
+
+    fn local_data_root(&self) -> Option<PathBuf> {
+        Some(self.data_root().to_path_buf())
+    }
+}
+
 struct ProviderDescriptor {
     provider_key: String,
     provider_id: UsageProviderId,
@@ -514,10 +546,22 @@ fn providers_for_config(
     let mut providers: Vec<Box<dyn UsageProvider>> = Vec::new();
 
     if config.enabled_services.codex {
-        providers.push(Box::new(FakeUsageProvider {
-            service: Service::Codex,
-            remaining_percent: 72.0,
-        }));
+        if config.providers.local_enabled {
+            let provider = local_roots
+                .codex
+                .clone()
+                .map(CodexLocalProvider::new)
+                .or_else(CodexLocalProvider::from_default_root);
+
+            if let Some(provider) = provider {
+                providers.push(Box::new(provider));
+            }
+        } else {
+            providers.push(Box::new(FakeUsageProvider {
+                service: Service::Codex,
+                remaining_percent: 72.0,
+            }));
+        }
     }
 
     if config.enabled_services.claude {
@@ -572,9 +616,36 @@ fn now_rfc3339() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
     struct FixedClock {
         now: String,
+    }
+
+    static TEST_ID: AtomicU64 = AtomicU64::new(1);
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let id = TEST_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("forgegauge-usage-test-{}-{id}", std::process::id()));
+
+            fs::create_dir_all(&path).expect("test directory is created");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 
     impl Clock for FixedClock {
@@ -608,8 +679,45 @@ mod tests {
         }
     }
 
+    fn local_codex_config() -> AppConfig {
+        AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: true,
+                claude: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: true,
+                web_enabled: false,
+            },
+            ..AppConfig::default()
+        }
+    }
+
     fn claude_fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude-local")
+    }
+
+    fn create_codex_state_db(root: &std::path::Path) {
+        let connection =
+            rusqlite::Connection::open(root.join("state_5.sqlite")).expect("state db is created");
+        connection
+            .execute(
+                "CREATE TABLE threads (
+                    tokens_used INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    updated_at_ms INTEGER,
+                    model TEXT
+                )",
+                [],
+            )
+            .expect("threads table is created");
+        connection
+            .execute(
+                "INSERT INTO threads (tokens_used, updated_at, updated_at_ms, model)
+                 VALUES (900, 1780000000, 1780000000000, 'codex-fixture')",
+                [],
+            )
+            .expect("thread row is inserted");
     }
 
     #[test]
@@ -779,6 +887,7 @@ mod tests {
                 now: "2026-06-03T22:30:00Z".to_string(),
             }),
             LocalProviderRoots {
+                codex: None,
                 claude: Some(claude_fixture_root()),
             },
         );
@@ -795,6 +904,36 @@ mod tests {
             "claude.local"
         );
         assert_eq!(display_state.snapshots[0].details["usageRecords"], 2);
+    }
+
+    #[test]
+    fn local_codex_provider_is_registered_when_local_providers_are_enabled() {
+        let dir = TestDir::new();
+        create_codex_state_db(&dir.path);
+        let engine = UsageEngine::with_clock_and_local_roots(
+            local_codex_config(),
+            Box::new(FixedClock {
+                now: "2026-06-03T22:45:00Z".to_string(),
+            }),
+            LocalProviderRoots {
+                codex: Some(dir.path.clone()),
+                claude: None,
+            },
+        );
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+
+        assert_eq!(display_state.snapshots.len(), 1);
+        assert_eq!(display_state.snapshots[0].service, Service::Codex);
+        assert_eq!(display_state.snapshots[0].source, UsageSource::Local);
+        assert_eq!(display_state.snapshots[0].confidence, UsageConfidence::Low);
+        assert_eq!(display_state.snapshots[0].remaining_percent, None);
+        assert_eq!(
+            display_state.snapshots[0].details["providerId"],
+            "codex.local"
+        );
+        assert_eq!(display_state.snapshots[0].details["threadsRead"], 1);
+        assert_eq!(display_state.snapshots[0].details["totalTokens"], 900);
     }
 
     #[test]

@@ -18,6 +18,8 @@ Local provider discovery progress, 2026-06-03: completed privacy-limited read-on
 
 Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Calibration, rotated/truncated file policy, and full local-provider completion remain unchecked.
 
+Codex local provider progress, 2026-06-03: added an injectable Codex local data root and a read-only `state_5.sqlite` parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, and enforces bounded thread scans. Calibration, status-derived data, rotated/truncated database policy, and full local-provider completion remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -467,11 +469,11 @@ Do not implement local percentage estimates until discovery answers these questi
 
 Default local-provider output before calibration:
 
-- [ ] `source = "local"`
-- [ ] `confidence = "low"` when activity is parsed but no reliable percentage exists.
-- [ ] `confidence = "unknown"` when files are missing, unsupported, unreadable, or stale.
-- [ ] `remaining_percent = None` unless a configured/calibrated quota makes a percentage defensible.
-- [ ] `details` contains sanitized counts, window metadata, and status codes only.
+- [x] `source = "local"`
+- [x] `confidence = "low"` when activity is parsed but no reliable percentage exists.
+- [x] `confidence = "unknown"` when files are missing, unsupported, unreadable, or stale.
+- [x] `remaining_percent = None` unless a configured/calibrated quota makes a percentage defensible.
+- [x] `details` contains sanitized counts, window metadata, and status codes only.
 
 ## Browser and Web Provider Integration Contract
 
@@ -646,20 +648,20 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 - [x] Complete read-only discovery of available Codex local data shapes.
 - [x] Record source precedence order for Codex local data.
-- [ ] Add injectable Codex data root for tests and development.
+- [x] Add injectable Codex data root for tests and development.
 - [x] Inspect available `~/.codex/*` local/session/status files.
 - [ ] Inspect Codex statusline or `/status`-derived data if available.
-- [ ] Define file scanning limits for large logs and many sessions.
+- [x] Define file scanning limits for large logs and many sessions.
 - [ ] Define rotated/truncated file behavior.
 - [ ] Define invalid record behavior.
 - [ ] Define timezone and rolling-window semantics.
-- [ ] Produce local estimated Codex usage snapshot when possible.
-- [ ] Mark confidence conservatively.
+- [x] Produce local estimated Codex usage snapshot when possible.
+- [x] Mark confidence conservatively.
 - [ ] Support manual quota/window calibration.
 - [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
-- [ ] Return `remaining_percent = None` instead of inventing precision when local data is incomplete or stale.
+- [x] Return `remaining_percent = None` instead of inventing precision when local data is incomplete or stale.
 - [ ] Add parser tests with captured/sanitized fixture data.
-- [ ] Add missing-directory test.
+- [x] Add missing-directory test.
 - [ ] Add calibrated and uncalibrated local estimate tests.
 
 ### Phase 6.5 — Browser Automation Spike

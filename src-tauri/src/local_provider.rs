@@ -1,4 +1,5 @@
 use crate::usage::{Service, UsageConfidence, UsageProviderId, UsageSnapshot, UsageSource};
+use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use std::{
     collections::HashSet,
@@ -12,9 +13,16 @@ const CLAUDE_PROJECTS_DIR: &str = "projects";
 const JSONL_EXTENSION: &str = "jsonl";
 const MAX_CLAUDE_JSONL_FILES: usize = 512;
 const MAX_CLAUDE_RECORDS_PER_REFRESH: u64 = 100_000;
+const CODEX_STATE_DB_FILE: &str = "state_5.sqlite";
+const MAX_CODEX_THREADS_PER_REFRESH: u64 = 10_000;
 
 #[derive(Clone, Debug)]
 pub struct ClaudeLocalProvider {
+    data_root: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct CodexLocalProvider {
     data_root: PathBuf,
 }
 
@@ -35,6 +43,16 @@ struct ClaudeUsageSummary {
     last_timestamp: Option<String>,
     models: HashSet<String>,
     sessions: HashSet<String>,
+}
+
+#[derive(Debug, Default)]
+struct CodexUsageSummary {
+    threads_read: u64,
+    threads_skipped: u64,
+    total_tokens: u64,
+    first_updated_at_ms: Option<i64>,
+    last_updated_at_ms: Option<i64>,
+    models: HashSet<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,6 +216,127 @@ impl ClaudeLocalProvider {
     }
 }
 
+impl CodexLocalProvider {
+    pub fn new(data_root: impl Into<PathBuf>) -> Self {
+        Self {
+            data_root: data_root.into(),
+        }
+    }
+
+    pub fn from_default_root() -> Option<Self> {
+        env::var_os("HOME").map(|home| Self::new(PathBuf::from(home).join(".codex")))
+    }
+
+    pub fn data_root(&self) -> &Path {
+        &self.data_root
+    }
+
+    pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
+        match self.scan_usage_summary() {
+            Ok(summary) if summary.threads_read > 0 => UsageSnapshot {
+                service: Service::Codex,
+                remaining_percent: None,
+                used_percent: None,
+                reset_at: None,
+                source: UsageSource::Local,
+                confidence: UsageConfidence::Low,
+                last_updated: now.to_string(),
+                details: serde_json::json!({
+                    "status": "parsed",
+                    "providerId": UsageProviderId::CodexLocal.code(),
+                    "source": UsageSource::Local.code(),
+                    "threadsRead": summary.threads_read,
+                    "threadsSkipped": summary.threads_skipped,
+                    "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                    "totalTokens": summary.total_tokens,
+                    "firstUpdatedAtMs": summary.first_updated_at_ms,
+                    "lastUpdatedAtMs": summary.last_updated_at_ms,
+                    "modelCount": summary.models.len(),
+                    "remainingPercentReason": "uncalibrated_local_activity",
+                }),
+            },
+            Ok(summary) => unknown_codex_snapshot(
+                now,
+                "missing_data",
+                serde_json::json!({
+                    "threadsRead": summary.threads_read,
+                    "threadsSkipped": summary.threads_skipped,
+                    "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                    "totalTokens": summary.total_tokens,
+                }),
+            ),
+            Err(error) => unknown_codex_snapshot(
+                now,
+                "missing_data",
+                serde_json::json!({
+                    "reason": error,
+                    "threadsRead": 0,
+                    "threadsSkipped": 0,
+                    "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                    "totalTokens": 0,
+                }),
+            ),
+        }
+    }
+
+    fn scan_usage_summary(&self) -> Result<CodexUsageSummary, String> {
+        let db_path = self.data_root.join(CODEX_STATE_DB_FILE);
+
+        if !db_path.is_file() {
+            return Err("codex_state_db_missing".to_string());
+        }
+
+        let connection = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| "codex_state_db_unreadable".to_string())?;
+        let total_threads = connection
+            .query_row("SELECT COUNT(*) FROM threads", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+        let total_threads = u64::try_from(total_threads).unwrap_or_default();
+        let mut summary = CodexUsageSummary {
+            threads_skipped: total_threads.saturating_sub(MAX_CODEX_THREADS_PER_REFRESH),
+            ..CodexUsageSummary::default()
+        };
+        let mut statement = connection
+            .prepare(
+                "SELECT tokens_used, updated_at_ms, updated_at, model
+                 FROM threads
+                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
+                 LIMIT ?1",
+            )
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+        let rows = statement
+            .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
+                let tokens_used = row.get::<_, Option<i64>>(0)?;
+                let updated_at_ms = row.get::<_, Option<i64>>(1)?;
+                let updated_at = row.get::<_, Option<i64>>(2)?;
+                let model = row.get::<_, Option<String>>(3)?;
+
+                Ok(CodexThreadRecord {
+                    tokens_used,
+                    updated_at_ms: updated_at_ms.or_else(|| updated_at.map(|value| value * 1000)),
+                    model,
+                })
+            })
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+
+        for row in rows {
+            let record = row.map_err(|_| "codex_threads_query_failed".to_string())?;
+            summary.record(record);
+        }
+
+        Ok(summary)
+    }
+}
+
+#[derive(Debug)]
+struct CodexThreadRecord {
+    tokens_used: Option<i64>,
+    updated_at_ms: Option<i64>,
+    model: Option<String>,
+}
+
 impl ClaudeUsageSummary {
     fn record(&mut self, record: ClaudeJsonlRecord) {
         let Some(message) = record.message else {
@@ -235,6 +374,35 @@ impl ClaudeUsageSummary {
     }
 }
 
+impl CodexUsageSummary {
+    fn record(&mut self, record: CodexThreadRecord) {
+        self.threads_read += 1;
+
+        if let Some(tokens_used) = record
+            .tokens_used
+            .and_then(|value| u64::try_from(value).ok())
+        {
+            self.total_tokens += tokens_used;
+        }
+
+        if let Some(updated_at_ms) = record.updated_at_ms {
+            match self.first_updated_at_ms {
+                Some(current) if current <= updated_at_ms => {}
+                _ => self.first_updated_at_ms = Some(updated_at_ms),
+            }
+
+            match self.last_updated_at_ms {
+                Some(current) if current >= updated_at_ms => {}
+                _ => self.last_updated_at_ms = Some(updated_at_ms),
+            }
+        }
+
+        if let Some(model) = record.model {
+            self.models.insert(model);
+        }
+    }
+}
+
 fn unknown_snapshot(now: &str, status: &str, extra_details: serde_json::Value) -> UsageSnapshot {
     let mut details = serde_json::json!({
         "status": status,
@@ -246,6 +414,31 @@ fn unknown_snapshot(now: &str, status: &str, extra_details: serde_json::Value) -
 
     UsageSnapshot {
         service: Service::Claude,
+        remaining_percent: None,
+        used_percent: None,
+        reset_at: None,
+        source: UsageSource::Local,
+        confidence: UsageConfidence::Unknown,
+        last_updated: now.to_string(),
+        details,
+    }
+}
+
+fn unknown_codex_snapshot(
+    now: &str,
+    status: &str,
+    extra_details: serde_json::Value,
+) -> UsageSnapshot {
+    let mut details = serde_json::json!({
+        "status": status,
+        "providerId": UsageProviderId::CodexLocal.code(),
+        "source": UsageSource::Local.code(),
+    });
+
+    merge_json_objects(&mut details, extra_details);
+
+    UsageSnapshot {
+        service: Service::Codex,
         remaining_percent: None,
         used_percent: None,
         reset_at: None,
@@ -326,6 +519,41 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude-local")
     }
 
+    fn create_codex_state_db(root: &Path, rows: &[(i64, i64, Option<&str>)]) {
+        fs::create_dir_all(root).expect("codex root is created");
+        let connection =
+            Connection::open(root.join(CODEX_STATE_DB_FILE)).expect("state db is created");
+        connection
+            .execute(
+                "CREATE TABLE threads (
+                    tokens_used INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    updated_at_ms INTEGER,
+                    model TEXT,
+                    title TEXT,
+                    cwd TEXT,
+                    preview TEXT
+                )",
+                [],
+            )
+            .expect("threads table is created");
+
+        for (tokens_used, updated_at_ms, model) in rows {
+            connection
+                .execute(
+                    "INSERT INTO threads (tokens_used, updated_at, updated_at_ms, model, title, cwd, preview)
+                     VALUES (?1, ?2, ?3, ?4, 'redacted title', '/redacted/path', 'redacted preview')",
+                    (
+                        tokens_used,
+                        updated_at_ms / 1000,
+                        updated_at_ms,
+                        model,
+                    ),
+                )
+                .expect("thread row is inserted");
+        }
+    }
+
     #[test]
     fn claude_local_provider_parses_synthetic_usage_fixture() {
         let provider = ClaudeLocalProvider::new(fixture_root());
@@ -392,5 +620,103 @@ mod tests {
         assert_eq!(snapshot.details["filesSkipped"], 1);
         assert_eq!(snapshot.details["fileLimit"], MAX_CLAUDE_JSONL_FILES);
         assert_eq!(snapshot.details["usageRecords"], 0);
+    }
+
+    #[test]
+    fn codex_local_provider_parses_synthetic_state_database() {
+        let dir = TestDir::new();
+        create_codex_state_db(
+            &dir.path,
+            &[
+                (1200, 1_780_000_000_000, Some("codex-fixture")),
+                (800, 1_780_000_010_000, Some("codex-fixture")),
+            ],
+        );
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.service, Service::Codex);
+        assert_eq!(snapshot.source, UsageSource::Local);
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.used_percent, None);
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(snapshot.details["providerId"], "codex.local");
+        assert_eq!(snapshot.details["threadsRead"], 2);
+        assert_eq!(snapshot.details["threadsSkipped"], 0);
+        assert_eq!(snapshot.details["totalTokens"], 2000);
+        assert_eq!(snapshot.details["modelCount"], 1);
+        assert_eq!(
+            snapshot.details["remainingPercentReason"],
+            "uncalibrated_local_activity"
+        );
+        assert!(snapshot.details.get("title").is_none());
+        assert!(snapshot.details.get("cwd").is_none());
+        assert!(snapshot.details.get("preview").is_none());
+    }
+
+    #[test]
+    fn codex_local_provider_reports_missing_state_database_as_unknown() {
+        let dir = TestDir::new();
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.service, Service::Codex);
+        assert_eq!(snapshot.source, UsageSource::Local);
+        assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.details["status"], "missing_data");
+        assert_eq!(snapshot.details["reason"], "codex_state_db_missing");
+        assert_eq!(snapshot.details["threadsRead"], 0);
+        assert_eq!(snapshot.details["totalTokens"], 0);
+    }
+
+    #[test]
+    fn codex_local_provider_limits_thread_scans() {
+        let dir = TestDir::new();
+        fs::create_dir_all(&dir.path).expect("codex root is created");
+        let connection =
+            Connection::open(dir.path.join(CODEX_STATE_DB_FILE)).expect("state db is created");
+        connection
+            .execute(
+                "CREATE TABLE threads (
+                    tokens_used INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    updated_at_ms INTEGER,
+                    model TEXT
+                )",
+                [],
+            )
+            .expect("threads table is created");
+        let transaction = connection
+            .unchecked_transaction()
+            .expect("transaction starts");
+
+        for index in 0..=MAX_CODEX_THREADS_PER_REFRESH {
+            transaction
+                .execute(
+                    "INSERT INTO threads (tokens_used, updated_at, updated_at_ms, model)
+                     VALUES (1, ?1, ?2, 'codex-fixture')",
+                    (index as i64, index as i64 * 1000),
+                )
+                .expect("thread row is inserted");
+        }
+
+        transaction.commit().expect("transaction commits");
+        let provider = CodexLocalProvider::new(&dir.path);
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(
+            snapshot.details["threadsRead"],
+            MAX_CODEX_THREADS_PER_REFRESH
+        );
+        assert_eq!(snapshot.details["threadsSkipped"], 1);
+        assert_eq!(
+            snapshot.details["threadLimit"],
+            MAX_CODEX_THREADS_PER_REFRESH
+        );
     }
 }

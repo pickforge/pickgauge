@@ -1,6 +1,7 @@
 mod config;
 mod usage;
 
+use std::sync::Mutex;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -14,8 +15,45 @@ const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.
 const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
 const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
 
+struct ConfigLoadState {
+    error: Mutex<Option<String>>,
+}
+
+impl ConfigLoadState {
+    fn new(error: Option<String>) -> Self {
+        Self {
+            error: Mutex::new(error),
+        }
+    }
+
+    fn current_error(&self) -> Result<Option<String>, String> {
+        self.error
+            .lock()
+            .map(|error| error.clone())
+            .map_err(|_| "Config load state lock was poisoned".to_string())
+    }
+
+    fn clear_error(&self) -> Result<(), String> {
+        self.error
+            .lock()
+            .map(|mut error| {
+                *error = None;
+            })
+            .map_err(|_| "Config load state lock was poisoned".to_string())
+    }
+}
+
 #[tauri::command]
-fn get_app_config(engine: State<'_, UsageEngine>) -> Result<config::AppConfig, String> {
+fn get_app_config(
+    engine: State<'_, UsageEngine>,
+    config_load: State<'_, ConfigLoadState>,
+) -> Result<config::AppConfig, String> {
+    if let Some(error) = config_load.current_error()? {
+        return Err(format!(
+            "Recovered with default settings after config load failed: {error}"
+        ));
+    }
+
     engine.config()
 }
 
@@ -23,9 +61,11 @@ fn get_app_config(engine: State<'_, UsageEngine>) -> Result<config::AppConfig, S
 fn update_app_config(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
+    config_load: State<'_, ConfigLoadState>,
     config: config::AppConfig,
 ) -> Result<config::AppConfig, String> {
     let config = config::save(&app, &config)?;
+    config_load.clear_error()?;
     engine.update_config(config.clone())?;
     engine.refresh_all_and_emit(&app)?;
     Ok(config)
@@ -192,8 +232,12 @@ pub fn run() {
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
-            let config = config::load(&app_handle).unwrap_or_default();
+            let (config, config_error) = match config::load(&app_handle) {
+                Ok(config) => (config, None),
+                Err(error) => (config::AppConfig::default(), Some(error)),
+            };
 
+            app.manage(ConfigLoadState::new(config_error));
             app.manage(UsageEngine::new(config));
             if let Err(error) = app.state::<UsageEngine>().refresh_all_and_emit(&app_handle) {
                 eprintln!("Could not refresh initial usage state: {error}");
@@ -205,4 +249,23 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running ForgeGauge");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_load_state_reports_and_clears_startup_error() {
+        let state = ConfigLoadState::new(Some("bad config".to_string()));
+
+        assert_eq!(
+            state.current_error().expect("state lock succeeds"),
+            Some("bad config".to_string())
+        );
+
+        state.clear_error().expect("state clear succeeds");
+
+        assert_eq!(state.current_error().expect("state lock succeeds"), None);
+    }
 }

@@ -12,7 +12,7 @@ Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone 
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
 
-Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, and interval/cooldown clamping. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. UI surfacing for startup config errors, explicit sequential migrations beyond version 1, failed-migration rollback tests, and browser profile path handling remain unchecked.
+Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, and interval/cooldown clamping. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the cooldown control was added. Explicit sequential migrations beyond version 1, failed-migration rollback tests, and browser profile path handling remain unchecked.
 
 Supersedes:
 
@@ -73,6 +73,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Low-usage and unknown tray icon assets wired for provider states.
 - [x] Local persisted app config added under the app config directory.
 - [x] Settings UI added for service toggles, provider toggles, local/web refresh intervals, tray switch interval, and low-usage threshold.
+- [x] Settings UI added for manual web-refresh cooldown.
 - [x] Config normalization clamps local refresh, web refresh, manual web cooldown, tray switch interval, and low-usage threshold.
 - [x] Web providers default to disabled.
 - [x] Fake usage snapshot command added and driven by enabled-service settings.
@@ -561,8 +562,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add defaults for fields introduced after config version `1`.
 - [x] Add atomic writes using temp-file + fsync/rename where practical.
 - [x] Preserve the previous config on parse, migration, serialization, or write failure.
-- [ ] Surface recoverable config errors in the UI without crashing startup.
-- [ ] Add settings UI for manual web-refresh cooldown if user-facing control is needed.
+- [x] Surface recoverable config errors in the UI without crashing startup.
+- [x] Add settings UI for manual web-refresh cooldown if user-facing control is needed.
 - [ ] Add browser profile root setting.
 - [ ] Add optional per-service browser profile path overrides.
 - [ ] Add optional manual plan/quota/window configuration for local estimates.
@@ -813,6 +814,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Enable/disable experimental web providers.
 - [x] Configure local refresh interval.
 - [x] Configure web refresh interval.
+- [x] Configure manual web refresh cooldown.
 - [x] Configure gauge switch interval.
 - [x] Configure low-usage warning threshold.
 - [ ] Configure browser profile/session path.

@@ -42,6 +42,18 @@
     return value === null ? "Unknown" : `${Math.round(value)}%`;
   }
 
+  function formatError(caught: unknown, fallback: string) {
+    if (caught instanceof Error && caught.message) {
+      return caught.message;
+    }
+
+    if (typeof caught === "string" && caught.length > 0) {
+      return caught;
+    }
+
+    return fallback;
+  }
+
   function formatTimestamp(value: string) {
     const parsed = new Date(value);
 
@@ -86,7 +98,7 @@
         config = loadedConfig;
         snapshots = displayState.snapshots;
       } catch (caught) {
-        error = caught instanceof Error ? caught.message : "Running in browser preview mode";
+        error = formatError(caught, "Running in browser preview mode");
       } finally {
         if (!cancelled) {
           loading = false;
@@ -112,7 +124,7 @@
       error = null;
       statusMessage = "Settings saved";
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : "Settings are only persisted in the app";
+      error = formatError(caught, "Settings are only persisted in the app");
     } finally {
       saving = false;
     }
@@ -205,6 +217,14 @@
       <label>
         Web refresh
         <input type="number" min="15" max="60" bind:value={config.intervals.webMinutes} />
+      </label>
+      <label>
+        Web cooldown
+        <input
+          type="number"
+          min="60"
+          bind:value={config.intervals.manualWebRefreshCooldownSeconds}
+        />
       </label>
       <label>
         Tray switch

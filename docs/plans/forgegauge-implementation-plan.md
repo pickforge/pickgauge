@@ -961,7 +961,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Config.
 - [x] Usage snapshot model and fake snapshot command.
 - [x] Fake provider.
-- [ ] At least one real local provider.
+- [x] At least one real local provider.
 - [x] Central usage engine, provider registry, scheduler, shared display cache, and event stream.
 
 Web providers and merge logic should follow once KDE tray behavior and core UI are stable.

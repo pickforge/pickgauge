@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub const SNAPSHOTS_UPDATED_EVENT: &str = "usage://snapshots-updated";
+pub const REFRESH_STARTED_EVENT: &str = "usage://refresh-started";
+pub const REFRESH_FINISHED_EVENT: &str = "usage://refresh-finished";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -57,6 +59,23 @@ pub struct UsageSnapshot {
 pub struct UsageDisplayState {
     pub snapshots: Vec<UsageSnapshot>,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRefreshEvent {
+    pub service: Option<Service>,
+    pub source: Option<UsageSource>,
+    pub status: UsageRefreshStatus,
+    pub emitted_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageRefreshStatus {
+    Started,
+    Finished,
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -248,6 +267,22 @@ impl UsageDisplayState {
         }
 
         states
+    }
+}
+
+impl UsageRefreshEvent {
+    pub fn new(
+        service: Option<Service>,
+        source: Option<UsageSource>,
+        status: UsageRefreshStatus,
+        emitted_at: String,
+    ) -> Self {
+        Self {
+            service,
+            source,
+            status,
+            emitted_at,
+        }
     }
 }
 
@@ -686,7 +721,7 @@ fn error_snapshot(
     }
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
@@ -1037,6 +1072,22 @@ mod tests {
             .as_str()
             .expect("updatedAt is a string")
             .contains('T'));
+    }
+
+    #[test]
+    fn refresh_event_serializes_to_expected_payload_shape() {
+        let value = serde_json::to_value(UsageRefreshEvent::new(
+            Some(Service::Codex),
+            Some(UsageSource::Local),
+            UsageRefreshStatus::Started,
+            "2026-06-03T23:15:00Z".to_string(),
+        ))
+        .expect("serializes");
+
+        assert_eq!(value["service"], "codex");
+        assert_eq!(value["source"], "local");
+        assert_eq!(value["status"], "started");
+        assert_eq!(value["emittedAt"], "2026-06-03T23:15:00Z");
     }
 
     #[test]

@@ -413,8 +413,8 @@ Before real providers are wired, define and test the IPC boundary.
 ### Emitted Events
 
 - [x] `usage://snapshots-updated`
-- [ ] `usage://refresh-started`
-- [ ] `usage://refresh-finished`
+- [x] `usage://refresh-started`
+- [x] `usage://refresh-finished`
 - [ ] `usage://provider-error`
 - [x] `settings://updated`
 - [ ] `login://required`

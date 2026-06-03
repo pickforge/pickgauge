@@ -10,7 +10,10 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, State, WindowEvent,
 };
-use usage::{Service, UsageDisplayState, UsageEngine, UsageSnapshot, UsageSource};
+use usage::{
+    Service, UsageDisplayState, UsageEngine, UsageRefreshEvent, UsageRefreshStatus, UsageSnapshot,
+    UsageSource,
+};
 
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
 const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
@@ -116,12 +119,53 @@ fn clear_cached_snapshots(
     Ok(display_state)
 }
 
+fn emit_refresh_event(
+    app: &AppHandle,
+    service: Option<Service>,
+    source: Option<UsageSource>,
+    event_name: &str,
+    status: UsageRefreshStatus,
+) -> Result<(), String> {
+    let event = UsageRefreshEvent::new(service, source, status, usage::now_rfc3339());
+    app.emit(event_name, &event)
+        .map_err(|error| format!("Could not emit usage refresh event: {error}"))
+}
+
 #[tauri::command]
 fn refresh_usage(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
 ) -> Result<UsageDisplayState, String> {
-    engine.refresh_all_and_emit(&app)
+    emit_refresh_event(
+        &app,
+        None,
+        None,
+        usage::REFRESH_STARTED_EVENT,
+        UsageRefreshStatus::Started,
+    )?;
+
+    match engine.refresh_all_and_emit(&app) {
+        Ok(display_state) => {
+            emit_refresh_event(
+                &app,
+                None,
+                None,
+                usage::REFRESH_FINISHED_EVENT,
+                UsageRefreshStatus::Finished,
+            )?;
+            Ok(display_state)
+        }
+        Err(error) => {
+            let _ = emit_refresh_event(
+                &app,
+                None,
+                None,
+                usage::REFRESH_FINISHED_EVENT,
+                UsageRefreshStatus::Failed,
+            );
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -131,10 +175,38 @@ fn refresh_provider(
     service: Service,
     source: UsageSource,
 ) -> Result<UsageDisplayState, String> {
-    let display_state = engine.refresh_provider_source(service, source)?;
-    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-        .map_err(|error| format!("Could not emit usage update: {error}"))?;
-    Ok(display_state)
+    emit_refresh_event(
+        &app,
+        Some(service),
+        Some(source),
+        usage::REFRESH_STARTED_EVENT,
+        UsageRefreshStatus::Started,
+    )?;
+
+    match engine.refresh_provider_source(service, source) {
+        Ok(display_state) => {
+            app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
+                .map_err(|error| format!("Could not emit usage update: {error}"))?;
+            emit_refresh_event(
+                &app,
+                Some(service),
+                Some(source),
+                usage::REFRESH_FINISHED_EVENT,
+                UsageRefreshStatus::Finished,
+            )?;
+            Ok(display_state)
+        }
+        Err(error) => {
+            let _ = emit_refresh_event(
+                &app,
+                Some(service),
+                Some(source),
+                usage::REFRESH_FINISHED_EVENT,
+                UsageRefreshStatus::Failed,
+            );
+            Err(error)
+        }
+    }
 }
 
 impl TrayIconAsset {
@@ -169,7 +241,25 @@ fn start_usage_scheduler(app: AppHandle) {
     std::thread::spawn(move || loop {
         let sleep_duration = {
             let engine = app.state::<UsageEngine>();
-            let _ = engine.refresh_all_and_emit(&app);
+            let _ = emit_refresh_event(
+                &app,
+                None,
+                None,
+                usage::REFRESH_STARTED_EVENT,
+                UsageRefreshStatus::Started,
+            );
+            let refresh_result = engine.refresh_all_and_emit(&app);
+            let _ = emit_refresh_event(
+                &app,
+                None,
+                None,
+                usage::REFRESH_FINISHED_EVENT,
+                if refresh_result.is_ok() {
+                    UsageRefreshStatus::Finished
+                } else {
+                    UsageRefreshStatus::Failed
+                },
+            );
             engine
                 .scheduler_sleep_duration()
                 .unwrap_or_else(|_| std::time::Duration::from_secs(45))

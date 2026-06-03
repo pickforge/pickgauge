@@ -23,14 +23,14 @@ defaults:
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       has_tauri_app: ${{ steps.detect.outputs.has_tauri_app }}
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -58,7 +58,7 @@ jobs:
 
   create-release:
     name: Create draft release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: preflight
     if: needs.preflight.outputs.has_tauri_app == 'true'
     steps:
@@ -102,19 +102,19 @@ jobs:
           - name: linux-appimage
             os: ubuntu-22.04
           - name: windows
-            os: windows-latest
+            os: windows-2025-vs2026
           - name: macos-intel
-            os: macos-13
+            os: macos-15-intel
           - name: macos-apple-silicon
-            os: macos-14
+            os: macos-15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -203,7 +203,7 @@ jobs:
 
   publish-release:
     name: Publish release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - preflight
       - build

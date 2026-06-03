@@ -511,6 +511,24 @@ mod tests {
     }
 
     #[test]
+    fn failed_migration_preserves_previous_config_file() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let raw = r#"{
+  "version": 1,
+  "enabledServices": {
+    "codex": "yes"
+  }
+}"#;
+        fs::write(&path, raw).expect("test config is written");
+
+        let error = load_from_path(&path).expect_err("migrated invalid config fails");
+
+        assert!(error.contains("Could not deserialize config file"));
+        assert_eq!(fs::read_to_string(&path).expect("config remains"), raw);
+    }
+
+    #[test]
     fn current_config_preserves_browser_profile_settings() {
         let dir = TestDir::new();
         let path = dir.config_path();

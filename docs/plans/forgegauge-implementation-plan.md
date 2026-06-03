@@ -112,8 +112,9 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
 - [x] Snapshot cache for latest provider results.
 - [ ] Calibrated local quota/window estimates.
-- [ ] Config migration and atomic persistence layer.
-- [ ] Browser profile path configuration, validation, ownership markers, and cleanup guardrails.
+- [x] Config migration and atomic persistence layer.
+- [x] Browser profile path configuration, validation, and ownership markers.
+- [ ] Browser profile cleanup guardrails.
 - [ ] Browser automation spike for official usage pages.
 - [ ] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
@@ -171,8 +172,9 @@ Build in this order to avoid rework:
    - [x] Wire tray and frontend to the same display state.
 
 3. **Persistence hardening**
-- [ ] Add config migrations, atomic writes, rollback, and tests.
-   - [ ] Add browser profile and quota/window config fields only after migration support exists.
+- [x] Add config migrations, atomic writes, rollback, and tests.
+   - [x] Add browser profile config fields only after migration support exists.
+   - [ ] Add quota/window config fields only after migration support exists.
 
 4. **Local providers**
    - [ ] Discover Claude and Codex local data formats.
@@ -259,7 +261,7 @@ The current implementation starts smaller with `config.rs`, `usage.rs`, `lib.rs`
 - Frontend and backend models must evolve together.
   - [ ] Rust enum/string serialization is documented.
   - [x] TypeScript types mirror the IPC payloads.
-  - [ ] Any new field has a default, migration path, and UI fallback.
+  - [x] Any new field has a default, migration path, and UI fallback.
 - User-facing precision must be justified.
   - [ ] Show percentages only for official web values or calibrated local estimates.
   - [ ] Show token/cost/activity summaries without percentages when local data cannot be mapped to plan limits.

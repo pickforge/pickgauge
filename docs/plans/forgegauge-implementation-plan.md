@@ -14,6 +14,8 @@ Tray/window progress, 2026-06-03: decided on tray-first startup for normal runti
 
 Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added. Manual quota/window configuration remains unchecked.
 
+Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, and safe metadata boundaries without committing raw local records or authenticated data. Parser implementation, scan limits, calibration schema, and real local snapshots remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -450,16 +452,16 @@ Confidence labels:
 
 Do not implement local percentage estimates until discovery answers these questions per service.
 
-- [ ] Which files/directories exist on the target machine?
+- [x] Which files/directories exist on the target machine?
 - [ ] Which records are stable enough to parse?
-- [ ] Which fields are timestamps, model names, token counts, costs, sessions, or status values?
-- [ ] Which records are machine-local only versus account-wide?
-- [ ] What source precedence should apply when multiple local sources exist?
+- [x] Which fields are timestamps, model names, token counts, costs, sessions, or status values?
+- [x] Which records are machine-local only versus account-wide?
+- [x] What source precedence should apply when multiple local sources exist?
 - [ ] How should missing directories, unreadable files, invalid records, large files, and rotated logs behave?
-- [ ] Which test fixtures can be safely sanitized and committed?
+- [x] Which test fixtures can be safely sanitized and committed?
 - [ ] Which user-entered calibration fields are required to map local activity to percentages?
-- [ ] What does the provider return when calibration is absent?
-- [ ] What exact `details` metadata is safe and useful for debugging?
+- [x] What does the provider return when calibration is absent?
+- [x] What exact `details` metadata is safe and useful for debugging?
 
 Default local-provider output before calibration:
 
@@ -617,10 +619,10 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 ### Phase 5 — Claude Code Local Provider
 
-- [ ] Complete read-only discovery of available Claude Code local data shapes.
-- [ ] Record source precedence order for Claude local data.
+- [x] Complete read-only discovery of available Claude Code local data shapes.
+- [x] Record source precedence order for Claude local data.
 - [ ] Add injectable Claude data root for tests and development.
-- [ ] Discover Claude Code local usage files.
+- [x] Discover Claude Code local usage files.
 - [ ] Parse `~/.claude/projects/**/*.jsonl` where available.
 - [ ] Inspect Claude Code statusline-compatible data if available.
 - [ ] Support ccusage-compatible parsing where practical.
@@ -640,10 +642,10 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 ### Phase 6 — Codex Local Provider
 
-- [ ] Complete read-only discovery of available Codex local data shapes.
-- [ ] Record source precedence order for Codex local data.
+- [x] Complete read-only discovery of available Codex local data shapes.
+- [x] Record source precedence order for Codex local data.
 - [ ] Add injectable Codex data root for tests and development.
-- [ ] Inspect available `~/.codex/*` local/session/status files.
+- [x] Inspect available `~/.codex/*` local/session/status files.
 - [ ] Inspect Codex statusline or `/status`-derived data if available.
 - [ ] Define file scanning limits for large logs and many sessions.
 - [ ] Define rotated/truncated file behavior.

@@ -621,8 +621,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Enforce local and web refresh cadence from config.
 - [ ] Enforce manual web-refresh cooldown and provider opt-in.
 - [ ] Document Tokio task ownership in scheduler module.
-- [ ] Add per-provider failure counters with bounded retry/backoff.
-- [ ] Reset retry/backoff state on provider success.
+- [x] Add per-provider failure counters with bounded retry/backoff.
+- [x] Reset retry/backoff state on provider success.
 - [ ] Add sanitized tracing/logging policy for provider lifecycle events.
 - [ ] Add unit tests for scheduler timing boundaries.
 - [ ] Add unit tests for overlap skipping, disable cancellation, retry/backoff reset, and stale snapshots.

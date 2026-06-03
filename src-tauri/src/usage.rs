@@ -10,12 +10,14 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Emitter};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{format_description::well_known::Rfc3339, Duration as TimeDuration, OffsetDateTime};
 
 pub const SNAPSHOTS_UPDATED_EVENT: &str = "usage://snapshots-updated";
 pub const REFRESH_STARTED_EVENT: &str = "usage://refresh-started";
 pub const REFRESH_FINISHED_EVENT: &str = "usage://refresh-finished";
 pub const PROVIDER_ERROR_EVENT: &str = "usage://provider-error";
+const PROVIDER_BACKOFF_BASE_SECONDS: u64 = 30;
+const PROVIDER_BACKOFF_MAX_SECONDS: u64 = 15 * 60;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -154,7 +156,15 @@ struct UsageEngineState {
     providers: Vec<Box<dyn UsageProvider>>,
     snapshots: HashMap<Service, UsageSnapshot>,
     active_provider_keys: HashSet<String>,
+    provider_failures: HashMap<String, ProviderFailureState>,
     last_updated: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ProviderFailureState {
+    consecutive_failures: u32,
+    backoff_seconds: u64,
+    retry_after: String,
 }
 
 #[derive(Clone, Copy)]
@@ -338,6 +348,7 @@ impl UsageEngine {
                 config,
                 snapshots: HashMap::new(),
                 active_provider_keys: HashSet::new(),
+                provider_failures: HashMap::new(),
                 last_updated,
             }),
             clock,
@@ -367,6 +378,9 @@ impl UsageEngine {
         state
             .active_provider_keys
             .retain(|key| provider_keys.contains(key));
+        state
+            .provider_failures
+            .retain(|key, _| provider_keys.contains(key));
 
         Ok(config)
     }
@@ -409,13 +423,22 @@ impl UsageEngine {
         let now = self.clock.now_rfc3339();
 
         for provider in providers {
-            if !self.try_begin_refresh(provider.provider_key.clone())? {
+            if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
                 continue;
             }
 
-            let snapshot = self
-                .refresh_provider(&provider, &now)
-                .unwrap_or_else(|error| error_snapshot(&provider, error, &now));
+            let snapshot = match self.refresh_provider(&provider, &now) {
+                Ok(snapshot) => {
+                    self.record_provider_success(&provider.provider_key)?;
+                    snapshot
+                }
+                Err(error) => {
+                    let failure = self.record_provider_failure(&provider.provider_key, &now)?;
+                    let mut snapshot = error_snapshot(&provider, error, &now);
+                    add_failure_details(&mut snapshot, &failure);
+                    snapshot
+                }
+            };
             refreshed.push(snapshot);
             self.finish_refresh(&provider.provider_key)?;
         }
@@ -451,13 +474,22 @@ impl UsageEngine {
         .ok_or_else(|| "Provider is not configured".to_string())?;
         let now = self.clock.now_rfc3339();
 
-        if !self.try_begin_refresh(provider.provider_key.clone())? {
+        if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
             return self.display_state();
         }
 
-        let snapshot = self
-            .refresh_provider(&provider, &now)
-            .unwrap_or_else(|error| error_snapshot(&provider, error, &now));
+        let snapshot = match self.refresh_provider(&provider, &now) {
+            Ok(snapshot) => {
+                self.record_provider_success(&provider.provider_key)?;
+                snapshot
+            }
+            Err(error) => {
+                let failure = self.record_provider_failure(&provider.provider_key, &now)?;
+                let mut snapshot = error_snapshot(&provider, error, &now);
+                add_failure_details(&mut snapshot, &failure);
+                snapshot
+            }
+        };
         self.finish_refresh(&provider.provider_key)?;
 
         let mut state = self.lock()?;
@@ -516,10 +548,14 @@ impl UsageEngine {
         }
     }
 
-    fn try_begin_refresh(&self, provider_key: String) -> Result<bool, String> {
+    fn try_begin_refresh(&self, provider_key: String, now: &str) -> Result<bool, String> {
         let mut state = self.lock()?;
 
         if state.active_provider_keys.contains(&provider_key) {
+            return Ok(false);
+        }
+
+        if provider_backoff_active(state.provider_failures.get(&provider_key), now) {
             return Ok(false);
         }
 
@@ -531,6 +567,48 @@ impl UsageEngine {
         let mut state = self.lock()?;
         state.active_provider_keys.remove(provider_key);
         Ok(())
+    }
+
+    fn record_provider_failure(
+        &self,
+        provider_key: &str,
+        now: &str,
+    ) -> Result<ProviderFailureState, String> {
+        let mut state = self.lock()?;
+        let entry = state
+            .provider_failures
+            .entry(provider_key.to_string())
+            .or_insert_with(|| ProviderFailureState {
+                consecutive_failures: 0,
+                backoff_seconds: 0,
+                retry_after: now.to_string(),
+            });
+        let consecutive_failures = entry.consecutive_failures.saturating_add(1);
+        let backoff_seconds = provider_backoff_seconds(consecutive_failures);
+        let retry_after = retry_after_rfc3339(now, backoff_seconds);
+
+        *entry = ProviderFailureState {
+            consecutive_failures,
+            backoff_seconds,
+            retry_after,
+        };
+
+        Ok(entry.clone())
+    }
+
+    fn record_provider_success(&self, provider_key: &str) -> Result<(), String> {
+        let mut state = self.lock()?;
+        state.provider_failures.remove(provider_key);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn provider_failure_state(
+        &self,
+        provider_key: &str,
+    ) -> Result<Option<ProviderFailureState>, String> {
+        let state = self.lock()?;
+        Ok(state.provider_failures.get(provider_key).cloned())
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, UsageEngineState>, String> {
@@ -748,6 +826,63 @@ fn error_snapshot(
             "source": provider.source.code(),
         }),
     }
+}
+
+fn add_failure_details(snapshot: &mut UsageSnapshot, failure: &ProviderFailureState) {
+    if let Some(details) = snapshot.details.as_object_mut() {
+        details.insert(
+            "consecutiveFailures".to_string(),
+            serde_json::json!(failure.consecutive_failures),
+        );
+        details.insert(
+            "backoffSeconds".to_string(),
+            serde_json::json!(failure.backoff_seconds),
+        );
+        details.insert(
+            "retryAfter".to_string(),
+            serde_json::json!(failure.retry_after),
+        );
+    }
+}
+
+fn provider_backoff_seconds(consecutive_failures: u32) -> u64 {
+    if consecutive_failures == 0 {
+        return 0;
+    }
+
+    let exponent = consecutive_failures.saturating_sub(1).min(5);
+    PROVIDER_BACKOFF_BASE_SECONDS
+        .saturating_mul(1_u64 << exponent)
+        .min(PROVIDER_BACKOFF_MAX_SECONDS)
+}
+
+fn provider_backoff_active(failure: Option<&ProviderFailureState>, now: &str) -> bool {
+    let Some(failure) = failure else {
+        return false;
+    };
+    let Some(now) = parse_rfc3339(now) else {
+        return false;
+    };
+    let Some(retry_after) = parse_rfc3339(&failure.retry_after) else {
+        return false;
+    };
+
+    now < retry_after
+}
+
+fn retry_after_rfc3339(now: &str, backoff_seconds: u64) -> String {
+    let Some(now) = parse_rfc3339(now) else {
+        return now.to_string();
+    };
+    let seconds = i64::try_from(backoff_seconds).unwrap_or(i64::MAX);
+
+    (now + TimeDuration::seconds(seconds))
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| now_rfc3339())
+}
+
+fn parse_rfc3339(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
 pub(crate) fn now_rfc3339() -> String {
@@ -1032,19 +1167,20 @@ mod tests {
     #[test]
     fn provider_refresh_overlap_is_skipped_until_finished() {
         let engine = UsageEngine::new(config_with_services(true, true));
+        let now = "2026-06-03T23:00:00Z";
 
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string())
+            .try_begin_refresh("codex.fake".to_string(), now)
             .expect("begin succeeds"));
         assert!(!engine
-            .try_begin_refresh("codex.fake".to_string())
+            .try_begin_refresh("codex.fake".to_string(), now)
             .expect("second begin is skipped"));
 
         engine
             .finish_refresh("codex.fake")
             .expect("finish succeeds");
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string())
+            .try_begin_refresh("codex.fake".to_string(), now)
             .expect("begin after finish succeeds"));
     }
 
@@ -1053,7 +1189,7 @@ mod tests {
         let engine = UsageEngine::new(config_with_services(true, true));
         engine.refresh_all().expect("initial refresh succeeds");
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string())
+            .try_begin_refresh("codex.fake".to_string(), "2026-06-03T23:00:00Z")
             .expect("begin succeeds"));
 
         let display_state = engine.refresh_all().expect("refresh succeeds");
@@ -1070,7 +1206,7 @@ mod tests {
     fn disabling_a_provider_clears_pending_refresh_tracking() {
         let engine = UsageEngine::new(config_with_services(true, true));
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string())
+            .try_begin_refresh("codex.fake".to_string(), "2026-06-03T23:00:00Z")
             .expect("begin succeeds"));
 
         engine
@@ -1078,8 +1214,89 @@ mod tests {
             .expect("config update succeeds");
 
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string())
+            .try_begin_refresh("codex.fake".to_string(), "2026-06-03T23:00:00Z")
             .expect("disabled provider key was cleared"));
+    }
+
+    #[test]
+    fn provider_failure_backoff_is_bounded_and_blocks_retry_until_elapsed() {
+        let engine = UsageEngine::new(config_with_services(true, true));
+        let provider_key = "codex.fake";
+
+        let first = engine
+            .record_provider_failure(provider_key, "2026-06-03T23:00:00Z")
+            .expect("failure records");
+        let second = engine
+            .record_provider_failure(provider_key, "2026-06-03T23:00:30Z")
+            .expect("second failure records");
+
+        assert_eq!(first.consecutive_failures, 1);
+        assert_eq!(first.backoff_seconds, 30);
+        assert_eq!(first.retry_after, "2026-06-03T23:00:30Z");
+        assert_eq!(second.consecutive_failures, 2);
+        assert_eq!(second.backoff_seconds, 60);
+        assert_eq!(second.retry_after, "2026-06-03T23:01:30Z");
+        assert!(!engine
+            .try_begin_refresh(provider_key.to_string(), "2026-06-03T23:01:29Z")
+            .expect("backoff check succeeds"));
+        assert!(engine
+            .try_begin_refresh(provider_key.to_string(), "2026-06-03T23:01:30Z")
+            .expect("retry after backoff succeeds"));
+
+        for _ in 0..8 {
+            engine
+                .record_provider_failure(provider_key, "2026-06-03T23:02:00Z")
+                .expect("failure records");
+        }
+        let bounded = engine
+            .provider_failure_state(provider_key)
+            .expect("failure state reads")
+            .expect("failure state exists");
+
+        assert_eq!(bounded.backoff_seconds, PROVIDER_BACKOFF_MAX_SECONDS);
+    }
+
+    #[test]
+    fn provider_success_resets_failure_backoff_state() {
+        let engine = UsageEngine::new(config_with_services(true, true));
+
+        engine
+            .record_provider_failure("codex.fake", "2026-06-03T23:00:00Z")
+            .expect("failure records");
+        assert!(engine
+            .provider_failure_state("codex.fake")
+            .expect("failure state reads")
+            .is_some());
+
+        engine
+            .record_provider_success("codex.fake")
+            .expect("success records");
+
+        assert_eq!(
+            engine
+                .provider_failure_state("codex.fake")
+                .expect("failure state reads"),
+            None
+        );
+    }
+
+    #[test]
+    fn disabling_a_provider_clears_failure_backoff_state() {
+        let engine = UsageEngine::new(config_with_services(true, true));
+
+        engine
+            .record_provider_failure("codex.fake", "2026-06-03T23:00:00Z")
+            .expect("failure records");
+        engine
+            .update_config(config_with_services(false, true))
+            .expect("config update succeeds");
+
+        assert_eq!(
+            engine
+                .provider_failure_state("codex.fake")
+                .expect("failure state reads"),
+            None
+        );
     }
 
     #[test]

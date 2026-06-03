@@ -120,7 +120,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] macOS Apple Silicon artifact testing.
 - [ ] Claude Code local provider calibration/statusline/ccusage completion.
 - [ ] Codex local provider calibration/statusline/fixture completion.
-- [ ] Provider registry with scheduled refresh, backoff, and event streaming.
+- [x] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
 - [x] Snapshot cache for latest provider results.
 - [ ] Calibrated local quota/window merge deltas.
@@ -643,7 +643,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Define timezone and rolling-window semantics.
 - [x] Produce local estimated Claude usage snapshot.
 - [x] Support manual quota/window calibration.
-- [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
+- [x] Expose calibrated percentage deltas only when records map to the current plan/window.
 - [x] Return `remaining_percent = None` instead of inventing precision when logs cannot be mapped reliably.
 - [x] Gracefully handle missing files and unexpected log shapes.
 - [x] Add parser tests with sanitized JSONL fixtures.
@@ -664,7 +664,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Produce local estimated Codex usage snapshot when possible.
 - [x] Mark confidence conservatively.
 - [x] Support manual quota/window calibration.
-- [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
+- [x] Expose calibrated percentage deltas only when records map to the current plan/window.
 - [x] Return `remaining_percent = None` instead of inventing precision when local data is incomplete or stale.
 - [ ] Add parser tests with captured/sanitized fixture data.
 - [x] Add missing-directory test.

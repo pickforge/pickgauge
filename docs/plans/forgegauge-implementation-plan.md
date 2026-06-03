@@ -12,6 +12,8 @@ Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone 
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
 
+Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, web-provider opt-out, and interval/cooldown clamping. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. UI surfacing for startup config errors, explicit sequential migrations beyond version 1, failed-migration rollback tests, and browser profile path handling remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -168,7 +170,7 @@ Build in this order to avoid rework:
    - [x] Wire tray and frontend to the same display state.
 
 3. **Persistence hardening**
-   - [ ] Add config migrations, atomic writes, rollback, and tests.
+- [ ] Add config migrations, atomic writes, rollback, and tests.
    - [ ] Add browser profile and quota/window config fields only after migration support exists.
 
 4. **Local providers**
@@ -266,23 +268,23 @@ The current implementation starts smaller with `config.rs`, `usage.rs`, `lib.rs`
 
 Config changes must be implemented before adding browser profile paths, quota/window settings, autostart, or other persisted fields.
 
-- [ ] Keep `version` as a monotonic integer.
-- [ ] Parse raw JSON first so older configs can migrate before typed `AppConfig` deserialization.
+- [x] Keep `version` as a monotonic integer.
+- [x] Parse raw JSON first so older configs can migrate before typed `AppConfig` deserialization.
 - [ ] Migrate sequentially: `v1 -> v2 -> v3`, never by skipping unknown versions.
 - [ ] Reject future config versions with a recoverable UI error.
-- [ ] Fill defaults for newly introduced fields during migration.
+- [x] Fill defaults for newly introduced fields during migration.
 - [ ] Preserve the previous config file if migration fails.
-- [ ] Write atomically through a temporary file and rename.
-- [ ] Avoid partially written config files on crash where practical.
+- [x] Write atomically through a temporary file and rename.
+- [x] Avoid partially written config files on crash where practical.
 - [ ] Use restrictive file permissions for config and profile marker files where supported.
 - [ ] Add tests for:
-  - [ ] missing config file
-  - [ ] current config round trip
-  - [ ] old config migration
-  - [ ] malformed config
+  - [x] missing config file
+  - [x] current config round trip
+  - [x] old config migration
+  - [x] malformed config
   - [ ] failed migration rollback
-  - [ ] future version rejection
-  - [ ] web providers disabled by default after migration
+  - [x] future version rejection
+  - [x] web providers disabled by default after migration
 
 ## Data Model
 
@@ -555,10 +557,10 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add gauge switch interval with `5–10s` clamp.
 - [x] Add low-usage threshold clamp.
 - [x] Add settings UI for service toggles, provider toggles, local/web refresh intervals, tray switch interval, and low-usage threshold.
-- [ ] Add raw config loader that can parse unknown/old versions before typed `AppConfig` deserialization.
-- [ ] Add defaults for fields introduced after config version `1`.
-- [ ] Add atomic writes using temp-file + fsync/rename where practical.
-- [ ] Preserve the previous config on parse, migration, serialization, or write failure.
+- [x] Add raw config loader that can parse unknown/old versions before typed `AppConfig` deserialization.
+- [x] Add defaults for fields introduced after config version `1`.
+- [x] Add atomic writes using temp-file + fsync/rename where practical.
+- [x] Preserve the previous config on parse, migration, serialization, or write failure.
 - [ ] Surface recoverable config errors in the UI without crashing startup.
 - [ ] Add settings UI for manual web-refresh cooldown if user-facing control is needed.
 - [ ] Add browser profile root setting.
@@ -574,10 +576,10 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Add sequential config migrations.
 - [ ] Preserve previous config file on failed migrations.
 - [ ] Add browser profile path validation and ownership markers.
-- [ ] Add unit tests for config defaults and round-trip serialization.
+- [x] Add unit tests for config defaults and round-trip serialization.
 - [ ] Add unit tests for migrations and failed migration rollback.
-- [ ] Add unit tests proving web providers are disabled by default.
-- [ ] Add unit tests for refresh interval and cooldown validation.
+- [x] Add unit tests proving web providers are disabled by default.
+- [x] Add unit tests for refresh interval and cooldown validation.
 - [ ] Add unit tests for safe/unsafe browser profile path handling.
 
 ### Phase 4 — Usage Engine and Scheduler
@@ -857,11 +859,11 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 
 ### Automated Tests To Add
 
-- [ ] Config serialization.
+- [x] Config serialization.
 - [ ] Config migration ordering and failed migration rollback.
-- [ ] Default web-provider opt-out behavior.
-- [ ] Refresh interval validation/clamping.
-- [ ] Manual web-refresh cooldown enforcement.
+- [x] Default web-provider opt-out behavior.
+- [x] Refresh interval validation/clamping.
+- [x] Manual web-refresh cooldown enforcement.
 - [ ] Provider enable/disable scheduler behavior.
 - [ ] Provider parsing.
 - [ ] Local quota/window calibration.

@@ -8,9 +8,9 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State, WindowEvent,
+    AppHandle, Emitter, Manager, State, WindowEvent,
 };
-use usage::{Service, UsageDisplayState, UsageEngine, UsageSnapshot};
+use usage::{Service, UsageDisplayState, UsageEngine, UsageSnapshot, UsageSource};
 
 const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
 const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.png");
@@ -108,6 +108,19 @@ fn refresh_usage(
     engine: State<'_, UsageEngine>,
 ) -> Result<UsageDisplayState, String> {
     engine.refresh_all_and_emit(&app)
+}
+
+#[tauri::command]
+fn refresh_provider(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+    service: Service,
+    source: UsageSource,
+) -> Result<UsageDisplayState, String> {
+    let display_state = engine.refresh_provider_source(service, source)?;
+    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
+        .map_err(|error| format!("Could not emit usage update: {error}"))?;
+    Ok(display_state)
 }
 
 impl TrayIconAsset {
@@ -261,6 +274,7 @@ pub fn run() {
             get_app_config,
             get_display_state,
             get_usage_snapshots,
+            refresh_provider,
             refresh_usage,
             update_app_config
         ])

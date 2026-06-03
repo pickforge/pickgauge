@@ -322,14 +322,7 @@ impl UsageEngine {
             let providers = state
                 .providers
                 .iter()
-                .map(|provider| ProviderDescriptor {
-                    provider_key: provider.provider_key(),
-                    provider_id: provider.provider_id(),
-                    service: provider.service(),
-                    source: provider.source(),
-                    local_data_root: provider.local_data_root(),
-                    local_calibration: provider.local_calibration(),
-                })
+                .map(|provider| provider_descriptor(provider.as_ref()))
                 .collect::<Vec<_>>();
             let provider_services = providers
                 .iter()
@@ -363,6 +356,39 @@ impl UsageEngine {
             state.snapshots.insert(snapshot.service, snapshot);
         }
 
+        state.last_updated = now;
+        Ok(state.display_state())
+    }
+
+    pub fn refresh_provider_source(
+        &self,
+        service: Service,
+        source: UsageSource,
+    ) -> Result<UsageDisplayState, String> {
+        let provider_id = UsageProviderId::for_service_source(service, source)
+            .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
+        let provider = {
+            let state = self.lock()?;
+            state
+                .providers
+                .iter()
+                .map(|provider| provider_descriptor(provider.as_ref()))
+                .find(|provider| provider.service == service && provider.provider_id == provider_id)
+        }
+        .ok_or_else(|| "Provider is not configured".to_string())?;
+        let now = self.clock.now_rfc3339();
+
+        if !self.try_begin_refresh(provider.provider_key.clone())? {
+            return self.display_state();
+        }
+
+        let snapshot = self
+            .refresh_provider(&provider, &now)
+            .unwrap_or_else(|error| error_snapshot(&provider, error, &now));
+        self.finish_refresh(&provider.provider_key)?;
+
+        let mut state = self.lock()?;
+        state.snapshots.insert(snapshot.service, snapshot);
         state.last_updated = now;
         Ok(state.display_state())
     }
@@ -549,6 +575,7 @@ impl UsageProvider for CodexLocalProvider {
     }
 }
 
+#[derive(Clone, Debug)]
 struct ProviderDescriptor {
     provider_key: String,
     provider_id: UsageProviderId,
@@ -556,6 +583,17 @@ struct ProviderDescriptor {
     source: UsageSource,
     local_data_root: Option<PathBuf>,
     local_calibration: Option<LocalQuotaCalibration>,
+}
+
+fn provider_descriptor(provider: &dyn UsageProvider) -> ProviderDescriptor {
+    ProviderDescriptor {
+        provider_key: provider.provider_key(),
+        provider_id: provider.provider_id(),
+        service: provider.service(),
+        source: provider.source(),
+        local_data_root: provider.local_data_root(),
+        local_calibration: provider.local_calibration(),
+    }
 }
 
 fn providers_for_config(
@@ -783,6 +821,42 @@ mod tests {
         assert_eq!(display_state.snapshots[0].source, UsageSource::Fake);
         assert_eq!(display_state.snapshots[1].service, Service::Claude);
         assert_eq!(display_state.snapshots[1].remaining_percent, Some(41.0));
+    }
+
+    #[test]
+    fn targeted_provider_refresh_updates_one_configured_provider() {
+        let engine = UsageEngine::new(config_with_services(true, true));
+
+        let display_state = engine
+            .refresh_provider_source(Service::Codex, UsageSource::Fake)
+            .expect("targeted refresh succeeds");
+
+        assert_eq!(display_state.snapshots.len(), 1);
+        assert_eq!(display_state.snapshots[0].service, Service::Codex);
+        assert_eq!(display_state.snapshots[0].remaining_percent, Some(72.0));
+
+        let display_state = engine
+            .refresh_provider_source(Service::Claude, UsageSource::Fake)
+            .expect("second targeted refresh succeeds");
+
+        assert_eq!(display_state.snapshots.len(), 2);
+        assert_eq!(display_state.snapshots[0].service, Service::Codex);
+        assert_eq!(display_state.snapshots[1].service, Service::Claude);
+    }
+
+    #[test]
+    fn targeted_provider_refresh_rejects_unconfigured_or_unrefreshable_sources() {
+        let engine = UsageEngine::new(config_with_services(true, false));
+
+        let unconfigured = engine
+            .refresh_provider_source(Service::Claude, UsageSource::Fake)
+            .expect_err("disabled provider is rejected");
+        let merged = engine
+            .refresh_provider_source(Service::Codex, UsageSource::Merged)
+            .expect_err("merged source is rejected");
+
+        assert_eq!(unconfigured, "Provider is not configured");
+        assert_eq!(merged, "Provider source cannot be refreshed directly");
     }
 
     #[test]

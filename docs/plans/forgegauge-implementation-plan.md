@@ -14,13 +14,15 @@ Tray/window progress, 2026-06-03: decided on tray-first startup for normal runti
 
 Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added.
 
-Calibration config progress, 2026-06-03: added config version `3` with per-service local quota settings for enablement, plan label, limit kind, rolling-window duration, usage unit, and user-entered token limit. The settings UI now persists those values, and config tests cover `v1 -> v2 -> v3` migration, `v2 -> v3` migration, round trips, and normalization. Providers still do not consume calibration values for percentages or deltas.
+Calibration config progress, 2026-06-03: added config version `3` with per-service local quota settings for enablement, plan label, limit kind, rolling-window duration, usage unit, and user-entered token limit. The settings UI now persists those values, and config tests cover `v1 -> v2 -> v3` migration, `v2 -> v3` migration, round trips, and normalization.
+
+Calibration provider progress, 2026-06-03: local Claude and Codex providers now consume enabled token-limit calibration settings, map timestamped records into the configured rolling window, and emit low-confidence local percentages only when at least one parsed record maps to that window. Unmapped or disabled calibration continues to return `remaining_percent = None`. Merge deltas against official web baselines remain unchecked.
 
 Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, scan policy, and safe metadata boundaries without committing raw local records or authenticated data. Calibration schema, status-derived data, and captured fixture policy remain unchecked.
 
-Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Calibration, status-derived data, ccusage compatibility, and full local-provider completion remain unchecked.
+Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Status-derived data, ccusage compatibility, web-baseline deltas, and full local-provider completion remain unchecked.
 
-Codex local provider progress, 2026-06-03: added an injectable Codex local data root and a read-only `state_5.sqlite` parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, and enforces bounded thread scans. Calibration, status-derived data, fixture capture, and full local-provider completion remain unchecked.
+Codex local provider progress, 2026-06-03: added an injectable Codex local data root and a read-only `state_5.sqlite` parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, and enforces bounded thread scans. Status-derived data, fixture capture, web-baseline deltas, and full local-provider completion remain unchecked.
 
 Local provider policy progress, 2026-06-03: hardened local-provider edge cases for malformed and truncated records. Claude scans only exact `.jsonl` files, ignores `.jsonl.1` style rotations, counts truncated lines as sanitized invalid records, and reports source RFC3339 timestamp metadata. Codex reads only `state_5.sqlite`, treats corrupt or schema-incompatible databases as sanitized parse failures, counts malformed token rows without leaking row data, and reports Unix epoch millisecond metadata. Both local providers still aggregate all bounded machine-local activity before calibration and do not infer rolling-window percentages.
 
@@ -121,7 +123,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
 - [x] Snapshot cache for latest provider results.
-- [ ] Calibrated local quota/window estimates.
+- [ ] Calibrated local quota/window merge deltas.
 - [x] Config migration and atomic persistence layer.
 - [x] Browser profile path configuration, validation, and ownership markers.
 - [ ] Browser profile cleanup guardrails.
@@ -640,13 +642,13 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Define invalid JSONL line behavior.
 - [x] Define timezone and rolling-window semantics.
 - [x] Produce local estimated Claude usage snapshot.
-- [ ] Support manual quota/window calibration.
+- [x] Support manual quota/window calibration.
 - [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
 - [x] Return `remaining_percent = None` instead of inventing precision when logs cannot be mapped reliably.
 - [x] Gracefully handle missing files and unexpected log shapes.
 - [x] Add parser tests with sanitized JSONL fixtures.
 - [x] Add missing-directory test.
-- [ ] Add calibrated and uncalibrated local estimate tests.
+- [x] Add calibrated and uncalibrated local estimate tests.
 
 ### Phase 6 — Codex Local Provider
 
@@ -661,12 +663,12 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Define timezone and rolling-window semantics.
 - [x] Produce local estimated Codex usage snapshot when possible.
 - [x] Mark confidence conservatively.
-- [ ] Support manual quota/window calibration.
+- [x] Support manual quota/window calibration.
 - [ ] Expose calibrated percentage deltas only when records map to the current plan/window.
 - [x] Return `remaining_percent = None` instead of inventing precision when local data is incomplete or stale.
 - [ ] Add parser tests with captured/sanitized fixture data.
 - [x] Add missing-directory test.
-- [ ] Add calibrated and uncalibrated local estimate tests.
+- [x] Add calibrated and uncalibrated local estimate tests.
 
 ### Phase 6.5 — Browser Automation Spike
 
@@ -880,7 +882,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Manual web-refresh cooldown enforcement.
 - [ ] Provider enable/disable scheduler behavior.
 - [ ] Provider parsing.
-- [ ] Local quota/window calibration.
+- [x] Local quota/window calibration.
 - [ ] Merge logic.
 - [ ] Merge fallback when local providers cannot produce a percentage delta.
 - [ ] No-double-count and stale-baseline merge behavior.

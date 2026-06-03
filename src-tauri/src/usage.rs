@@ -1,6 +1,6 @@
 use crate::{
-    config::AppConfig,
-    local_provider::{ClaudeLocalProvider, CodexLocalProvider},
+    config::{AppConfig, LocalQuotaLimitKind, LocalQuotaUsageUnit, LocalServiceQuotaSettings},
+    local_provider::{ClaudeLocalProvider, CodexLocalProvider, LocalQuotaCalibration},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -98,6 +98,9 @@ trait UsageProvider: Send + Sync {
     fn source(&self) -> UsageSource;
     fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError>;
     fn local_data_root(&self) -> Option<PathBuf> {
+        None
+    }
+    fn local_calibration(&self) -> Option<LocalQuotaCalibration> {
         None
     }
 
@@ -325,6 +328,7 @@ impl UsageEngine {
                     service: provider.service(),
                     source: provider.source(),
                     local_data_root: provider.local_data_root(),
+                    local_calibration: provider.local_calibration(),
                 })
                 .collect::<Vec<_>>();
             let provider_services = providers
@@ -395,12 +399,18 @@ impl UsageEngine {
                 .local_data_root
                 .clone()
                 .map(ClaudeLocalProvider::new)
+                .map(|local_provider| {
+                    local_provider.with_calibration(provider.local_calibration.clone())
+                })
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
             (UsageProviderId::CodexLocal, Service::Codex) => provider
                 .local_data_root
                 .clone()
                 .map(CodexLocalProvider::new)
+                .map(|local_provider| {
+                    local_provider.with_calibration(provider.local_calibration.clone())
+                })
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
             _ => Err(UsageProviderError::Internal),
@@ -507,6 +517,10 @@ impl UsageProvider for ClaudeLocalProvider {
     fn local_data_root(&self) -> Option<PathBuf> {
         Some(self.data_root().to_path_buf())
     }
+
+    fn local_calibration(&self) -> Option<LocalQuotaCalibration> {
+        self.calibration()
+    }
 }
 
 impl UsageProvider for CodexLocalProvider {
@@ -529,6 +543,10 @@ impl UsageProvider for CodexLocalProvider {
     fn local_data_root(&self) -> Option<PathBuf> {
         Some(self.data_root().to_path_buf())
     }
+
+    fn local_calibration(&self) -> Option<LocalQuotaCalibration> {
+        self.calibration()
+    }
 }
 
 struct ProviderDescriptor {
@@ -537,6 +555,7 @@ struct ProviderDescriptor {
     service: Service,
     source: UsageSource,
     local_data_root: Option<PathBuf>,
+    local_calibration: Option<LocalQuotaCalibration>,
 }
 
 fn providers_for_config(
@@ -547,6 +566,7 @@ fn providers_for_config(
 
     if config.enabled_services.codex {
         if config.providers.local_enabled {
+            let calibration = quota_calibration(&config.local_quotas.codex);
             let provider = local_roots
                 .codex
                 .clone()
@@ -554,7 +574,7 @@ fn providers_for_config(
                 .or_else(CodexLocalProvider::from_default_root);
 
             if let Some(provider) = provider {
-                providers.push(Box::new(provider));
+                providers.push(Box::new(provider.with_calibration(calibration)));
             }
         } else {
             providers.push(Box::new(FakeUsageProvider {
@@ -566,6 +586,7 @@ fn providers_for_config(
 
     if config.enabled_services.claude {
         if config.providers.local_enabled {
+            let calibration = quota_calibration(&config.local_quotas.claude);
             let provider = local_roots
                 .claude
                 .clone()
@@ -573,7 +594,7 @@ fn providers_for_config(
                 .or_else(ClaudeLocalProvider::from_default_root);
 
             if let Some(provider) = provider {
-                providers.push(Box::new(provider));
+                providers.push(Box::new(provider.with_calibration(calibration)));
             }
         } else {
             providers.push(Box::new(FakeUsageProvider {
@@ -584,6 +605,17 @@ fn providers_for_config(
     }
 
     providers
+}
+
+fn quota_calibration(settings: &LocalServiceQuotaSettings) -> Option<LocalQuotaCalibration> {
+    if !settings.enabled
+        || settings.limit_kind != LocalQuotaLimitKind::RollingWindow
+        || settings.usage_unit != LocalQuotaUsageUnit::Tokens
+    {
+        return None;
+    }
+
+    LocalQuotaCalibration::new(settings.limit, settings.window_hours)
 }
 
 fn error_snapshot(
@@ -693,11 +725,26 @@ mod tests {
         }
     }
 
+    fn configured_quota(limit: f64, window_hours: u64) -> crate::config::LocalServiceQuotaSettings {
+        crate::config::LocalServiceQuotaSettings {
+            enabled: true,
+            plan_label: String::new(),
+            limit_kind: crate::config::LocalQuotaLimitKind::RollingWindow,
+            window_hours,
+            usage_unit: crate::config::LocalQuotaUsageUnit::Tokens,
+            limit,
+        }
+    }
+
     fn claude_fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude-local")
     }
 
     fn create_codex_state_db(root: &std::path::Path) {
+        create_codex_state_db_with_updated_at(root, rfc3339_ms("2026-06-03T22:00:00Z"));
+    }
+
+    fn create_codex_state_db_with_updated_at(root: &std::path::Path, updated_at_ms: i64) {
         let connection =
             rusqlite::Connection::open(root.join("state_5.sqlite")).expect("state db is created");
         connection
@@ -714,10 +761,15 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO threads (tokens_used, updated_at, updated_at_ms, model)
-                 VALUES (900, 1780000000, 1780000000000, 'codex-fixture')",
-                [],
+                 VALUES (900, ?1, ?2, 'codex-fixture')",
+                (updated_at_ms / 1000, updated_at_ms),
             )
             .expect("thread row is inserted");
+    }
+
+    fn rfc3339_ms(value: &str) -> i64 {
+        let timestamp = OffsetDateTime::parse(value, &Rfc3339).expect("timestamp parses");
+        i64::try_from(timestamp.unix_timestamp_nanos() / 1_000_000).expect("timestamp fits")
     }
 
     #[test]
@@ -937,6 +989,39 @@ mod tests {
     }
 
     #[test]
+    fn local_codex_provider_receives_quota_calibration_from_config() {
+        let dir = TestDir::new();
+        create_codex_state_db_with_updated_at(&dir.path, rfc3339_ms("2026-06-03T21:00:00Z"));
+        let config = AppConfig {
+            local_quotas: crate::config::LocalQuotaSettings {
+                codex: configured_quota(1000.0, 5),
+                claude: crate::config::LocalServiceQuotaSettings::default(),
+            },
+            ..local_codex_config()
+        };
+        let engine = UsageEngine::with_clock_and_local_roots(
+            config,
+            Box::new(FixedClock {
+                now: "2026-06-03T22:00:00Z".to_string(),
+            }),
+            LocalProviderRoots {
+                codex: Some(dir.path.clone()),
+                claude: None,
+            },
+        );
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+
+        assert_eq!(display_state.snapshots[0].remaining_percent, Some(10.0));
+        assert_eq!(display_state.snapshots[0].used_percent, Some(90.0));
+        assert_eq!(
+            display_state.snapshots[0].details["calibrationStatus"],
+            "active"
+        );
+        assert_eq!(display_state.snapshots[0].details["windowTokens"], 900);
+    }
+
+    #[test]
     fn provider_errors_map_to_sanitized_unknown_snapshots() {
         let provider = ProviderDescriptor {
             provider_key: "codex.fake".to_string(),
@@ -944,6 +1029,7 @@ mod tests {
             service: Service::Codex,
             source: UsageSource::Fake,
             local_data_root: None,
+            local_calibration: None,
         };
         let snapshot = error_snapshot(
             &provider,

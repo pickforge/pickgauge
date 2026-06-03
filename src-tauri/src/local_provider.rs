@@ -8,6 +8,7 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
 };
+use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 
 const CLAUDE_PROJECTS_DIR: &str = "projects";
 const JSONL_EXTENSION: &str = "jsonl";
@@ -22,11 +23,19 @@ const CODEX_TIMESTAMP_SEMANTICS: &str = "unix_epoch_ms";
 #[derive(Clone, Debug)]
 pub struct ClaudeLocalProvider {
     data_root: PathBuf,
+    calibration: Option<LocalQuotaCalibration>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CodexLocalProvider {
     data_root: PathBuf,
+    calibration: Option<LocalQuotaCalibration>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LocalQuotaCalibration {
+    limit: f64,
+    window_hours: u64,
 }
 
 #[derive(Debug, Default)]
@@ -46,6 +55,10 @@ struct ClaudeUsageSummary {
     last_timestamp: Option<String>,
     models: HashSet<String>,
     sessions: HashSet<String>,
+    window_usage_records: u64,
+    records_outside_window: u64,
+    records_without_timestamp: u64,
+    window_tokens: u64,
 }
 
 #[derive(Debug, Default)]
@@ -58,6 +71,10 @@ struct CodexUsageSummary {
     first_updated_at_ms: Option<i64>,
     last_updated_at_ms: Option<i64>,
     models: HashSet<String>,
+    window_usage_threads: u64,
+    threads_outside_window: u64,
+    threads_without_timestamp: u64,
+    window_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,6 +103,7 @@ impl ClaudeLocalProvider {
     pub fn new(data_root: impl Into<PathBuf>) -> Self {
         Self {
             data_root: data_root.into(),
+            calibration: None,
         }
     }
 
@@ -97,44 +115,74 @@ impl ClaudeLocalProvider {
         &self.data_root
     }
 
+    pub fn with_calibration(mut self, calibration: Option<LocalQuotaCalibration>) -> Self {
+        self.calibration = calibration;
+        self
+    }
+
+    pub fn calibration(&self) -> Option<LocalQuotaCalibration> {
+        self.calibration.clone()
+    }
+
     pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
         let provider_id = UsageProviderId::ClaudeLocal;
+        let window = self
+            .calibration
+            .as_ref()
+            .and_then(|calibration| calibration.window(now));
 
-        match self.scan_usage_summary() {
-            Ok(summary) if summary.usage_records > 0 => UsageSnapshot {
-                service: Service::Claude,
-                remaining_percent: None,
-                used_percent: None,
-                reset_at: None,
-                source: UsageSource::Local,
-                confidence: UsageConfidence::Low,
-                last_updated: now.to_string(),
-                details: serde_json::json!({
-                    "status": "parsed",
-                    "providerId": provider_id.code(),
-                    "source": UsageSource::Local.code(),
-                    "filesScanned": summary.files_scanned,
-                    "recordsRead": summary.records_read,
-                    "usageRecords": summary.usage_records,
-                    "invalidRecords": summary.invalid_records,
-                    "unreadableFiles": summary.unreadable_files,
-                    "filesSkipped": summary.files_skipped,
-                    "recordsSkipped": summary.records_skipped,
-                    "fileLimit": MAX_CLAUDE_JSONL_FILES,
-                    "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
-                    "windowPolicy": LOCAL_WINDOW_POLICY,
-                    "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
-                    "inputTokens": summary.input_tokens,
-                    "outputTokens": summary.output_tokens,
-                    "cacheCreationInputTokens": summary.cache_creation_input_tokens,
-                    "cacheReadInputTokens": summary.cache_read_input_tokens,
-                    "firstTimestamp": summary.first_timestamp,
-                    "lastTimestamp": summary.last_timestamp,
-                    "modelCount": summary.models.len(),
-                    "sessionCount": summary.sessions.len(),
-                    "remainingPercentReason": "uncalibrated_local_activity",
-                }),
-            },
+        match self.scan_usage_summary(window) {
+            Ok(summary) if summary.usage_records > 0 => {
+                let calibration = calibration_snapshot_values(
+                    self.calibration.as_ref(),
+                    window,
+                    summary.window_tokens,
+                    summary.window_usage_records + summary.records_outside_window,
+                );
+
+                UsageSnapshot {
+                    service: Service::Claude,
+                    remaining_percent: calibration.remaining_percent,
+                    used_percent: calibration.used_percent,
+                    reset_at: None,
+                    source: UsageSource::Local,
+                    confidence: UsageConfidence::Low,
+                    last_updated: now.to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": provider_id.code(),
+                        "source": UsageSource::Local.code(),
+                        "filesScanned": summary.files_scanned,
+                        "recordsRead": summary.records_read,
+                        "usageRecords": summary.usage_records,
+                        "invalidRecords": summary.invalid_records,
+                        "unreadableFiles": summary.unreadable_files,
+                        "filesSkipped": summary.files_skipped,
+                        "recordsSkipped": summary.records_skipped,
+                        "fileLimit": MAX_CLAUDE_JSONL_FILES,
+                        "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
+                        "windowPolicy": LOCAL_WINDOW_POLICY,
+                        "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
+                        "inputTokens": summary.input_tokens,
+                        "outputTokens": summary.output_tokens,
+                        "cacheCreationInputTokens": summary.cache_creation_input_tokens,
+                        "cacheReadInputTokens": summary.cache_read_input_tokens,
+                        "windowUsageRecords": summary.window_usage_records,
+                        "recordsOutsideWindow": summary.records_outside_window,
+                        "recordsWithoutTimestamp": summary.records_without_timestamp,
+                        "windowTokens": summary.window_tokens,
+                        "firstTimestamp": summary.first_timestamp,
+                        "lastTimestamp": summary.last_timestamp,
+                        "modelCount": summary.models.len(),
+                        "sessionCount": summary.sessions.len(),
+                        "calibrationStatus": calibration.status,
+                        "quotaWindowHours": calibration.window_hours,
+                        "quotaLimit": calibration.limit,
+                        "quotaUsageUnit": calibration.usage_unit,
+                        "remainingPercentReason": calibration.reason,
+                    }),
+                }
+            }
             Ok(summary) => {
                 let status = if summary.records_read > 0 && summary.invalid_records > 0 {
                     "parse_failed"
@@ -157,6 +205,10 @@ impl ClaudeLocalProvider {
                     "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
                     "windowPolicy": LOCAL_WINDOW_POLICY,
                     "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
+                    "windowUsageRecords": summary.window_usage_records,
+                    "recordsOutsideWindow": summary.records_outside_window,
+                    "recordsWithoutTimestamp": summary.records_without_timestamp,
+                    "windowTokens": summary.window_tokens,
                     }),
                 )
             }
@@ -172,12 +224,19 @@ impl ClaudeLocalProvider {
                     "recordLimit": MAX_CLAUDE_RECORDS_PER_REFRESH,
                     "windowPolicy": LOCAL_WINDOW_POLICY,
                     "timestampSemantics": CLAUDE_TIMESTAMP_SEMANTICS,
+                    "windowUsageRecords": 0,
+                    "recordsOutsideWindow": 0,
+                    "recordsWithoutTimestamp": 0,
+                    "windowTokens": 0,
                 }),
             ),
         }
     }
 
-    fn scan_usage_summary(&self) -> Result<ClaudeUsageSummary, String> {
+    fn scan_usage_summary(
+        &self,
+        window: Option<LocalUsageWindow>,
+    ) -> Result<ClaudeUsageSummary, String> {
         let projects_dir = self.data_root.join(CLAUDE_PROJECTS_DIR);
 
         if !projects_dir.is_dir() {
@@ -227,7 +286,7 @@ impl ClaudeLocalProvider {
 
                 summary.records_read += 1;
                 match serde_json::from_str::<ClaudeJsonlRecord>(line) {
-                    Ok(record) => summary.record(record),
+                    Ok(record) => summary.record(record, window),
                     Err(_) => summary.invalid_records += 1,
                 }
             }
@@ -241,6 +300,7 @@ impl CodexLocalProvider {
     pub fn new(data_root: impl Into<PathBuf>) -> Self {
         Self {
             data_root: data_root.into(),
+            calibration: None,
         }
     }
 
@@ -252,34 +312,65 @@ impl CodexLocalProvider {
         &self.data_root
     }
 
+    pub fn with_calibration(mut self, calibration: Option<LocalQuotaCalibration>) -> Self {
+        self.calibration = calibration;
+        self
+    }
+
+    pub fn calibration(&self) -> Option<LocalQuotaCalibration> {
+        self.calibration.clone()
+    }
+
     pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
-        match self.scan_usage_summary() {
-            Ok(summary) if summary.usage_threads > 0 => UsageSnapshot {
-                service: Service::Codex,
-                remaining_percent: None,
-                used_percent: None,
-                reset_at: None,
-                source: UsageSource::Local,
-                confidence: UsageConfidence::Low,
-                last_updated: now.to_string(),
-                details: serde_json::json!({
-                    "status": "parsed",
-                    "providerId": UsageProviderId::CodexLocal.code(),
-                    "source": UsageSource::Local.code(),
-                    "threadsRead": summary.threads_read,
-                    "usageThreads": summary.usage_threads,
-                    "invalidRecords": summary.invalid_records,
-                    "threadsSkipped": summary.threads_skipped,
-                    "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
-                    "windowPolicy": LOCAL_WINDOW_POLICY,
-                    "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
-                    "totalTokens": summary.total_tokens,
-                    "firstUpdatedAtMs": summary.first_updated_at_ms,
-                    "lastUpdatedAtMs": summary.last_updated_at_ms,
-                    "modelCount": summary.models.len(),
-                    "remainingPercentReason": "uncalibrated_local_activity",
-                }),
-            },
+        let window = self
+            .calibration
+            .as_ref()
+            .and_then(|calibration| calibration.window(now));
+
+        match self.scan_usage_summary(window) {
+            Ok(summary) if summary.usage_threads > 0 => {
+                let calibration = calibration_snapshot_values(
+                    self.calibration.as_ref(),
+                    window,
+                    summary.window_tokens,
+                    summary.window_usage_threads + summary.threads_outside_window,
+                );
+
+                UsageSnapshot {
+                    service: Service::Codex,
+                    remaining_percent: calibration.remaining_percent,
+                    used_percent: calibration.used_percent,
+                    reset_at: None,
+                    source: UsageSource::Local,
+                    confidence: UsageConfidence::Low,
+                    last_updated: now.to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": UsageProviderId::CodexLocal.code(),
+                        "source": UsageSource::Local.code(),
+                        "threadsRead": summary.threads_read,
+                        "usageThreads": summary.usage_threads,
+                        "invalidRecords": summary.invalid_records,
+                        "threadsSkipped": summary.threads_skipped,
+                        "threadLimit": MAX_CODEX_THREADS_PER_REFRESH,
+                        "windowPolicy": LOCAL_WINDOW_POLICY,
+                        "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
+                        "totalTokens": summary.total_tokens,
+                        "windowUsageThreads": summary.window_usage_threads,
+                        "threadsOutsideWindow": summary.threads_outside_window,
+                        "threadsWithoutTimestamp": summary.threads_without_timestamp,
+                        "windowTokens": summary.window_tokens,
+                        "firstUpdatedAtMs": summary.first_updated_at_ms,
+                        "lastUpdatedAtMs": summary.last_updated_at_ms,
+                        "modelCount": summary.models.len(),
+                        "calibrationStatus": calibration.status,
+                        "quotaWindowHours": calibration.window_hours,
+                        "quotaLimit": calibration.limit,
+                        "quotaUsageUnit": calibration.usage_unit,
+                        "remainingPercentReason": calibration.reason,
+                    }),
+                }
+            }
             Ok(summary) => {
                 let status = if summary.threads_read > 0 && summary.invalid_records > 0 {
                     "parse_failed"
@@ -299,6 +390,10 @@ impl CodexLocalProvider {
                     "windowPolicy": LOCAL_WINDOW_POLICY,
                     "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
                     "totalTokens": summary.total_tokens,
+                    "windowUsageThreads": summary.window_usage_threads,
+                    "threadsOutsideWindow": summary.threads_outside_window,
+                    "threadsWithoutTimestamp": summary.threads_without_timestamp,
+                    "windowTokens": summary.window_tokens,
                     }),
                 )
             }
@@ -315,12 +410,19 @@ impl CodexLocalProvider {
                     "windowPolicy": LOCAL_WINDOW_POLICY,
                     "timestampSemantics": CODEX_TIMESTAMP_SEMANTICS,
                     "totalTokens": 0,
+                    "windowUsageThreads": 0,
+                    "threadsOutsideWindow": 0,
+                    "threadsWithoutTimestamp": 0,
+                    "windowTokens": 0,
                 }),
             ),
         }
     }
 
-    fn scan_usage_summary(&self) -> Result<CodexUsageSummary, String> {
+    fn scan_usage_summary(
+        &self,
+        window: Option<LocalUsageWindow>,
+    ) -> Result<CodexUsageSummary, String> {
         let db_path = self.data_root.join(CODEX_STATE_DB_FILE);
 
         if !db_path.is_file() {
@@ -356,7 +458,8 @@ impl CodexLocalProvider {
 
                 Ok(CodexThreadRecord {
                     tokens_used,
-                    updated_at_ms: updated_at_ms.or_else(|| updated_at.map(|value| value * 1000)),
+                    updated_at_ms: updated_at_ms
+                        .or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
                     model,
                 })
             })
@@ -364,7 +467,7 @@ impl CodexLocalProvider {
 
         for row in rows {
             let record = row.map_err(|_| "codex_threads_query_failed".to_string())?;
-            summary.record(record);
+            summary.record(record, window);
         }
 
         Ok(summary)
@@ -378,8 +481,25 @@ struct CodexThreadRecord {
     model: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LocalUsageWindow {
+    start_ms: i128,
+    end_ms: i128,
+}
+
+#[derive(Clone, Debug)]
+struct CalibrationSnapshotValues {
+    remaining_percent: Option<f32>,
+    used_percent: Option<f32>,
+    status: &'static str,
+    reason: &'static str,
+    window_hours: Option<u64>,
+    limit: Option<f64>,
+    usage_unit: Option<&'static str>,
+}
+
 impl ClaudeUsageSummary {
-    fn record(&mut self, record: ClaudeJsonlRecord) {
+    fn record(&mut self, record: ClaudeJsonlRecord, window: Option<LocalUsageWindow>) {
         let Some(message) = record.message else {
             return;
         };
@@ -387,13 +507,39 @@ impl ClaudeUsageSummary {
             return;
         };
 
+        let input_tokens = usage.input_tokens.unwrap_or_default();
+        let output_tokens = usage.output_tokens.unwrap_or_default();
+        let cache_creation_input_tokens = usage.cache_creation_input_tokens.unwrap_or_default();
+        let cache_read_input_tokens = usage.cache_read_input_tokens.unwrap_or_default();
+        let record_tokens = input_tokens
+            .saturating_add(output_tokens)
+            .saturating_add(cache_creation_input_tokens)
+            .saturating_add(cache_read_input_tokens);
+
         self.usage_records += 1;
-        self.input_tokens += usage.input_tokens.unwrap_or_default();
-        self.output_tokens += usage.output_tokens.unwrap_or_default();
-        self.cache_creation_input_tokens += usage.cache_creation_input_tokens.unwrap_or_default();
-        self.cache_read_input_tokens += usage.cache_read_input_tokens.unwrap_or_default();
+        self.input_tokens = self.input_tokens.saturating_add(input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+        self.cache_creation_input_tokens = self
+            .cache_creation_input_tokens
+            .saturating_add(cache_creation_input_tokens);
+        self.cache_read_input_tokens = self
+            .cache_read_input_tokens
+            .saturating_add(cache_read_input_tokens);
 
         if let Some(timestamp) = record.timestamp {
+            let timestamp_ms = parse_rfc3339_ms(&timestamp);
+
+            if let Some(window) = window {
+                match timestamp_ms {
+                    Some(timestamp_ms) if window.contains(timestamp_ms) => {
+                        self.window_usage_records += 1;
+                        self.window_tokens = self.window_tokens.saturating_add(record_tokens);
+                    }
+                    Some(_) => self.records_outside_window += 1,
+                    None => self.records_without_timestamp += 1,
+                }
+            }
+
             match &self.first_timestamp {
                 Some(current) if current <= &timestamp => {}
                 _ => self.first_timestamp = Some(timestamp.clone()),
@@ -403,6 +549,8 @@ impl ClaudeUsageSummary {
                 Some(current) if current >= &timestamp => {}
                 _ => self.last_timestamp = Some(timestamp),
             }
+        } else if window.is_some() {
+            self.records_without_timestamp += 1;
         }
 
         if let Some(model) = message.model {
@@ -416,7 +564,7 @@ impl ClaudeUsageSummary {
 }
 
 impl CodexUsageSummary {
-    fn record(&mut self, record: CodexThreadRecord) {
+    fn record(&mut self, record: CodexThreadRecord, window: Option<LocalUsageWindow>) {
         self.threads_read += 1;
 
         let Some(tokens_used) = record
@@ -431,6 +579,15 @@ impl CodexUsageSummary {
         self.total_tokens = self.total_tokens.saturating_add(tokens_used);
 
         if let Some(updated_at_ms) = record.updated_at_ms {
+            if let Some(window) = window {
+                if window.contains(i128::from(updated_at_ms)) {
+                    self.window_usage_threads += 1;
+                    self.window_tokens = self.window_tokens.saturating_add(tokens_used);
+                } else {
+                    self.threads_outside_window += 1;
+                }
+            }
+
             match self.first_updated_at_ms {
                 Some(current) if current <= updated_at_ms => {}
                 _ => self.first_updated_at_ms = Some(updated_at_ms),
@@ -440,11 +597,85 @@ impl CodexUsageSummary {
                 Some(current) if current >= updated_at_ms => {}
                 _ => self.last_updated_at_ms = Some(updated_at_ms),
             }
+        } else if window.is_some() {
+            self.threads_without_timestamp += 1;
         }
 
         if let Some(model) = record.model {
             self.models.insert(model);
         }
+    }
+}
+
+impl LocalQuotaCalibration {
+    pub fn new(limit: f64, window_hours: u64) -> Option<Self> {
+        if !limit.is_finite() || limit <= 0.0 || window_hours == 0 {
+            return None;
+        }
+
+        Some(Self {
+            limit,
+            window_hours: window_hours.clamp(1, 744),
+        })
+    }
+
+    fn window(&self, now: &str) -> Option<LocalUsageWindow> {
+        let end = OffsetDateTime::parse(now, &Rfc3339).ok()?;
+        let start = end - Duration::hours(i64::try_from(self.window_hours).ok()?);
+
+        Some(LocalUsageWindow {
+            start_ms: unix_timestamp_ms(start),
+            end_ms: unix_timestamp_ms(end),
+        })
+    }
+}
+
+impl LocalUsageWindow {
+    fn contains(self, timestamp_ms: i128) -> bool {
+        timestamp_ms >= self.start_ms && timestamp_ms <= self.end_ms
+    }
+}
+
+fn calibration_snapshot_values(
+    calibration: Option<&LocalQuotaCalibration>,
+    window: Option<LocalUsageWindow>,
+    window_tokens: u64,
+    mapped_records: u64,
+) -> CalibrationSnapshotValues {
+    let Some(calibration) = calibration else {
+        return CalibrationSnapshotValues {
+            remaining_percent: None,
+            used_percent: None,
+            status: "disabled",
+            reason: "uncalibrated_local_activity",
+            window_hours: None,
+            limit: None,
+            usage_unit: None,
+        };
+    };
+
+    if window.is_none() || mapped_records == 0 {
+        return CalibrationSnapshotValues {
+            remaining_percent: None,
+            used_percent: None,
+            status: "unmapped_window",
+            reason: "calibration_window_unmapped",
+            window_hours: Some(calibration.window_hours),
+            limit: Some(calibration.limit),
+            usage_unit: Some("tokens"),
+        };
+    }
+
+    let used_percent = ((window_tokens as f64 / calibration.limit) * 100.0).clamp(0.0, 100.0);
+
+    CalibrationSnapshotValues {
+        remaining_percent: Some((100.0 - used_percent) as f32),
+        used_percent: Some(used_percent as f32),
+        status: "active",
+        reason: "manual_quota_calibration",
+        window_hours: Some(calibration.window_hours),
+        limit: Some(calibration.limit),
+        usage_unit: Some("tokens"),
     }
 }
 
@@ -539,6 +770,16 @@ fn optional_string_column(row: &Row<'_>, column_index: usize) -> Option<String> 
         ValueRef::Null => None,
         _ => None,
     }
+}
+
+fn parse_rfc3339_ms(value: &str) -> Option<i128> {
+    OffsetDateTime::parse(value, &Rfc3339)
+        .ok()
+        .map(unix_timestamp_ms)
+}
+
+fn unix_timestamp_ms(value: OffsetDateTime) -> i128 {
+    value.unix_timestamp_nanos() / 1_000_000
 }
 
 fn claude_error_status(error: &str) -> &'static str {
@@ -637,6 +878,14 @@ mod tests {
         )
     }
 
+    fn quota(limit: f64, window_hours: u64) -> Option<LocalQuotaCalibration> {
+        LocalQuotaCalibration::new(limit, window_hours)
+    }
+
+    fn ms(value: &str) -> i64 {
+        i64::try_from(parse_rfc3339_ms(value).expect("timestamp parses")).expect("timestamp fits")
+    }
+
     #[test]
     fn claude_local_provider_parses_synthetic_usage_fixture() {
         let provider = ClaudeLocalProvider::new(fixture_root());
@@ -664,9 +913,73 @@ mod tests {
             snapshot.details["remainingPercentReason"],
             "uncalibrated_local_activity"
         );
+        assert_eq!(snapshot.details["calibrationStatus"], "disabled");
         assert!(snapshot.details.get("content").is_none());
         assert!(snapshot.details.get("sessionId").is_none());
         assert!(snapshot.details.get("cwd").is_none());
+    }
+
+    #[test]
+    fn claude_local_provider_applies_manual_quota_window() {
+        let provider = ClaudeLocalProvider::new(fixture_root()).with_calibration(quota(1000.0, 24));
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T12:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(snapshot.remaining_percent, Some(58.0));
+        assert_eq!(snapshot.used_percent, Some(42.0));
+        assert_eq!(snapshot.details["windowTokens"], 420);
+        assert_eq!(snapshot.details["windowUsageRecords"], 2);
+        assert_eq!(snapshot.details["recordsOutsideWindow"], 0);
+        assert_eq!(snapshot.details["recordsWithoutTimestamp"], 0);
+        assert_eq!(snapshot.details["calibrationStatus"], "active");
+        assert_eq!(
+            snapshot.details["remainingPercentReason"],
+            "manual_quota_calibration"
+        );
+        assert_eq!(snapshot.details["quotaWindowHours"], 24);
+        assert_eq!(snapshot.details["quotaLimit"], 1000.0);
+        assert_eq!(snapshot.details["quotaUsageUnit"], "tokens");
+    }
+
+    #[test]
+    fn claude_local_provider_reports_full_window_when_usage_is_older_than_calibration_window() {
+        let provider = ClaudeLocalProvider::new(fixture_root()).with_calibration(quota(1000.0, 5));
+
+        let snapshot = provider.refresh_snapshot("2026-06-04T12:00:00Z");
+
+        assert_eq!(snapshot.remaining_percent, Some(100.0));
+        assert_eq!(snapshot.used_percent, Some(0.0));
+        assert_eq!(snapshot.details["windowTokens"], 0);
+        assert_eq!(snapshot.details["windowUsageRecords"], 0);
+        assert_eq!(snapshot.details["recordsOutsideWindow"], 2);
+        assert_eq!(snapshot.details["calibrationStatus"], "active");
+    }
+
+    #[test]
+    fn claude_local_provider_does_not_calibrate_records_without_timestamps() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(
+            projects_dir.join("current.jsonl"),
+            r#"{"type":"assistant","sessionId":"fixture-session","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":100,"output_tokens":50}}}"#,
+        )
+        .expect("fixture file is written");
+        let provider = ClaudeLocalProvider::new(&dir.path).with_calibration(quota(1000.0, 5));
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T12:00:00Z");
+
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.used_percent, None);
+        assert_eq!(snapshot.details["usageRecords"], 1);
+        assert_eq!(snapshot.details["recordsWithoutTimestamp"], 1);
+        assert_eq!(snapshot.details["windowTokens"], 0);
+        assert_eq!(snapshot.details["calibrationStatus"], "unmapped_window");
+        assert_eq!(
+            snapshot.details["remainingPercentReason"],
+            "calibration_window_unmapped"
+        );
     }
 
     #[test]
@@ -773,9 +1086,39 @@ mod tests {
             snapshot.details["remainingPercentReason"],
             "uncalibrated_local_activity"
         );
+        assert_eq!(snapshot.details["calibrationStatus"], "disabled");
         assert!(snapshot.details.get("title").is_none());
         assert!(snapshot.details.get("cwd").is_none());
         assert!(snapshot.details.get("preview").is_none());
+    }
+
+    #[test]
+    fn codex_local_provider_applies_manual_quota_window() {
+        let dir = TestDir::new();
+        create_codex_state_db(
+            &dir.path,
+            &[
+                (1200, ms("2026-06-03T21:00:00Z"), Some("codex-fixture")),
+                (800, ms("2026-06-03T10:00:00Z"), Some("codex-fixture")),
+            ],
+        );
+        let provider = CodexLocalProvider::new(&dir.path).with_calibration(quota(2000.0, 5));
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Low);
+        assert_eq!(snapshot.remaining_percent, Some(40.0));
+        assert_eq!(snapshot.used_percent, Some(60.0));
+        assert_eq!(snapshot.details["totalTokens"], 2000);
+        assert_eq!(snapshot.details["windowTokens"], 1200);
+        assert_eq!(snapshot.details["windowUsageThreads"], 1);
+        assert_eq!(snapshot.details["threadsOutsideWindow"], 1);
+        assert_eq!(snapshot.details["threadsWithoutTimestamp"], 0);
+        assert_eq!(snapshot.details["calibrationStatus"], "active");
+        assert_eq!(
+            snapshot.details["remainingPercentReason"],
+            "manual_quota_calibration"
+        );
     }
 
     #[test]

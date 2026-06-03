@@ -415,7 +415,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `usage://snapshots-updated`
 - [x] `usage://refresh-started`
 - [x] `usage://refresh-finished`
-- [ ] `usage://provider-error`
+- [x] `usage://provider-error`
 - [x] `settings://updated`
 - [ ] `login://required`
 - [ ] `session://reset`

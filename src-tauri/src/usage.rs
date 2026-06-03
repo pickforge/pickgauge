@@ -15,6 +15,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 pub const SNAPSHOTS_UPDATED_EVENT: &str = "usage://snapshots-updated";
 pub const REFRESH_STARTED_EVENT: &str = "usage://refresh-started";
 pub const REFRESH_FINISHED_EVENT: &str = "usage://refresh-finished";
+pub const PROVIDER_ERROR_EVENT: &str = "usage://provider-error";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -67,6 +68,16 @@ pub struct UsageRefreshEvent {
     pub service: Option<Service>,
     pub source: Option<UsageSource>,
     pub status: UsageRefreshStatus,
+    pub emitted_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageProviderErrorEvent {
+    pub service: Service,
+    pub source: UsageSource,
+    pub provider_id: String,
+    pub status: String,
     pub emitted_at: String,
 }
 
@@ -281,6 +292,24 @@ impl UsageRefreshEvent {
             service,
             source,
             status,
+            emitted_at,
+        }
+    }
+}
+
+impl UsageProviderErrorEvent {
+    pub fn new(
+        service: Service,
+        source: UsageSource,
+        provider_id: impl Into<String>,
+        status: impl Into<String>,
+        emitted_at: String,
+    ) -> Self {
+        Self {
+            service,
+            source,
+            provider_id: provider_id.into(),
+            status: status.into(),
             emitted_at,
         }
     }
@@ -1088,6 +1117,26 @@ mod tests {
         assert_eq!(value["source"], "local");
         assert_eq!(value["status"], "started");
         assert_eq!(value["emittedAt"], "2026-06-03T23:15:00Z");
+    }
+
+    #[test]
+    fn provider_error_event_serializes_to_sanitized_payload_shape() {
+        let value = serde_json::to_value(UsageProviderErrorEvent::new(
+            Service::Claude,
+            UsageSource::Local,
+            "claude.local",
+            "missing_data",
+            "2026-06-03T23:20:00Z".to_string(),
+        ))
+        .expect("serializes");
+
+        assert_eq!(value["service"], "claude");
+        assert_eq!(value["source"], "local");
+        assert_eq!(value["providerId"], "claude.local");
+        assert_eq!(value["status"], "missing_data");
+        assert_eq!(value["emittedAt"], "2026-06-03T23:20:00Z");
+        assert!(value.get("raw").is_none());
+        assert!(value.get("path").is_none());
     }
 
     #[test]

@@ -11,8 +11,8 @@ use tauri::{
     AppHandle, Emitter, Manager, State, WindowEvent,
 };
 use usage::{
-    Service, UsageDisplayState, UsageEngine, UsageRefreshEvent, UsageRefreshStatus, UsageSnapshot,
-    UsageSource,
+    Service, UsageDisplayState, UsageEngine, UsageProviderErrorEvent, UsageRefreshEvent,
+    UsageRefreshStatus, UsageSnapshot, UsageSource,
 };
 
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
@@ -131,6 +131,36 @@ fn emit_refresh_event(
         .map_err(|error| format!("Could not emit usage refresh event: {error}"))
 }
 
+fn emit_provider_error_events(app: &AppHandle, display_state: &UsageDisplayState) {
+    for snapshot in &display_state.snapshots {
+        let Some(status) = snapshot
+            .details
+            .get("status")
+            .and_then(|value| value.as_str())
+        else {
+            continue;
+        };
+
+        if matches!(status, "parsed" | "placeholder") {
+            continue;
+        }
+
+        let provider_id = snapshot
+            .details
+            .get("providerId")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown");
+        let event = UsageProviderErrorEvent::new(
+            snapshot.service,
+            snapshot.source,
+            provider_id,
+            status,
+            usage::now_rfc3339(),
+        );
+        let _ = app.emit(usage::PROVIDER_ERROR_EVENT, event);
+    }
+}
+
 #[tauri::command]
 fn refresh_usage(
     app: AppHandle,
@@ -146,6 +176,7 @@ fn refresh_usage(
 
     match engine.refresh_all_and_emit(&app) {
         Ok(display_state) => {
+            emit_provider_error_events(&app, &display_state);
             emit_refresh_event(
                 &app,
                 None,
@@ -187,6 +218,7 @@ fn refresh_provider(
         Ok(display_state) => {
             app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
                 .map_err(|error| format!("Could not emit usage update: {error}"))?;
+            emit_provider_error_events(&app, &display_state);
             emit_refresh_event(
                 &app,
                 Some(service),
@@ -249,6 +281,9 @@ fn start_usage_scheduler(app: AppHandle) {
                 UsageRefreshStatus::Started,
             );
             let refresh_result = engine.refresh_all_and_emit(&app);
+            if let Ok(display_state) = &refresh_result {
+                emit_provider_error_events(&app, display_state);
+            }
             let _ = emit_refresh_event(
                 &app,
                 None,

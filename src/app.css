@@ -224,6 +224,12 @@ dl {
   margin: 0;
 }
 
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 dt {
   color: #647084;
   font-size: 0.72rem;
@@ -327,7 +333,19 @@ input[type="text"] {
   cursor: pointer;
 }
 
-.save-button:disabled {
+.secondary-button {
+  border: 1px solid color-mix(in srgb, var(--accent, #2563eb) 42%, #d8dee9);
+  border-radius: 14px;
+  padding: 9px 12px;
+  background: #ffffff;
+  color: var(--accent, #2563eb);
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.save-button:disabled,
+.secondary-button:disabled {
   cursor: wait;
   filter: grayscale(0.5);
   opacity: 0.74;

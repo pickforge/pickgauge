@@ -13,6 +13,8 @@
     fallbackSnapshots,
     type AppConfig,
     type CommandError,
+    type OfficialUsagePage,
+    type Service,
     type UsageDisplayState,
     type UsageSnapshot,
   } from "./lib/usage";
@@ -21,20 +23,21 @@
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
   let loading = $state(true);
   let saving = $state(false);
+  let openingService = $state<Service | null>(null);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
 
-  const serviceLabels: Record<UsageSnapshot["service"], string> = {
+  const serviceLabels: Record<Service, string> = {
     codex: "Codex",
     claude: "Claude Code",
   };
 
-  const serviceTone: Record<UsageSnapshot["service"], string> = {
+  const serviceTone: Record<Service, string> = {
     codex: "codex",
     claude: "claude",
   };
 
-  const serviceIcons: Record<UsageSnapshot["service"], string> = {
+  const serviceIcons: Record<Service, string> = {
     codex: trayCodexUrl,
     claude: trayClaudeUrl,
   };
@@ -168,6 +171,21 @@
       saving = false;
     }
   }
+
+  async function openOfficialPage(service: Service) {
+    openingService = service;
+    statusMessage = null;
+
+    try {
+      await invoke<OfficialUsagePage>("open_official_usage_page", { service });
+      error = null;
+      statusMessage = `Opened ${serviceLabels[service]} official usage page`;
+    } catch (caught) {
+      error = formatError(caught, `Could not open ${serviceLabels[service]} usage page`);
+    } finally {
+      openingService = null;
+    }
+  }
 </script>
 
 <main class="shell" style={`--brand-pattern: url(${patternUrl});`}>
@@ -218,6 +236,18 @@
               <dd>{formatTimestamp(snapshot.lastUpdated)}</dd>
             </div>
           </dl>
+        </div>
+
+        <div class="card-actions">
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={openingService === snapshot.service}
+            aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
+            onclick={() => openOfficialPage(snapshot.service)}
+          >
+            {openingService === snapshot.service ? "Opening..." : "Open official page"}
+          </button>
         </div>
       </article>
     {/each}

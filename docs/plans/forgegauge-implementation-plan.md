@@ -816,8 +816,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Shows stale data messaging.
 - [ ] Shows login-required state.
 - [ ] Adds "Refresh now" action.
-- [ ] Adds "Open official Codex page" action.
-- [ ] Adds "Open official Claude usage page" action.
+- [x] Adds "Open official Codex page" action.
+- [x] Adds "Open official Claude usage page" action.
 - [ ] Adds guarded reset/clear actions.
 
 ### Settings

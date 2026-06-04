@@ -54,6 +54,11 @@ if (!commandAvailable("xdotool")) {
   process.exit(0);
 }
 
+if (!commandAvailable("xprop")) {
+  console.log("Skipping KDE tray registration smoke because xprop is unavailable");
+  process.exit(0);
+}
+
 if (!statusNotifierHostRegistered()) {
   console.log("Skipping KDE tray registration smoke because no StatusNotifier host is registered");
   process.exit(0);
@@ -473,6 +478,7 @@ async function validateTrayWindowLifecycle(item, child, menuItems) {
 
   const firstWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeShow);
   const firstWindowTitle = xdotool(["getwindowname", firstWindowId]);
+  const windowHints = validatePopupWindowHints(firstWindowId);
 
   assert.equal(firstWindowTitle, "ForgeGauge", "Show menu item must open ForgeGauge window");
 
@@ -512,7 +518,29 @@ async function validateTrayWindowLifecycle(item, child, menuItems) {
     initialVisibleWindowCount: visibleBeforeShow.length,
     reshowAfterClose: true,
     showMenuOpensWindow: true,
+    skipTaskbarHint: windowHints.skipTaskbar,
+    staysAboveHint: windowHints.staysAbove,
     windowTitle: secondWindowTitle,
+  };
+}
+
+function validatePopupWindowHints(windowId) {
+  const state = xprop(["-id", windowId, "_NET_WM_STATE"]);
+
+  assert.match(
+    state,
+    /_NET_WM_STATE_SKIP_TASKBAR/u,
+    "ForgeGauge popup must request skip-taskbar window state",
+  );
+  assert.match(
+    state,
+    /_NET_WM_STATE_(ABOVE|STAYS_ON_TOP)/u,
+    "ForgeGauge popup must request above/stays-on-top window state",
+  );
+
+  return {
+    skipTaskbar: true,
+    staysAbove: true,
   };
 }
 
@@ -785,6 +813,13 @@ function visibleForgeGaugeWindowIds() {
 
 function xdotool(args) {
   return execFileSync("xdotool", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function xprop(args) {
+  return execFileSync("xprop", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();

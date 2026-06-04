@@ -18,7 +18,8 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 use usage::{
     Service, UsageDisplayState, UsageEngine, UsageProviderError, UsageProviderErrorEvent,
@@ -1270,8 +1271,8 @@ fn start_gauge_rotation(tray: TrayIcon, app: AppHandle) {
     });
 }
 
-fn show_main_window(app: &tauri::AppHandle) {
-    let window = app.get_webview_window("main").or_else(|| {
+fn main_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window("main").or_else(|| {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .title("ForgeGauge")
             .inner_size(420.0, 640.0)
@@ -1282,12 +1283,42 @@ fn show_main_window(app: &tauri::AppHandle) {
             .closable(false)
             .build()
             .ok()
-    });
+    })
+}
+
+fn configure_popup_window(window: &WebviewWindow) {
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_always_on_top(true);
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    let window = main_window(app);
 
     if let Some(window) = window {
+        configure_popup_window(&window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn toggle_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = main_window(app) {
+        configure_popup_window(&window);
+
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+fn hide_main_window_if_exists(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
     }
 }
 
@@ -1302,19 +1333,6 @@ fn hide_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
         status: "hidden".to_string(),
         updated_at: usage::now_rfc3339(),
     })
-}
-
-fn setup_window_lifecycle(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let window_on_close = window.clone();
-
-        window.on_window_event(move |event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window_on_close.hide();
-            }
-        });
-    }
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -1354,7 +1372,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(&click_app_handle);
+                toggle_main_window(&click_app_handle);
             }
         })
         .build(app)?;
@@ -1417,7 +1435,9 @@ pub fn run() {
             {
                 log_startup_warning(StartupWarning::InitialUsageRefresh);
             }
-            setup_window_lifecycle(&app_handle);
+            if let Some(window) = app_handle.get_webview_window("main") {
+                configure_popup_window(&window);
+            }
             setup_tray(app)?;
             start_usage_scheduler(app_handle);
             Ok(())
@@ -1425,16 +1445,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building ForgeGauge")
         .run(|app_handle, event| match event {
-            tauri::RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::CloseRequested { api, .. },
-                ..
-            } if label == "main" => {
-                api.prevent_close();
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.hide();
+            tauri::RunEvent::WindowEvent { label, event, .. } if label == "main" => match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    hide_main_window_if_exists(app_handle);
                 }
-            }
+                WindowEvent::Focused(false) => hide_main_window_if_exists(app_handle),
+                _ => {}
+            },
             tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } => {

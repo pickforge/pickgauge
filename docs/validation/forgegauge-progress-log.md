@@ -54,6 +54,13 @@ KDE gauge rotation smoke:
 - Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `npm run smoke:kde-tray`, `npm run check`, and `git diff --check` passed.
 - Remaining caveat: this proves D-Bus icon updates and rendered service-color rotation in the current KDE/Wayland session, but not physical tray placement, visible icon animation, physical tray click behavior, or tooltip text exposure.
 
+KDE popup utility-window smoke:
+
+- The main popup now applies skip-taskbar and always-on-top hints when created or shown, hides on focus loss, and left tray click toggles visibility instead of only showing the popup.
+- `npm run smoke:kde-tray` now requires `xprop` and validates the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` and an above/stays-on-top window state after tray-menu `Show ForgeGauge`.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test --lib`, `cargo clippy -- -D warnings`, `npm run check`, `npm run build:appimage`, `node --check scripts/validate-kde-tray-registration.mjs`, `npm run smoke:kde-tray`, and `git diff --check` passed.
+- Remaining caveat: this proves utility-window hints in the current KDE/Wayland XWayland path, but not physical tray-click behavior, exact tray-relative placement, focus-loss behavior under every compositor path, or multi-monitor placement.
+
 Browser session manager status reconciliation:
 
 - Marked the isolated browser session manager complete in the plan while leaving authenticated login, authenticated cookie/session validation, saved-credential absence after login, and real provider refresh parsing unchecked.
@@ -63,7 +70,7 @@ Browser session manager status reconciliation:
 
 KDE tray registration smoke:
 
-- Added `npm run smoke:kde-tray`, which requires a Linux user session with `qdbus`, `gdbus`, `xdotool`, and an active KDE StatusNotifier host.
+- Added `npm run smoke:kde-tray`, which requires a Linux user session with `qdbus`, `gdbus`, `xdotool`, `xprop`, and an active KDE StatusNotifier host.
 - The smoke launches the built AppImage with temporary isolated XDG config/data/cache/state directories, waits for a new ForgeGauge `org.kde.StatusNotifierItem`, verifies title `forgegauge`, id `tray-icon tray app main`, status `Active`, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, verifies `Show ForgeGauge` opens a visible XWayland window, verifies a window-close request removes the visible window while the process and tray item remain alive, verifies `Show ForgeGauge` reopens or recreates the window, dispatches the tray `Quit` menu event, confirms the process exits successfully, confirms the tray item unregisters, and then removes temporary dirs.
 - The main Tauri window is now configured non-closable where supported, implicit all-windows-closed exits are prevented, and the tray Show path recreates the main webview if KDE/XWayland destroyed it after close.
 - This proves AppImage tray registration, tray-menu show/quit handling, and automated XWayland close/reopen fallback through KDE's StatusNotifier/DBusMenu interfaces in the current Wayland/KDE session, but not visual tray placement, physical tray-click behavior, popup position, settings persistence, or visual quit-menu interaction.

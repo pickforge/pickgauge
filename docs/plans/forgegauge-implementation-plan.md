@@ -84,6 +84,8 @@ Authenticated session-artifact smoke progress, 2026-06-04: extended `npm run smo
 
 Authenticated log sanitization smoke progress, 2026-06-04: extended `npm run smoke:auth-profile` with `--log-file`, `FORGEGAUGE_AUTH_LOG_PATH`, and strict `--require-sanitized-log-file` mode. The helper scans the normal app log after headless profile refresh, emits only sanitized log-inspection booleans/counts, and fails with stable sanitized codes for missing, invalid, symlinked, oversized, or sensitive logs. Disposable marker-owned blank-profile smoke accepted a safe app-style log and rejected a log containing auth/page material with `sensitive_log_detected` without exposing temporary profile or log paths. Real authenticated app-log proof remains unchecked until run against logged-in app-owned profiles.
 
+Authenticated helper report sanitization progress, 2026-06-04: `npm run smoke:auth-profile` now self-checks its emitted JSON report before printing it, rejecting raw profile paths, official URLs, the home directory, Chromium launch flags, auth-looking material, and page markup. `npm run test:auth-profile-helper` exercises this through disposable marker-owned profiles. Real authenticated profile evidence remains unchecked.
+
 Authenticated helper fail-fast progress, 2026-06-04: strict authenticated-profile smoke checks now inspect marker-owned profile storage and disabled/default-profile preferences before starting Playwright, then inspect again after headless refresh. Added `npm run test:auth-profile-helper` to validate sanitized helper output, strict blank-profile refresh, pre-launch credential/autofill/default-profile-reference failures, session-artifact strict failure, and sensitive-log failure without exposing temporary paths or official URLs. Real authenticated profile evidence remains unchecked.
 
 Authenticated helper dual-service progress, 2026-06-04: extended `npm run test:auth-profile-helper` so the strict blank-profile success path passes both Codex and Claude marker-owned disposable profiles in the same helper run. The validator now asserts sanitized results for both services and a marker-service mismatch failure path without exposing temporary profile paths, log paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
@@ -842,6 +844,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
   - [x] Add `npm run smoke:auth-profile` to validate future authenticated app-owned profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Add `npm run smoke:auth-profile -- --require-sanitized-log-file` to validate future authenticated runs against the normal app log without returning log paths or log contents.
+  - [x] `npm run smoke:auth-profile` self-checks its emitted JSON report for raw profile paths, official URLs, home-directory paths, launch flags, auth material, and page markup.
   - [x] `npm run test:auth-profile-helper` validates sanitized safe-log inspection and sensitive-log rejection without exposing temporary profile or log paths.
   - [x] `npm run test:auth-profile-helper` validates environment-variable profile/log inputs without exposing temporary profile or log paths.
   - [x] `npm run test:official-fail-closed` self-checks its emitted JSON report for raw profile roots, official URLs, launch flags, home-directory paths, auth material, and page markup.
@@ -1080,6 +1083,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
   - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login app-owned profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Update the authenticated-login inspection checklist to require sanitized normal app-log inspection alongside profile/storage checks.
+  - [x] `npm run test:auth-profile-helper` validates `smoke:auth-profile` report sanitization on disposable marker-owned profile output.
   - [x] Add `npm run test:auth-profile-helper` to validate strict helper behavior and sanitized failure output for disposable profiles/logs.
   - [x] `npm run test:auth-profile-helper` validates Codex and Claude disposable profile results plus service-marker mismatch rejection without raw path output.
   - [x] `npm run test:auth-profile-helper` validates the environment-variable profile/log input form recommended for real profile paths.

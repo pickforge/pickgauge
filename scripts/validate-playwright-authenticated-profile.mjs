@@ -119,7 +119,7 @@ async function main() {
     2,
   );
 
-  assertNoSensitiveFragments(output, requests);
+  verifySanitizedReport(output, requests);
   console.log(output);
 }
 
@@ -804,6 +804,20 @@ function assertNoSensitiveFragments(output, requests) {
 
   if (process.env.HOME && output.includes(process.env.HOME)) {
     throw new Error("Authenticated-profile smoke output leaked the home directory path");
+  }
+}
+
+function verifySanitizedReport(output, requests) {
+  assertNoSensitiveFragments(output, requests);
+
+  for (const fragment of launchArgs) {
+    if (output.includes(fragment)) {
+      throw new Error("Authenticated-profile smoke output leaked launch args");
+    }
+  }
+
+  if (sensitiveOutputPatterns.some((pattern) => pattern.test(output))) {
+    throw new Error("Authenticated-profile smoke output leaked auth or page material");
   }
 }
 

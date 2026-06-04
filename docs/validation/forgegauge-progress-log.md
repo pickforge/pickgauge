@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated profile helper report sanitization:
+
+- Added a final-report sanitizer to `npm run smoke:auth-profile` before the helper prints JSON.
+- The helper now rejects raw profile paths, official URLs, the home directory, Chromium launch flags, auth-looking material, and page markup in its emitted report.
+- Validation: `node --check scripts/validate-playwright-authenticated-profile.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:auth-profile-helper`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves disposable profile helper output is sanitized; real authenticated profile persistence, saved-credential absence, and authenticated app-log cleanliness still require logged-in app-owned profiles.
+
 Manual preflight report sanitization:
 
 - Added a final-report sanitizer to `npm run smoke:preflight` before the preflight prints JSON.

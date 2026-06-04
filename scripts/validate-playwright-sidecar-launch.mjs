@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,24 +21,55 @@ const launchArgs = [
   "--disable-features=AutofillServerCommunication",
   "--no-first-run",
 ];
+const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profiles-"));
 
-for (const request of [
-  {
-    service: "codex",
-    url: "https://chatgpt.com/codex/cloud/settings/analytics",
-    profileLabel: "codex-profile",
-  },
-  {
-    service: "claude",
-    url: "https://claude.ai/new#settings/usage",
-    profileLabel: "claude-profile",
-  },
-]) {
-  await validateLaunch(request);
+try {
+  const profileRoots = new Map();
+
+  for (const request of [
+    {
+      service: "codex",
+      url: "https://chatgpt.com/codex/cloud/settings/analytics",
+      profileLabel: "codex-profile",
+      profileRoot: resolve(validationRoot, "codex"),
+    },
+    {
+      service: "claude",
+      url: "https://claude.ai/new#settings/usage",
+      profileLabel: "claude-profile",
+      profileRoot: resolve(validationRoot, "claude"),
+    },
+  ]) {
+    profileRoots.set(request.service, request.profileRoot);
+    await validateLaunch(request);
+  }
+
+  if (profileRoots.get("codex") === profileRoots.get("claude")) {
+    throw new Error("Codex and Claude sidecar validation profiles must be distinct");
+  }
+
+  console.log("Playwright sidecar kept Codex and Claude validation profiles isolated");
+} finally {
+  rmSync(validationRoot, { force: true, recursive: true });
 }
 
-async function validateLaunch({ service, url, profileLabel }) {
-  const profileRoot = mkdtempSync(resolve(tmpdir(), `forgegauge-${service}-sidecar-`));
+async function validateLaunch({ service, url, profileLabel, profileRoot }) {
+  assertNonDefaultProfile(profileRoot);
+  await runLaunch({ service, url, profileLabel, profileRoot });
+
+  const sentinelPath = resolve(profileRoot, "forgegauge-profile-sentinel.txt");
+  writeFileSync(sentinelPath, `${service}\n`);
+
+  await runLaunch({ service, url, profileLabel, profileRoot });
+
+  if (!existsSync(sentinelPath)) {
+    throw new Error(`${service} sidecar profile did not persist across relaunch`);
+  }
+
+  console.log(`Playwright sidecar persisted ${service} isolated profile across relaunch`);
+}
+
+async function runLaunch({ service, url, profileLabel, profileRoot }) {
   const child = spawn(sidecarPath, [], {
     detached: true,
     stdio: ["pipe", "pipe", "pipe"],
@@ -90,12 +121,15 @@ async function validateLaunch({ service, url, profileLabel }) {
       throw new Error(`${service} sidecar output leaked the raw profile path`);
     }
 
+    if (!existsSync(profileRoot)) {
+      throw new Error(`${service} sidecar did not create the requested profile directory`);
+    }
+
     console.log(`Playwright sidecar launched ${service} with an isolated temporary profile`);
   } finally {
     clearTimeout(timeout);
     stopProcessGroup(child.pid);
     await waitForExit(child);
-    rmSync(profileRoot, { force: true, recursive: true });
   }
 }
 
@@ -139,5 +173,20 @@ function stopProcessGroup(pid) {
   try {
     process.kill(-pid, "SIGTERM");
   } catch {
+  }
+}
+
+function assertNonDefaultProfile(profileRoot) {
+  const home = homedir();
+  const defaultProfileRoots = [
+    resolve(home, ".config/google-chrome"),
+    resolve(home, ".config/chromium"),
+    resolve(home, ".cache/ms-playwright"),
+  ];
+
+  for (const defaultRoot of defaultProfileRoots) {
+    if (profileRoot === defaultRoot || profileRoot.startsWith(`${defaultRoot}/`)) {
+      throw new Error("Sidecar validation profile must not use a default browser profile");
+    }
   }
 }

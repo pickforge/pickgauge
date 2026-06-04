@@ -44,7 +44,7 @@ Profile inspection progress, 2026-06-03: added a sanitized managed Chromium prof
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
 
-Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles. Manual authenticated login flow and authenticated profile validation remain unchecked.
+Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch. Manual authenticated login flow and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -517,7 +517,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 - [x] The chosen backend supports visible manual login.
   - [x] Generated Playwright sidecar launches both official URLs in headed mode with temporary isolated profiles.
-- [ ] The chosen backend supports persistent isolated profiles per service.
+- [x] The chosen backend supports persistent isolated profiles per service.
+  - [x] Generated Playwright sidecar relaunches Codex and Claude with distinct temporary profile directories and preserves profile sentinels across relaunch.
 - [ ] The chosen backend does not import default browser cookies, credentials, or profiles.
 - [ ] The chosen backend can disable or avoid password saving/autofill prompts.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
@@ -763,6 +764,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Wire `start_provider_login` to a Rust-owned Tauri shell sidecar spawn path with sanitized response parsing and fail-closed fallback.
   - [x] Register and package the Linux target-triple Playwright sidecar executable through Tauri `externalBin`.
   - [x] Validate headed Playwright sidecar launch to both official URLs with temporary isolated profiles.
+  - [x] Validate generated sidecar profile persistence across relaunch for distinct Codex and Claude temporary profile directories.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
 - [x] Add guarded clear/delete action for browser profile data.

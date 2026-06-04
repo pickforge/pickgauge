@@ -40,6 +40,8 @@ Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium la
 
 Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. The inspector is exposed through sanitized IPC and maintenance UI actions for future validation. Manual authenticated profile inspection remains unchecked.
 
+Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -723,7 +725,8 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Reject non-app-owned or non-empty directories without ownership marker.
 - [x] Require ownership marker before use.
 - [x] Prevent import from user's default browser profile.
-- [ ] Maintain separate cookie jar/session state per service.
+- [x] Maintain separate cookie jar/session state per service.
+  - [x] Reject identical, nested, or root-overlapping configured service profile paths before profile creation.
 - [x] Track managed child process ownership per service with PID/handle metadata.
 - [x] Add graceful browser shutdown with timeout/kill fallback.
 - [x] Detect orphaned managed browser processes on startup.
@@ -947,6 +950,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Managed browser launch disables password manager/autofill/save-password prompts where supported.
   - [x] Chromium managed-profile initialization writes disabled autofill/password preferences with restrictive permissions.
 - [x] Dedicated browser profiles are separate per service.
+  - [x] Configured profile overrides cannot make Codex and Claude share or nest service profile paths.
 - [x] Dedicated browser profiles are app-owned and marker-guarded.
 - [x] Dedicated browser profiles never use the user's default browser profile.
 - [x] Clear/delete actions stop managed browser processes first.

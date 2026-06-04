@@ -134,11 +134,14 @@ fn resolve_browser_profile_paths(
         None => root.join("claude"),
     };
 
-    Ok(BrowserProfilePaths {
+    let paths = BrowserProfilePaths {
         root,
         codex: canonicalize_browser_profile_path(&codex)?,
         claude: canonicalize_browser_profile_path(&claude)?,
-    })
+    };
+    reject_overlapping_profile_paths(&paths)?;
+
+    Ok(paths)
 }
 
 fn ensure_profile_root_directory(path: &Path) -> Result<(), String> {
@@ -214,6 +217,26 @@ fn canonicalize_browser_profile_path(path: &Path) -> Result<PathBuf, String> {
 fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
     reject_symlink_path(path)?;
     fs::canonicalize(path).map_err(|error| format!("Could not canonicalize app data path: {error}"))
+}
+
+fn reject_overlapping_profile_paths(paths: &BrowserProfilePaths) -> Result<(), String> {
+    if paths_overlap(&paths.codex, &paths.claude) {
+        return Err("Browser profile paths must be separate per service".to_string());
+    }
+
+    if paths.root == paths.codex || paths.root == paths.claude {
+        return Err("Browser profile root must not be a service profile path".to_string());
+    }
+
+    if paths.root.starts_with(&paths.codex) || paths.root.starts_with(&paths.claude) {
+        return Err("Browser profile root must not be inside a service profile path".to_string());
+    }
+
+    Ok(())
+}
+
+fn paths_overlap(left: &Path, right: &Path) -> bool {
+    left == right || left.starts_with(right) || right.starts_with(left)
 }
 
 fn canonicalize_with_missing_tail(path: &Path) -> Result<PathBuf, String> {
@@ -469,6 +492,86 @@ mod tests {
         assert_eq!(paths.claude, dir.path.join("claude-custom"));
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
+    }
+
+    #[test]
+    fn configured_service_profile_paths_must_be_distinct() {
+        let dir = TestDir::new();
+        let shared_path = dir.path.join("shared-profile");
+        let settings = BrowserProfileSettings {
+            codex_path: Some(shared_path.to_string_lossy().to_string()),
+            claude_path: Some(shared_path.to_string_lossy().to_string()),
+            ..empty_settings()
+        };
+
+        let error = prepare_browser_profiles(&settings, &dir.path).expect_err("path is rejected");
+
+        assert!(error.contains("separate per service"));
+        assert!(!shared_path.exists());
+    }
+
+    #[test]
+    fn configured_service_profile_paths_must_not_be_nested() {
+        let dir = TestDir::new();
+        let codex_path = dir.path.join("codex-profile");
+        let claude_path = codex_path.join("claude-profile");
+        let settings = BrowserProfileSettings {
+            codex_path: Some(codex_path.to_string_lossy().to_string()),
+            claude_path: Some(claude_path.to_string_lossy().to_string()),
+            ..empty_settings()
+        };
+
+        let error = prepare_browser_profiles(&settings, &dir.path).expect_err("path is rejected");
+
+        assert!(error.contains("separate per service"));
+        assert!(!codex_path.exists());
+    }
+
+    #[test]
+    fn profile_root_must_not_overlap_service_profile_paths() {
+        let dir = TestDir::new();
+        let codex_path = dir.path.join("codex-profile");
+        let settings = BrowserProfileSettings {
+            root_path: Some(
+                codex_path
+                    .join("profile-root")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            codex_path: Some(codex_path.to_string_lossy().to_string()),
+            claude_path: Some(
+                dir.path
+                    .join("claude-profile")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+        };
+
+        let error = prepare_browser_profiles(&settings, &dir.path).expect_err("path is rejected");
+
+        assert!(error.contains("root must not be inside"));
+        assert!(!codex_path.exists());
+    }
+
+    #[test]
+    fn profile_root_must_not_equal_service_profile_path() {
+        let dir = TestDir::new();
+        let codex_path = dir.path.join("codex-profile");
+        let settings = BrowserProfileSettings {
+            root_path: Some(codex_path.to_string_lossy().to_string()),
+            codex_path: Some(codex_path.to_string_lossy().to_string()),
+            claude_path: Some(
+                dir.path
+                    .join("claude-profile")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+        };
+
+        let error = prepare_browser_profiles(&settings, &dir.path).expect_err("path is rejected");
+
+        assert!(error.contains("root must not be a service"));
+        assert!(!codex_path.exists());
     }
 
     #[test]

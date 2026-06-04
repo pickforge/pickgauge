@@ -1,5 +1,18 @@
 # ForgeGauge Progress Validation Log
 
+## 2026-06-04 America/Sao_Paulo
+
+Branch: `forgegauge-implementation`
+
+Profile storage isolation:
+
+- Managed browser profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths after canonicalization and before creating profile directories.
+- This prevents configured browser profile overrides from sharing one Chromium `--user-data-dir` between services or making one service profile contain the other service's session storage.
+- Tests cover shared service paths, nested service paths, profile root inside a service path, and profile root equal to a service path.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`150 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
+- Manual authenticated cookie/session validation remains unchecked until a browser backend and login flow are selected and tested.
+
 ## 2026-06-03 America/Sao_Paulo
 
 Branch: `forgegauge-implementation`

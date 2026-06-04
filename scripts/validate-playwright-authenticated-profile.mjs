@@ -24,6 +24,9 @@ const sidecarPath = resolve(
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
 const profileInspectionEntryLimit = 4_096;
+const profileMarkerFileName = ".forgegauge-profile.json";
+const profileMarkerSchemaVersion = 1;
+const appIdentifier = "com.pickforge.forgegauge";
 const launchArgs = [
   "--disable-save-password-bubble",
   "--disable-password-manager-reauthentication",
@@ -55,53 +58,63 @@ const failClosedStates = new Set([
   "unexpected_ui",
 ]);
 
-const options = parseOptions(process.argv.slice(2));
-
-if (options.help) {
-  printHelp();
-  process.exit(0);
+try {
+  await main();
+} catch (error) {
+  printSanitizedFailure(error);
+  process.exitCode = 1;
 }
 
-const requests = serviceDefinitions
-  .map((definition) => ({
-    ...definition,
-    profileRoot: options.profileRoots.get(definition.service) ?? process.env[definition.envName],
-  }))
-  .filter((request) => request.profileRoot);
+async function main() {
+  const options = parseOptions(process.argv.slice(2));
 
-if (requests.length === 0) {
-  throw new Error(
-    "Provide at least one authenticated profile root with --codex-profile, --claude-profile, FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT, or FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
-  );
-}
+  if (options.help) {
+    printHelp();
+    return;
+  }
 
-const results = [];
+  const requests = serviceDefinitions
+    .map((definition) => ({
+      ...definition,
+      profileRoot: options.profileRoots.get(definition.service) ?? process.env[definition.envName],
+    }))
+    .filter((request) => request.profileRoot);
 
-for (const request of requests) {
-  results.push(await validateAuthenticatedProfile(request, options));
-}
+  if (requests.length === 0) {
+    throw new Error(
+      "Provide at least one authenticated profile root with --codex-profile, --claude-profile, FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT, or FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
+    );
+  }
 
-const output = JSON.stringify(
-  {
-    generatedAt: new Date().toISOString(),
-    backend: "playwright-headed-chromium-sidecar",
-    desktopSession: {
-      currentDesktop: safeEnv("XDG_CURRENT_DESKTOP"),
-      xdgSessionType: safeEnv("XDG_SESSION_TYPE"),
+  const results = [];
+
+  for (const request of requests) {
+    results.push(await validateAuthenticatedProfile(request, options));
+  }
+
+  const output = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      backend: "playwright-headed-chromium-sidecar",
+      desktopSession: {
+        currentDesktop: safeEnv("XDG_CURRENT_DESKTOP"),
+        xdgSessionType: safeEnv("XDG_SESSION_TYPE"),
+      },
+      os: osReleaseSummary(),
+      targetTriple,
+      services: results,
     },
-    os: osReleaseSummary(),
-    targetTriple,
-    services: results,
-  },
-  null,
-  2,
-);
+    null,
+    2,
+  );
 
-assertNoSensitiveFragments(output, requests);
-console.log(output);
+  assertNoSensitiveFragments(output, requests);
+  console.log(output);
+}
 
 async function validateAuthenticatedProfile(request, options) {
   validateProfileRoot(request);
+  const profileMarker = inspectProfileMarker(request, options);
 
   const response = await runSidecarRefresh(request);
 
@@ -143,6 +156,7 @@ async function validateAuthenticatedProfile(request, options) {
     failClosedState: response.pageState === "usage" ? null : response.pageState,
     headlessRefresh: true,
     profileLabel: request.profileLabel,
+    profileMarker,
     profileStorage,
     sanitizedOutput: true,
     service: request.service,
@@ -160,6 +174,7 @@ function parseOptions(args) {
     profileRoots,
     requireDisabledPreferences: false,
     requireUsage: false,
+    allowUnmarkedTestProfile: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -177,6 +192,11 @@ function parseOptions(args) {
 
     if (arg === "--require-disabled-storage-preferences") {
       options.requireDisabledPreferences = true;
+      continue;
+    }
+
+    if (arg === "--allow-unmarked-test-profile") {
+      options.allowUnmarkedTestProfile = true;
       continue;
     }
 
@@ -201,14 +221,18 @@ function parseOptions(args) {
 
 function printHelp() {
   console.log(`Usage:
-  npm run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences
 
 Environment:
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
   FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT=/absolute/profile
 
-The command runs headless refresh checks only. It emits sanitized JSON without profile paths,
-official URLs, cookies, tokens, auth headers, browser storage contents, or page markup.`);
+The command runs headless refresh checks only. Profile roots must contain ForgeGauge
+ownership markers unless --allow-unmarked-test-profile is used for disposable tests.
+Use npm --silent or environment variables for real profile paths so npm does not echo
+CLI arguments before the helper starts. The helper emits sanitized JSON without
+profile paths, official URLs, cookies, tokens, auth headers, browser storage
+contents, or page markup.`);
 }
 
 function validateProfileRoot({ profileRoot, service }) {
@@ -235,6 +259,49 @@ function validateProfileRoot({ profileRoot, service }) {
       throw new Error(`${service} profile root must not be a default browser profile`);
     }
   }
+}
+
+function inspectProfileMarker({ profileRoot, service }, options) {
+  const markerPath = resolve(profileRoot, profileMarkerFileName);
+
+  if (!existsSync(markerPath)) {
+    if (options.allowUnmarkedTestProfile) {
+      return {
+        appOwned: false,
+        present: false,
+        serviceMatches: null,
+      };
+    }
+
+    throw new Error(`${service} profile root is missing the ForgeGauge ownership marker`);
+  }
+
+  const markerStat = lstatSync(markerPath);
+
+  if (markerStat.isSymbolicLink()) {
+    throw new Error(`${service} profile ownership marker must not be a symlink`);
+  }
+
+  if (!markerStat.isFile()) {
+    throw new Error(`${service} profile ownership marker must be a file`);
+  }
+
+  const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+  const serviceMatches = marker.service === service;
+  const appOwned =
+    marker.schemaVersion === profileMarkerSchemaVersion &&
+    marker.appIdentifier === appIdentifier &&
+    serviceMatches;
+
+  if (!appOwned) {
+    throw new Error(`${service} profile ownership marker does not match ForgeGauge`);
+  }
+
+  return {
+    appOwned: true,
+    present: true,
+    serviceMatches,
+  };
 }
 
 async function runSidecarRefresh({ service, url, profileLabel, profileRoot }) {
@@ -488,6 +555,30 @@ function verifySanitizedSidecarOutput({ profileRoot, service, stderr, stdout, ur
   if (/<!doctype|<html|<body|<script/iu.test(output)) {
     throw new Error(`${service} authenticated-profile refresh output leaked page markup`);
   }
+}
+
+function printSanitizedFailure(error) {
+  const message = typeof error?.message === "string" ? error.message : "";
+  const code =
+    [
+      ["missing_profile_marker", /missing the ForgeGauge ownership marker/u],
+      ["invalid_profile_marker", /ownership marker/u],
+      ["default_browser_profile", /default browser profile/u],
+      ["invalid_profile_root", /profile root/u],
+      ["usage_not_reached", /did not reach usage state/u],
+      ["storage_preferences_not_disabled", /disabled storage preferences/u],
+      ["profile_inspection_failed", /profile inspection/u],
+      ["unsupported_page_state", /unsupported page state/u],
+      ["sidecar_timeout", /Timed out/u],
+    ].find(([, pattern]) => pattern.test(message))?.[0] ?? "auth_profile_smoke_failed";
+
+  console.error(
+    JSON.stringify({
+      ok: false,
+      code,
+      message: "Authenticated profile smoke failed",
+    }),
+  );
 }
 
 function assertNoSensitiveFragments(output, requests) {

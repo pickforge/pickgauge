@@ -64,7 +64,7 @@ Profile storage artifact progress, 2026-06-04: extended sanitized managed-profil
 
 Headless official refresh progress, 2026-06-04: split the Playwright sidecar into headed `launchLogin` for explicit user login and headless `refreshUsage` for normal official usage refresh checks. The desktop `Refresh usage`, `Refresh official`, and scheduled due-refresh paths now use the headless sidecar with the existing app-owned persistent profile, convert sanitized sidecar page state/visible fields through the web parser, update the normal provider cache/merge path, and report login-required states without flashing a visible browser. Scheduled headless web refreshes do not consume the manual web-refresh cooldown. `npm run test:official-fail-closed` validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states and a forced dead-proxy Codex refresh returns sanitized `network_unavailable`, all with `headless: true` and `visibleBrowserRequired: false` on CachyOS KDE/Wayland. Authenticated official parsing, post-login session persistence, and saved-credential validation remain unchecked.
 
-Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:auth-profile`, a manual post-login validation helper that accepts user-supplied dedicated Codex/Claude profile roots through CLI args or environment variables, performs only headless Playwright `refreshUsage` checks, inspects profile storage counts and disabled preference booleans without reading browser storage contents, and emits sanitized JSON without profile paths, official URLs, cookies, tokens, auth headers, page markup, or raw page content. The helper supports strict `--require-usage` and `--require-disabled-storage-preferences` modes for future authenticated validation. A temporary blank-profile Codex run validated the command path and returned sanitized `logged_out` with `visibleBrowserRequired: false`; real authenticated profile evidence remains unchecked.
+Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:auth-profile`, a manual post-login validation helper that accepts user-supplied dedicated Codex/Claude profile roots through CLI args or environment variables, requires ForgeGauge app-owned profile markers by default, performs only headless Playwright `refreshUsage` checks, inspects profile storage counts and disabled preference booleans without reading browser storage contents, and emits sanitized JSON without profile paths, official URLs, cookies, tokens, auth headers, page markup, or raw page content. Real profile runs should use `npm --silent run` or environment variables so npm does not echo CLI path arguments before the helper starts. The helper supports strict `--require-usage` and `--require-disabled-storage-preferences` modes for future authenticated validation. A temporary marker-owned blank Codex profile run validated the command path and returned sanitized `logged_out` with `visibleBrowserRequired: false`; a missing-marker profile fails with sanitized `missing_profile_marker` output. Real authenticated profile evidence remains unchecked.
 
 Supersedes:
 
@@ -773,7 +773,7 @@ Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
 - [ ] Confirm no sensitive page content is written to normal logs.
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
-  - [x] Add `npm run smoke:auth-profile` to validate future authenticated profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
+  - [x] Add `npm run smoke:auth-profile` to validate future authenticated app-owned profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
 - [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
 - [x] Review CSP and permissions needed before implementing provider UI.
@@ -977,7 +977,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Frontend/Svelte | `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
-| Authenticated profile smoke | `npm run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --require-usage --require-disabled-storage-preferences` |
+| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --require-usage --require-disabled-storage-preferences` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
@@ -992,7 +992,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Add sanitized `npm run smoke:preflight` command to collect date/session, OS/session, commit, artifact, and runtime metadata without full local paths or secrets.
 - [x] For release checks: workflow run URL, release tag, and artifact names are recorded.
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
-  - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
+  - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login app-owned profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
 
 ### Automated Tests To Add
 
@@ -1017,7 +1017,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
 - [x] KDE StatusNotifier tray registration, DBusMenu quit, XWayland show/close/reopen, and isolated packaged-restart config-persistence smoke command for AppImage launch validation.
-- [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and dedicated-profile evidence.
+- [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and marker-owned dedicated-profile evidence.
 
 ### Manual Tests To Complete
 
@@ -1028,7 +1028,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Settings persistence after restart.
   - [x] KDE/AppImage smoke verifies isolated config creation and persisted service-toggle/gauge-interval values survive packaged restart.
 - [ ] Dedicated browser login.
-  - [x] `npm run smoke:auth-profile -- --help` documents the manual post-login profile validation command without opening a visible browser.
+  - [x] `npm run smoke:auth-profile -- --help` documents the manual post-login profile validation command, including `npm --silent` guidance for real profile paths, without opening a visible browser.
 - [ ] Official Codex page refresh.
 - [ ] Official Claude usage page refresh.
 - [ ] Network unavailable state.
@@ -1077,7 +1077,7 @@ Blocked: requires authenticated login validation with the selected browser backe
   - [x] Profile inspection and sidecar launch evidence count cookie/site-storage artifacts without returning artifact names, cookie rows, storage contents, raw paths, or page content.
   - [x] Real headed Playwright sidecar launch validation checks stdout/stderr for sanitized output without raw launch data, seeded profile sentinels, auth/cookie-looking material, or page markup.
   - [x] Real headless official refresh validation checks sidecar stdout/stderr for sanitized output without raw URLs, launch flags, profile paths, auth/cookie-looking material, or page markup.
-  - [x] Authenticated-profile smoke helper is available for future real-profile validation and its blank-profile test run emitted sanitized headless output without raw paths, URLs, auth material, browser storage contents, or page markup.
+  - [x] Authenticated-profile smoke helper is available for future real-profile validation, requires app-owned profile markers by default, and its marker-owned blank-profile test run emitted sanitized headless output without raw paths, URLs, auth material, browser storage contents, or page markup.
 Blocked: real authenticated refresh logging proof requires selected browser backend and web provider implementation.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.

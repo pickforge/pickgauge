@@ -29,7 +29,9 @@ try {
   validateHelpOutput();
   validateStrictBlankProfileRefresh();
   validateSharedProfileRootInput();
+  validateEnvironmentSharedProfileRootInput();
   validateRelativeSharedProfileRootFailure();
+  validateRelativeEnvironmentSharedProfileRootFailure();
   validateEnvironmentProfileInputs();
   validatePreflightFailure({
     code: "credential_store_detected",
@@ -163,6 +165,50 @@ function validateSharedProfileRootInput() {
 
 function validateRelativeSharedProfileRootFailure() {
   const result = runHelper(["--profile-root", "relative-browser-profiles"]);
+
+  assertFailureCode(result, "invalid_profile_root");
+  assertSanitized(result, ["relative-browser-profiles"]);
+}
+
+function validateEnvironmentSharedProfileRootInput() {
+  const profileRoot = resolve(validationRoot, "env-shared-root");
+  const codexProfileRoot = createProfile("codex", "env-shared-root/codex");
+  const claudeProfileRoot = createProfile("claude", "env-shared-root/claude");
+  const logPath = resolve(validationRoot, "env-shared-root.log");
+
+  writeFileSync(logPath, "ForgeGauge environment shared root smoke completed\n", {
+    mode: 0o600,
+  });
+
+  const result = runHelper(
+    [
+      "--require-sanitized-log-file",
+      "--require-disabled-storage-preferences",
+      "--require-no-credential-store-files",
+      "--require-no-autofill-store-files",
+      "--require-no-default-profile-references",
+    ],
+    {
+      FORGEGAUGE_AUTH_LOG_PATH: logPath,
+      FORGEGAUGE_AUTH_PROFILE_ROOT: profileRoot,
+    },
+  );
+  const output = JSON.parse(result.stdout);
+  const services = new Map(output.services.map((service) => [service.service, service]));
+
+  assert.equal(result.status, 0);
+  assert.equal(output.logInspection.inspected, true);
+  assert.equal(output.logInspection.sensitiveContentAbsent, true);
+  assert.equal(output.services.length, 2);
+  assertServiceResult(services.get("codex"), "codex");
+  assertServiceResult(services.get("claude"), "claude");
+  assertSanitized(result, [profileRoot, codexProfileRoot, claudeProfileRoot, logPath]);
+}
+
+function validateRelativeEnvironmentSharedProfileRootFailure() {
+  const result = runHelper([], {
+    FORGEGAUGE_AUTH_PROFILE_ROOT: "relative-browser-profiles",
+  });
 
   assertFailureCode(result, "invalid_profile_root");
   assertSanitized(result, ["relative-browser-profiles"]);

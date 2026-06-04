@@ -62,6 +62,12 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
   return providerStatusMessages[status] ?? null;
 }
 
+export function redactedUserPath(path: string) {
+  return path
+    .replace(/^\/home\/[^/]+(?=\/)/, "~")
+    .replace(/^\/Users\/[^/]+(?=\/)/, "~");
+}
+
 export type UsageDisplayState = {
   snapshots: UsageSnapshot[];
   updatedAt: string;

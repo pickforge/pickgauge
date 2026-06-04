@@ -12,6 +12,7 @@
     defaultConfig,
     fallbackSnapshots,
     providerStatusMessage,
+    redactedUserPath,
     type AppConfig,
     type ClearedProviderProfile,
     type CommandError,
@@ -341,7 +342,7 @@
       const location = await invoke<LogLocation>("get_log_location");
       const state = location.exists ? "created" : "not created yet";
       error = null;
-      statusMessage = `Log file: ${location.path} (${state}). Policy: ${location.redactionPolicy}`;
+      statusMessage = `Log file: ${redactedUserPath(location.path)} (${state}). Policy: ${location.redactionPolicy}`;
     } catch (caught) {
       error = formatError(caught, "Could not read log location");
     } finally {

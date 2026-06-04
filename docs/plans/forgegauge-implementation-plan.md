@@ -501,7 +501,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 - [x] Add structured provider status/error codes.
 - [x] Prefer stable status codes over raw error messages.
-- [ ] Redact home directory paths when they are not needed for debugging.
+- [x] Redact home directory paths when they are not needed for debugging.
 - [ ] Never log cookies, tokens, auth headers, raw page HTML, raw authenticated text, account identifiers, or full browser errors.
 - [x] Add a UI-visible log location only after log redaction policy exists.
 - [x] Include enough diagnostics to distinguish disabled, missing data, stale, parse failed, login required, and unavailable states.
@@ -716,7 +716,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
 - [x] Add negative tests for unsafe browser profile paths.
 - [ ] Add tests for browser shutdown, orphan detection, and cleanup refusal.
-- [ ] Verify profile/cache paths use restrictive local permissions where supported.
+- [x] Verify profile/cache paths use restrictive local permissions where supported.
 - [ ] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
 
 ### Phase 8 — Web Providers

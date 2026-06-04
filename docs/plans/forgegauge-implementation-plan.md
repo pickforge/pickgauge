@@ -94,6 +94,8 @@ Authenticated helper environment-input progress, 2026-06-04: extended `npm run t
 
 Authenticated helper shared-root input progress, 2026-06-04: `npm run smoke:auth-profile` now accepts `--profile-root` and `FORGEGAUGE_AUTH_PROFILE_ROOT` to derive `codex` and `claude` profile roots from one browser-profile root while still letting per-service profile inputs override the derived path. `npm run test:auth-profile-helper` validates both CLI and environment shared-root forms with disposable marker-owned profiles, per-service override precedence, relative shared-root rejection with sanitized `invalid_profile_root`, and output sanitization for the shared root, derived profile paths, override profile paths, log path, official URLs, and home directory. Real authenticated profile evidence remains unchecked.
 
+Authenticated helper shared-root safety progress, 2026-06-04: `npm run smoke:auth-profile` now fail-fast validates supplied shared profile roots before deriving service paths, rejecting missing, non-directory, symlinked, relative, or known-default-browser roots with sanitized `invalid_profile_root` failures. `npm run test:auth-profile-helper` validates symlink shared-root rejection without exposing the real or symlink root path. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`). Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default, network-unavailable, and unexpected-UI preview cards do not expose `Start login` while expired-login, MFA, and CAPTCHA states do after experimental web providers are enabled.
@@ -853,6 +855,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] `npm run test:auth-profile-helper` validates sanitized safe-log inspection and sensitive-log rejection without exposing temporary profile or log paths.
   - [x] `npm run test:auth-profile-helper` validates environment-variable profile/log inputs without exposing temporary profile or log paths.
   - [x] `npm run test:auth-profile-helper` validates CLI and environment shared profile-root inputs plus per-service override precedence without exposing the root, derived profile paths, override paths, or log path.
+  - [x] `npm run test:auth-profile-helper` validates shared profile-root symlink rejection without exposing the symlink or target root.
   - [x] `npm run test:official-fail-closed` self-checks its emitted JSON report for raw profile roots, official URLs, launch flags, home-directory paths, auth material, and page markup.
   - [x] `npm run test:synthetic-fail-closed` self-checks its emitted JSON report for raw profile roots, local HTTPS URLs, launch flags, synthetic cookie names, home-directory paths, auth material, and page markup.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
@@ -1095,6 +1098,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] `npm run test:auth-profile-helper` validates Codex and Claude disposable profile results plus service-marker mismatch rejection without raw path output.
   - [x] `npm run test:auth-profile-helper` validates the environment-variable profile/log input form recommended for real profile paths.
   - [x] `npm run test:auth-profile-helper` validates the CLI and environment shared browser-profile-root input forms recommended for default app-owned profiles, plus per-service override precedence.
+  - [x] `npm run test:auth-profile-helper` validates shared browser-profile-root safety checks reject symlink roots before deriving service paths.
   - [x] `npm run test:official-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
   - [x] `npm run test:synthetic-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
   - [x] `npm run smoke:preflight` validates its own JSON preflight artifact remains sanitized before printing.

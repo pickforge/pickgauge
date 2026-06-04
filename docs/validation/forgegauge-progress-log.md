@@ -4,6 +4,14 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated helper shared-root safety:
+
+- Added fail-fast validation for supplied shared auth profile roots before deriving service paths.
+- Shared roots now reject missing, non-directory, symlinked, relative, or known-default-browser paths with sanitized `invalid_profile_root` failures.
+- Extended `npm run test:auth-profile-helper` to validate symlink shared-root rejection without exposing the symlink or target root path.
+- Validation: `node --check scripts/validate-playwright-authenticated-profile.mjs`, `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run test:auth-profile-helper`, `npm run check`, `npm test`, `npm run build`, and `npm run test:browser-preview` passed.
+- Remaining caveat: this hardens future manual authenticated smoke input validation; real authenticated profile persistence and log cleanliness still require logged-in app-owned profiles.
+
 Authenticated helper shared-root input:
 
 - Added `--profile-root` and `FORGEGAUGE_AUTH_PROFILE_ROOT` to `npm run smoke:auth-profile`, deriving `codex` and `claude` child profile paths from one browser-profile root.

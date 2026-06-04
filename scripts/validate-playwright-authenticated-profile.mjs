@@ -81,6 +81,8 @@ async function main() {
     return;
   }
 
+  validateSharedProfileRoot(options.profileRoot);
+
   const requests = serviceDefinitions
     .map((definition) => ({
       ...definition,
@@ -359,6 +361,36 @@ function profileRootForService(definition, options) {
     process.env[definition.envName] ??
     (options.profileRoot ? resolve(options.profileRoot, definition.service) : null)
   );
+}
+
+function validateSharedProfileRoot(profileRoot) {
+  if (!profileRoot) {
+    return;
+  }
+
+  if (!isAbsolute(profileRoot)) {
+    throw new Error("Shared browser profile root must be absolute");
+  }
+
+  if (!existsSync(profileRoot)) {
+    throw new Error("Shared browser profile root does not exist");
+  }
+
+  const stat = lstatSync(profileRoot);
+
+  if (stat.isSymbolicLink()) {
+    throw new Error("Shared browser profile root must not be a symlink");
+  }
+
+  if (!stat.isDirectory()) {
+    throw new Error("Shared browser profile root must be a directory");
+  }
+
+  for (const defaultRoot of defaultBrowserProfileRoots()) {
+    if (profileRoot === defaultRoot || profileRoot.startsWith(`${defaultRoot}/`)) {
+      throw new Error("Shared browser profile root must not be a default browser profile");
+    }
+  }
 }
 
 function printHelp() {

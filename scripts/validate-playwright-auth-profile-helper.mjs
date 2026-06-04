@@ -2,7 +2,14 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +40,7 @@ try {
   validateServiceProfileOverridePrecedence();
   validateRelativeSharedProfileRootFailure();
   validateRelativeEnvironmentSharedProfileRootFailure();
+  validateSymlinkSharedProfileRootFailure();
   validateEnvironmentProfileInputs();
   validatePreflightFailure({
     code: "credential_store_detected",
@@ -253,6 +261,20 @@ function validateRelativeEnvironmentSharedProfileRootFailure() {
 
   assertFailureCode(result, "invalid_profile_root");
   assertSanitized(result, ["relative-browser-profiles"]);
+}
+
+function validateSymlinkSharedProfileRootFailure() {
+  const realProfileRoot = resolve(validationRoot, "symlink-target");
+  const symlinkProfileRoot = resolve(validationRoot, "symlink-shared-root");
+
+  createProfile("codex", "symlink-target/codex");
+  createProfile("claude", "symlink-target/claude");
+  symlinkSync(realProfileRoot, symlinkProfileRoot, "dir");
+
+  const result = runHelper(["--profile-root", symlinkProfileRoot]);
+
+  assertFailureCode(result, "invalid_profile_root");
+  assertSanitized(result, [realProfileRoot, symlinkProfileRoot]);
 }
 
 function assertServiceResult(service, serviceName) {

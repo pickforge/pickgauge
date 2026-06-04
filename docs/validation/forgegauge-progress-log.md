@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Official network fail-closed coverage:
+
+- Extended `npm run test:official-fail-closed` so forced dead-proxy headless `refreshUsage` checks run for both Codex and Claude temporary profiles.
+- The smoke now validates blank-profile `logged_out` and forced `network_unavailable` states for both services with `headlessRefresh = true`, `visibleBrowserRequired = false`, and sanitized sidecar output.
+- Validation: `node --check scripts/validate-playwright-official-fail-closed.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:official-fail-closed`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves real official blank-profile and network-unavailable fail-closed behavior; authenticated official parsing and real provider interruption pages still require logged-in app-owned profiles.
+
 Authenticated helper fail-fast coverage:
 
 - Moved strict authenticated-profile smoke storage/preference checks before Playwright refresh, while keeping a second post-refresh inspection.
@@ -82,7 +89,7 @@ Headless official refresh and visible-browser suppression:
 - Normal official refresh checks now use the Playwright sidecar `refreshUsage` action in headless mode with the app-owned persistent profile. Visible Chromium remains reserved for explicit `Start login` requests.
 - Desktop `Refresh usage`, service-specific `Refresh official`, and scheduled due-refresh web checks use the headless sidecar result path and keep the existing provider cache/merge behavior. Scheduled headless web checks do not consume the manual web-refresh cooldown.
 - Headless navigation failures after a persistent context is created now map to sanitized visible page states: `timed_out` for Playwright timeout errors and `network_unavailable` for other refresh navigation failures. Sidecar launch/protocol failures still fail closed as sanitized sidecar errors.
-- Evidence: `npm run test:official-fail-closed` passed on CachyOS KDE/Wayland. Blank Codex and Claude profiles returned sanitized `logged_out` states with `headlessRefresh = true` and `visibleBrowserRequired = false`; a forced dead-proxy Codex refresh returned sanitized `network_unavailable` with the same headless/no-visible-browser flags.
+- Evidence: `npm run test:official-fail-closed` passed on CachyOS KDE/Wayland. Blank Codex and Claude profiles returned sanitized `logged_out` states with `headlessRefresh = true` and `visibleBrowserRequired = false`; forced dead-proxy Codex and Claude refreshes returned sanitized `network_unavailable` with the same headless/no-visible-browser flags.
 - Validation: `npm test`, `npm run test:official-fail-closed`, `npm run check`, `npm run build`, `npm run test:browser-preview`, `git diff --check`, and cleanup checks for leftover sidecar processes and temporary official-fail-closed profile roots passed for the implementation slice.
 - Remaining caveat: authenticated official parsing, post-login session persistence, real MFA/CAPTCHA/unexpected-UI browser states, and saved-credential absence after login still require manual authenticated validation.
 

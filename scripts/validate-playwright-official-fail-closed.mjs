@@ -45,42 +45,44 @@ const validFailClosedStates = new Set([
   "timed_out",
   "unexpected_ui",
 ]);
+const officialUsageRequests = [
+  {
+    service: "codex",
+    url: "https://chatgpt.com/codex/cloud/settings/analytics",
+    profileLabel: "codex-profile",
+  },
+  {
+    service: "claude",
+    url: "https://claude.ai/new#settings/usage",
+    profileLabel: "claude-profile",
+  },
+];
 let validationRootCleanupFailed = false;
 
 try {
   const results = [];
 
-  for (const request of [
-    {
-      service: "codex",
-      url: "https://chatgpt.com/codex/cloud/settings/analytics",
-      profileLabel: "codex-profile",
-      profileRoot: resolve(validationRoot, "codex"),
-    },
-    {
-      service: "claude",
-      url: "https://claude.ai/new#settings/usage",
-      profileLabel: "claude-profile",
-      profileRoot: resolve(validationRoot, "claude"),
-    },
-  ]) {
-    prepareDisabledStoragePreferences(request.profileRoot);
-    results.push(await validateHeadlessRefresh(request));
+  for (const request of officialUsageRequests) {
+    const profileRoot = resolve(validationRoot, request.service);
+
+    prepareDisabledStoragePreferences(profileRoot);
+    results.push(await validateHeadlessRefresh({ ...request, profileRoot }));
   }
 
-  const networkFailureProfileRoot = resolve(validationRoot, "codex-network-unavailable");
-  prepareDisabledStoragePreferences(networkFailureProfileRoot);
-  results.push(
-    await validateHeadlessRefresh({
-      args: [...launchArgs, "--proxy-server=http://127.0.0.1:9"],
-      expectedPageState: "network_unavailable",
-      profileLabel: "codex-profile",
-      profileRoot: networkFailureProfileRoot,
-      scenario: "network_unavailable",
-      service: "codex",
-      url: "https://chatgpt.com/codex/cloud/settings/analytics",
-    }),
-  );
+  for (const request of officialUsageRequests) {
+    const profileRoot = resolve(validationRoot, `${request.service}-network-unavailable`);
+
+    prepareDisabledStoragePreferences(profileRoot);
+    results.push(
+      await validateHeadlessRefresh({
+        ...request,
+        args: [...launchArgs, "--proxy-server=http://127.0.0.1:9"],
+        expectedPageState: "network_unavailable",
+        profileRoot,
+        scenario: "network_unavailable",
+      }),
+    );
+  }
 
   console.log(
     JSON.stringify(

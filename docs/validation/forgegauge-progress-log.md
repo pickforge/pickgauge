@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Login fallback clearing:
+
+- Added a display-state regression proving a later successful web snapshot clears stale fallback `webStatus`/`webReason` values left by an earlier login-required web failure.
+- This covers the UI condition that would otherwise keep `Start login` visible after a silent official-usage preflight has already succeeded.
+- Validation: `cargo fmt --check`, `cargo test --lib display_state_clears_web_status_when_later_web_snapshot_succeeds`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the local merge/display-state behavior; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Login preflight snapshot update:
 
 - `Start login` now records successful headless preflight responses into the normal web snapshot cache and emits the standard snapshot update event before deciding whether a headed login launch is needed.

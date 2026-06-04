@@ -2663,6 +2663,64 @@ mod tests {
     }
 
     #[test]
+    fn display_state_clears_web_status_when_later_web_snapshot_succeeds() {
+        let local_snapshot = uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:05:00Z");
+        let mut web_failure = web_error_snapshot(
+            Service::Codex,
+            UsageProviderError::LoginRequired,
+            "2026-06-03T23:10:00Z",
+        );
+        web_failure.details["reason"] = serde_json::json!("logged_out");
+
+        let failed_display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                ("codex.web", web_failure),
+                ("codex.local", local_snapshot.clone()),
+            ],
+            "2026-06-03T23:10:00Z",
+        );
+        let failed_snapshot = &failed_display_state.snapshots[0];
+
+        assert_eq!(failed_snapshot.source, UsageSource::Local);
+        assert_eq!(failed_snapshot.details["webStatus"], "login_required");
+        assert_eq!(
+            failed_snapshot.details["mergeStatus"],
+            "web_unavailable_fallback"
+        );
+
+        let successful_display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                (
+                    "codex.web",
+                    web_snapshot(Service::Codex, 64.0, "2026-06-03T23:11:00Z"),
+                ),
+                ("codex.local", local_snapshot),
+            ],
+            "2026-06-03T23:11:00Z",
+        );
+        let successful_snapshot = &successful_display_state.snapshots[0];
+
+        assert_eq!(successful_snapshot.source, UsageSource::Web);
+        assert_eq!(successful_snapshot.remaining_percent, Some(64.0));
+        assert_eq!(
+            successful_snapshot.details.get("webStatus"),
+            None,
+            "Successful web preflight must clear stale login-required fallback status",
+        );
+        assert_eq!(
+            successful_snapshot.details.get("webReason"),
+            None,
+            "Successful web preflight must clear stale fallback reason",
+        );
+        assert_eq!(
+            successful_snapshot.details["mergeStatus"],
+            "local_delta_unavailable"
+        );
+    }
+
+    #[test]
     fn display_state_keeps_local_snapshot_for_web_interruption_failures() {
         for (error, status) in [
             (UsageProviderError::MfaRequired, "mfa_required"),

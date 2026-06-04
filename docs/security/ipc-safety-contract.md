@@ -21,6 +21,8 @@ Command return models:
 
 Command errors use `CommandError` with stable `code` and sanitized `message` fields. Command errors must not include raw filesystem paths, raw browser errors, raw provider records, page HTML/text, account identifiers, cookies, tokens, or auth headers.
 
+Managed browser session failures are mapped to `browser_session_unavailable` before reaching the frontend. They must not expose process IDs, launch arguments, profile paths, raw process errors, cookies, tokens, account identifiers, or authenticated page content.
+
 Rust IPC models use serde `camelCase` fields for structs and lowercase strings for enum values. The current stable string values are:
 
 | Model | Field | Values |

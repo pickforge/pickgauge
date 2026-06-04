@@ -706,16 +706,16 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Require ownership marker before use.
 - [x] Prevent import from user's default browser profile.
 - [ ] Maintain separate cookie jar/session state per service.
-- [ ] Track managed child process ownership per service with PID/handle metadata.
-- [ ] Add graceful browser shutdown with timeout/kill fallback.
+- [x] Track managed child process ownership per service with PID/handle metadata.
+- [x] Add graceful browser shutdown with timeout/kill fallback.
 - [ ] Detect orphaned managed browser processes on startup.
 - [ ] Disable password manager, autofill, and save-password prompts where supported.
 - [ ] Add manual login window flow.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
 - [x] Add guarded clear/delete action for browser profile data.
-- [ ] Stop managed browser before deleting browser session data.
-- [ ] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
+- [x] Stop managed browser before deleting browser session data.
+- [x] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
 - [x] Add negative tests for unsafe browser profile paths.
 - [ ] Add tests for browser shutdown, orphan detection, and cleanup refusal.
 - [x] Verify profile/cache paths use restrictive local permissions where supported.
@@ -920,7 +920,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Dedicated browser profiles are separate per service.
 - [x] Dedicated browser profiles are app-owned and marker-guarded.
 - [x] Dedicated browser profiles never use the user's default browser profile.
-- [ ] Clear/delete actions stop managed browser processes first.
+- [x] Clear/delete actions stop managed browser processes first.
 - [x] Clear/delete actions only delete marker-owned paths.
 - [x] Clear/delete actions reject symlinked paths.
 - [x] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
@@ -1011,6 +1011,6 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 
 Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavior confirmation requires user-visible desktop interaction and cannot be verified through the available Playwright/browser-preview tooling in this session.
 
-Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing web providers or the managed browser session process owner.
+Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard exists; orphan detection and profile persistence validation remain unchecked.
 
 Blocked: remote release workflow and Windows/macOS artifact verification require a mainline push or workflow dispatch plus access to the resulting GitHub Actions run and release artifacts.

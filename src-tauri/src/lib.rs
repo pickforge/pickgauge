@@ -1,4 +1,5 @@
 mod browser_profile;
+mod browser_session;
 mod config;
 pub mod local_provider;
 pub mod usage;
@@ -142,6 +143,13 @@ fn map_browser_profile_error(error: String) -> CommandError {
     };
 
     CommandError::new("browser_profile_unavailable", message)
+}
+
+fn map_browser_session_error(_: String) -> CommandError {
+    command_error(
+        "browser_session_unavailable",
+        "Could not stop managed browser session",
+    )
 }
 
 fn map_config_save_error(_: String) -> CommandError {
@@ -416,18 +424,20 @@ fn clear_cached_snapshots(
 fn clear_provider_profile(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
+    sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
-    clear_provider_profile_for_service(&app, &engine, service)
+    clear_provider_profile_for_service(&app, &engine, &sessions, service)
 }
 
 #[tauri::command]
 fn reset_provider_session(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
+    sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
-    let reset = clear_provider_profile_for_service(&app, &engine, service)?;
+    let reset = clear_provider_profile_for_service(&app, &engine, &sessions, service)?;
     app.emit(SESSION_RESET_EVENT, &reset)
         .map_err(map_event_emit_error)?;
     Ok(reset)
@@ -436,8 +446,13 @@ fn reset_provider_session(
 fn clear_provider_profile_for_service(
     app: &AppHandle,
     engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
+    sessions
+        .stop_service(service, browser_session::PROFILE_STOP_TIMEOUT)
+        .map_err(map_browser_session_error)?;
+
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
     let cleared = browser_profile::clear_browser_profile(
@@ -810,6 +825,7 @@ pub fn run() {
             };
 
             app.manage(ConfigLoadState::new(config_error));
+            app.manage(browser_session::BrowserSessionManager::default());
             if sync_autostart(&app_handle, config.autostart.enabled).is_err() {
                 log_startup_warning(StartupWarning::AutostartSyncFailed);
             }

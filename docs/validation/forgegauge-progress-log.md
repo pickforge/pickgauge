@@ -17,7 +17,8 @@ Recent evidence commits:
 Automated validation passed:
 
 - `cargo fmt --check`
-- `cargo test` (`116 passed`)
+- `cargo check`
+- `cargo test` (`120 passed`)
 - `cargo clippy -- -D warnings`
 - `npm test` (`11 passed`)
 - `npm run check`
@@ -31,12 +32,13 @@ Browser-preview validation passed with Playwright against `http://127.0.0.1:1420
 - Mobile layout loaded without overlapping usage cards or settings controls.
 - Experimental web-provider toggle enabled web refresh, profile path, and start-login controls.
 - Desktop-only Start login action returned a browser-preview fallback message instead of throwing.
+- Mobile DOM overflow check passed at `390px` width after web-provider controls were enabled.
 
 Local artifact:
 
 - `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`
 - Size: `105M`
-- Local timestamp: `Jun 3 22:41`
+- Local timestamp: `Jun 3 22:57`
 
 Runtime and packaging prerequisites observed:
 
@@ -51,6 +53,13 @@ Phase 4 architecture review:
 - Usage snapshots, refresh events, provider error events, profile reset results, and login-required events have stable serialized IPC shapes covered by tests.
 - Web providers remain behind explicit opt-in, parser contracts, and the login-required IPC boundary.
 - Proceeding into provider work still depends on the separate browser backend/manual-login gate.
+
+Managed browser session safety:
+
+- `clear_provider_profile` and `reset_provider_session` stop the service's managed browser process before deleting profile data.
+- `BrowserSessionManager` tracks one managed child process per service with the process handle and PID.
+- Shutdown requests graceful termination first, then falls back to kill and reap after a timeout.
+- Backend selection, orphan detection, password-manager controls, and authenticated login validation remain separate unchecked gates.
 
 Deferred evidence:
 

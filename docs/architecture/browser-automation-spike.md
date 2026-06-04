@@ -2,7 +2,7 @@
 
 Date: 2026-06-03
 
-Scope: compare browser automation backends for future opt-in official usage providers. This note does not select a backend. Backend selection is an architectural decision and remains pending user approval plus manual KDE/Wayland login/profile validation.
+Scope: compare browser automation backends for future opt-in official usage providers. Backend selection was approved on 2026-06-04: ForgeGauge will proceed with the Playwright headed Chromium sidecar path, with real web-provider implementation still gated on manual KDE/Wayland login/profile validation.
 
 Docs checked through Context7:
 
@@ -21,7 +21,7 @@ Scores are 1-5, where 5 is strongest for ForgeGauge's constraints.
 | Raw Chromium/CDP control | 3 | 4 | 3 | 3 | 3 | 2 | Can be small if using a system browser, but protocol and browser lifecycle ownership become app-maintained. |
 | Tauri opener/system browser only | 4 | 1 | 5 | 1 | 2 | 5 | Good for opening official pages manually, already implemented. Not sufficient for automated reading because it cannot guarantee isolated app-owned session state or parse fields. |
 
-Current recommendation: Playwright is the strongest candidate for the spike, but web provider implementation should remain deferred until the user approves that backend and manual tests prove isolated profile persistence, visible login, no default profile import, password-manager controls, and parseable official page fields.
+Decision: proceed with Playwright headed Chromium sidecar. Web provider implementation remains deferred until manual tests prove isolated profile persistence, visible login, no default profile import, password-manager controls, and parseable official page fields.
 
 ## Required Runtime Dependencies
 
@@ -91,7 +91,7 @@ Authenticated official pages must never be loaded in the main Tauri webview. The
 
 ## Proceed/Defer Decision
 
-Proceed with Playwright spike only after user approval of the backend choice.
+Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics.
 
 Defer implementation of Codex and Claude web providers until these manual checks pass on CachyOS KDE/Wayland:
 

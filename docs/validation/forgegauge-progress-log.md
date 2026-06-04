@@ -4,6 +4,16 @@
 
 Branch: `forgegauge-implementation`
 
+Playwright backend approval and launch contract:
+
+- User approved the Playwright headed Chromium sidecar backend on 2026-06-04.
+- The architecture spike now records Playwright as the selected backend while keeping real web-provider implementation gated on manual CachyOS KDE/Wayland login/profile validation.
+- Added an internal `PlaywrightLaunchRequest` contract that maps the existing Chromium launch policy to Playwright's persistent user-data-dir shape: raw `userDataDir` stays internal, Playwright args exclude `--user-data-dir`, headed mode is explicit, and diagnostics/debug output uses only profile labels.
+- Tests cover persistent-context request construction and redaction of raw profile paths from Playwright launch diagnostics.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`157 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles and both profile inspection actions visible.
+- Real Playwright sidecar packaging, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
+
 Profile autofill-store inspection:
 
 - Managed Chromium profile inspection now counts Chromium `Web Data` autofill store artifacts and `Web Data-*` sidecars without opening or reading browser database contents.

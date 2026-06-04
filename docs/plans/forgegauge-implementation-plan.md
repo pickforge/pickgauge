@@ -38,11 +38,13 @@ Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for pr
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
-Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
+Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
 Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, autofill-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. The inspector is exposed through sanitized IPC and maintenance UI actions for future validation. Manual authenticated profile inspection remains unchecked.
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
+
+Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Real sidecar packaging, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -70,7 +72,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] AppImage bundling works locally on CachyOS/Arch-like systems through `npm run build:appimage`.
 - [x] Real local usage providers work without account credentials.
 - [ ] Opt-in web providers use dedicated browser profiles and never store passwords.
-Blocked: requires approved browser automation backend plus authenticated login/profile validation before real opt-in web providers can be claimed to use dedicated profiles and never store passwords.
+Blocked: requires Playwright sidecar implementation plus authenticated login/profile validation before real opt-in web providers can be claimed to use dedicated profiles and never store passwords.
 - [x] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
 - [x] Merged usage values combine official web baselines with calibrated local deltas.
 - [ ] Full KDE/Wayland tray smoke test is confirmed by the user.
@@ -154,7 +156,7 @@ Blocked: requires an explicit product decision for ccusage-style cost/block prec
 - [ ] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
-Blocked: requires approved browser automation backend and manual authenticated profile/login validation before implementing real web-provider launch and refresh flows.
+Blocked: requires Playwright sidecar implementation and manual authenticated profile/login validation before real web-provider launch and refresh flows can be completed.
 - [x] Merge engine for web baselines plus local deltas.
 - [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
@@ -707,8 +709,8 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 
 ### Phase 6.5 — Browser Automation Spike
 
-- [ ] Select browser automation backend.
-Blocked: requires user approval of the recommended Playwright headed Chromium sidecar path or an explicit alternative backend choice.
+- [x] Select browser automation backend.
+  - [x] User approved Playwright headed Chromium sidecar on 2026-06-04.
 - [x] Compare Playwright, WebDriver, and lightweight browser-control alternatives.
 - [x] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
 - [ ] Validate persistent isolated profile on CachyOS KDE/Wayland.
@@ -719,8 +721,8 @@ Blocked: requires user approval of the recommended Playwright headed Chromium si
 - [ ] Prove each official URL exposes parseable visible fields for the snapshot contract.
 - [x] Define parser contract and partial/no-data fallback behavior.
 - [x] Document runtime/package dependencies.
-- [ ] Record chosen backend, rejected alternatives, decision matrix, and proceed/defer decision.
-Blocked: backend selection and the validation items above require approval plus manual authenticated CachyOS KDE/Wayland testing.
+- [x] Record chosen backend, rejected alternatives, decision matrix, and proceed/defer decision.
+  - [x] Chosen backend is Playwright headed Chromium sidecar; web providers remain gated on manual authenticated CachyOS KDE/Wayland testing.
 - [x] Disable password manager, autofill, and save-password prompts or defer web providers.
 - [ ] Prove fail-closed handling for logged-out, MFA, CAPTCHA, and unexpected UI states.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
@@ -750,8 +752,9 @@ Blocked: backend selection and the validation items above require approval plus 
   - [x] Initialize Chromium profile preferences with disabled password, autosign-in, profile autofill, and card autofill settings.
   - [x] Wire Chromium preference initialization into managed browser profile preparation.
   - [x] Count Chromium autofill store artifacts without reading store contents.
+  - [x] Map Chromium launch policy to Playwright persistent-context launch request with sanitized diagnostics.
 - [ ] Add manual login window flow.
-Blocked: requires approved browser automation backend before implementing real managed browser launch/login UI.
+Blocked: requires Playwright sidecar process integration before implementing real managed browser launch/login UI.
   - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
@@ -1071,6 +1074,6 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 
 Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavior confirmation requires user-visible desktop interaction and cannot be verified through the available Playwright/browser-preview tooling in this session.
 
-Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard and startup orphan detection exist; profile persistence validation remains unchecked.
+Blocked: Playwright backend selection is approved, but manual CachyOS KDE/Wayland login/profile validation remains required before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard and startup orphan detection exist; profile persistence validation remains unchecked.
 
 Blocked: current-feature release verification still requires pushing or dispatching this feature branch through the release workflow, and Windows/macOS install behavior still requires manual platform smoke testing. Remote `main` workflow execution and artifact upload verification are recorded.

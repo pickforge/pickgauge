@@ -17,6 +17,7 @@ pub const PROCESS_MARKER_ENV: &str = "FORGEGAUGE_BROWSER_PROCESS_MARKER";
 pub const CHROMIUM_DEFAULT_PROFILE_DIR: &str = "Default";
 pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
+pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
@@ -104,6 +105,44 @@ impl fmt::Debug for BrowserLaunchPlan {
 pub struct BrowserLaunchDiagnostics {
     pub service: Service,
     pub profile_label: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct PlaywrightLaunchRequest {
+    pub service: Service,
+    pub backend: &'static str,
+    pub user_data_dir: PathBuf,
+    pub profile_label: String,
+    pub headless: bool,
+    pub args: Vec<String>,
+    pub diagnostics: PlaywrightLaunchDiagnostics,
+}
+
+impl fmt::Debug for PlaywrightLaunchRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let user_data_dir = format!("<{}>", self.profile_label);
+
+        formatter
+            .debug_struct("PlaywrightLaunchRequest")
+            .field("service", &self.service)
+            .field("backend", &self.backend)
+            .field("user_data_dir", &user_data_dir)
+            .field("profile_label", &self.profile_label)
+            .field("headless", &self.headless)
+            .field("args", &self.diagnostics.args)
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlaywrightLaunchDiagnostics {
+    pub service: Service,
+    pub backend: &'static str,
+    pub profile_label: String,
+    pub user_data_dir: String,
+    pub headless: bool,
     pub args: Vec<String>,
 }
 
@@ -440,6 +479,30 @@ pub fn chromium_launch_plan(
     }
 }
 
+#[allow(dead_code)]
+pub fn playwright_launch_request(plan: &BrowserLaunchPlan) -> PlaywrightLaunchRequest {
+    let args = playwright_launch_args(&plan.args);
+    let user_data_dir = format!("<{}>", plan.profile_label);
+    let diagnostics = PlaywrightLaunchDiagnostics {
+        service: plan.service,
+        backend: PLAYWRIGHT_BACKEND_ID,
+        profile_label: plan.profile_label.clone(),
+        user_data_dir,
+        headless: false,
+        args: sanitized_launch_args(&args, plan.profile_label.as_str()),
+    };
+
+    PlaywrightLaunchRequest {
+        service: plan.service,
+        backend: PLAYWRIGHT_BACKEND_ID,
+        user_data_dir: plan.profile_path.clone(),
+        profile_label: plan.profile_label.clone(),
+        headless: false,
+        args,
+        diagnostics,
+    }
+}
+
 fn chromium_disabled_storage_preferences() -> serde_json::Value {
     json!({
         "autofill": {
@@ -673,6 +736,13 @@ fn sanitized_launch_args(args: &[String], profile_label: &str) -> Vec<String> {
                 arg.clone()
             }
         })
+        .collect()
+}
+
+fn playwright_launch_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .filter(|arg| !arg.starts_with("--user-data-dir="))
+        .cloned()
         .collect()
 }
 
@@ -1206,6 +1276,52 @@ mod tests {
             claude.diagnostics.args[0],
             "--user-data-dir=<claude-profile>"
         );
+    }
+
+    #[test]
+    fn playwright_launch_request_uses_persistent_context_contract() {
+        let profile_path = PathBuf::from("/tmp/forgegauge/browser-profiles/codex");
+        let plan = chromium_launch_plan(Service::Codex, profile_path.clone());
+        let request = playwright_launch_request(&plan);
+
+        assert_eq!(request.service, Service::Codex);
+        assert_eq!(request.backend, PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(request.user_data_dir, profile_path);
+        assert_eq!(request.profile_label, "codex-profile");
+        assert!(!request.headless);
+        assert!(!request
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--user-data-dir=")));
+        assert!(request
+            .args
+            .contains(&"--disable-save-password-bubble".to_string()));
+        assert!(request.args.contains(&"--no-first-run".to_string()));
+    }
+
+    #[test]
+    fn playwright_launch_request_diagnostics_redact_user_data_dir() {
+        let profile_path =
+            "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+        let plan = chromium_launch_plan(Service::Claude, profile_path);
+        let request = playwright_launch_request(&plan);
+        let diagnostics = format!("{:?}", request.diagnostics);
+        let debug = format!("{request:?}");
+
+        assert_eq!(request.diagnostics.backend, PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(request.diagnostics.user_data_dir, "<claude-profile>");
+        assert!(request
+            .diagnostics
+            .args
+            .contains(&"--disable-save-password-bubble".to_string()));
+        assert!(!request
+            .diagnostics
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--user-data-dir=")));
+        assert!(!diagnostics.contains(profile_path));
+        assert!(!debug.contains(profile_path));
+        assert!(!debug.contains("/home/dev"));
     }
 
     #[test]

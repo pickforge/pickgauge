@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Login preflight decision regression:
+
+- Factored the desktop `Start login` headless preflight result into an explicit backend decision helper: already authenticated, launch browser, or unavailable.
+- Added Rust regression coverage proving `usage` skips headed Chromium, `logged_out`/MFA/CAPTCHA are the only launch states, network/timeout/unexpected/parse/unknown states do not launch, and a failed preflight also does not launch.
+- Validation: `cargo fmt --check`, `cargo test login_preflight --lib`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test --lib`, `npm run check`, `npm run test:browser-preview`, `npm run lint`, `npm test`, and `npm run build` passed.
+- Remaining caveat: this proves the backend launch/no-launch decision boundary; real headed login and post-login persistence still require logged-in app-owned profiles.
+
 User-action login prompt gating:
 
 - Updated the frontend login prompt gate so `Start login` is shown only for explicit user-action web states: `login_required`, `mfa_required`, and `captcha_or_bot_check`.

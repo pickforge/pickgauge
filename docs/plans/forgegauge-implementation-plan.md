@@ -100,6 +100,8 @@ Login preflight progress, 2026-06-04: the desktop `Start login` command now perf
 
 Visible login launch guard progress, 2026-06-04: the `Start login` command now opens headed Chromium only when the headless preflight reports a user-action state (`logged_out`, `mfa_required`, or `captcha_or_bot_check`). Authenticated `usage` returns `already_authenticated`, while network, timeout, unexpected-UI, or failed preflight checks return a sanitized non-launching `preflight_unavailable` status so stale login prompts do not flash a visible browser.
 
+Login preflight decision regression progress, 2026-06-04: the desktop login-start path now routes headless preflight results through an explicit `AlreadyAuthenticated`, `LaunchBrowser`, or `Unavailable` decision helper. Rust regression coverage validates `usage` skips headed Chromium, `logged_out`/MFA/CAPTCHA are the only launch states, network/timeout/unexpected/parse/unknown states fail closed to non-launching `preflight_unavailable`, and sidecar preflight failure also suppresses headed launch.
+
 Sidecar visible-state coverage progress, 2026-06-04: added direct Node unit coverage for the Playwright sidecar's visible usage extraction and page-state classifier with synthetic page objects. The tests cover percent/reset/plan/window field extraction, closest-label pairing for remaining versus used percentages, and fail-closed classification for logged-out, CAPTCHA/bot-check, MFA, auth-gate, no-cookie logged-out, usage, and unexpected-UI states without real authenticated page content.
 
 Synthetic web fail-closed smoke progress, 2026-06-04: added `npm run test:synthetic-fail-closed`, which starts a temporary local HTTPS server and runs the real headless Playwright sidecar against synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages for both Codex and Claude profile labels. The smoke validates `visibleBrowserRequired = false`, sanitized sidecar output, and temporary profile/server cleanup without real account data. Real official authenticated page fields and real provider interruption pages remain unchecked.
@@ -598,6 +600,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Frontend only renders `Start login` after a user-action web status (`login_required`, `mfa_required`, or `captcha_or_bot_check`); default/parsed/non-action web states keep the visible browser action hidden.
   - [x] Desktop `Start login` performs a headless preflight and skips headed Chromium when the usage page is already reachable.
   - [x] Desktop `Start login` suppresses headed Chromium when the headless preflight returns network-unavailable, timed-out, unexpected-UI, or unavailable-preflight states.
+  - [x] Rust regression coverage maps preflight usage, user-action, unavailable, unknown, and sidecar-error outcomes to explicit launch/no-launch decisions.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
   - [x] Browser launch plan debug output redacts raw profile paths and raw `--user-data-dir` arguments.
@@ -910,6 +913,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Hide `Start login` until a silent official refresh/fallback web status reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`).
   - [x] Add a headless `Start login` preflight that returns `already_authenticated` without launching headed Chromium when usage is reachable.
   - [x] Keep `Start login` from launching headed Chromium when the preflight cannot prove a login/MFA/CAPTCHA user-action state.
+  - [x] Add a pure Rust regression helper for headed-login preflight decisions so unknown and unavailable states cannot fall through to headed launch.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.
 - [x] Define exact visible fields required for each provider before parsing implementation.

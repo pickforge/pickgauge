@@ -153,6 +153,13 @@ struct ProviderLoginStartPlan {
     sidecar_request: Option<browser_session::PlaywrightSidecarLaunchRequest>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoginPreflightDecision {
+    AlreadyAuthenticated,
+    LaunchBrowser,
+    Unavailable,
+}
+
 type CommandResult<T> = Result<T, CommandError>;
 
 impl CommandError {
@@ -484,26 +491,30 @@ fn start_provider_login(
         .map_err(map_browser_profile_error)?;
     let mut login = plan.login;
     let login_required_reason = if let Some(request) = plan.sidecar_request {
-        match headless_web_usage_response(&app, &engine, &sessions, service) {
-            Ok(response) if response.page_state == "usage" => {
+        let preflight_decision =
+            match headless_web_usage_response(&app, &engine, &sessions, service) {
+                Ok(response) => login_preflight_decision(Some(response.page_state.as_str())),
+                Err(_) => login_preflight_decision(None),
+            };
+
+        match preflight_decision {
+            LoginPreflightDecision::AlreadyAuthenticated => {
                 login.status = LOGIN_STATUS_ALREADY_AUTHENTICATED.to_string();
                 None
             }
-            Ok(response) if !should_launch_login_after_preflight(&response.page_state) => {
+            LoginPreflightDecision::Unavailable => {
                 login.status = LOGIN_STATUS_PREFLIGHT_UNAVAILABLE.to_string();
                 None
             }
-            Err(_) => {
-                login.status = LOGIN_STATUS_PREFLIGHT_UNAVAILABLE.to_string();
-                None
-            }
-            _ => match launch_playwright_sidecar_login(&app, &sessions, &request) {
-                Ok(_) => {
-                    login.status = LOGIN_STATUS_LAUNCHED.to_string();
-                    None
+            LoginPreflightDecision::LaunchBrowser => {
+                match launch_playwright_sidecar_login(&app, &sessions, &request) {
+                    Ok(_) => {
+                        login.status = LOGIN_STATUS_LAUNCHED.to_string();
+                        None
+                    }
+                    Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
                 }
-                Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
-            },
+            }
         }
     } else {
         Some(LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE)
@@ -581,6 +592,16 @@ fn should_launch_login_after_preflight(page_state: &str) -> bool {
         page_state,
         "logged_out" | "mfa_required" | "captcha_or_bot_check"
     )
+}
+
+fn login_preflight_decision(page_state: Option<&str>) -> LoginPreflightDecision {
+    match page_state {
+        Some("usage") => LoginPreflightDecision::AlreadyAuthenticated,
+        Some(page_state) if should_launch_login_after_preflight(page_state) => {
+            LoginPreflightDecision::LaunchBrowser
+        }
+        _ => LoginPreflightDecision::Unavailable,
+    }
 }
 
 fn launch_playwright_sidecar_login(
@@ -2173,6 +2194,42 @@ mod tests {
 
         for page_state in ["network_unavailable", "timed_out", "unexpected_ui"] {
             assert!(!should_launch_login_after_preflight(page_state));
+        }
+    }
+
+    #[test]
+    fn login_preflight_decision_skips_headed_browser_for_authenticated_or_unavailable_states() {
+        assert_eq!(
+            login_preflight_decision(Some("usage")),
+            LoginPreflightDecision::AlreadyAuthenticated
+        );
+
+        for page_state in [
+            "network_unavailable",
+            "timed_out",
+            "unexpected_ui",
+            "parse_failed",
+            "unsupported_state",
+        ] {
+            assert_eq!(
+                login_preflight_decision(Some(page_state)),
+                LoginPreflightDecision::Unavailable
+            );
+        }
+
+        assert_eq!(
+            login_preflight_decision(None),
+            LoginPreflightDecision::Unavailable
+        );
+    }
+
+    #[test]
+    fn login_preflight_decision_launches_headed_browser_only_for_user_action_states() {
+        for page_state in ["logged_out", "mfa_required", "captcha_or_bot_check"] {
+            assert_eq!(
+                login_preflight_decision(Some(page_state)),
+                LoginPreflightDecision::LaunchBrowser
+            );
         }
     }
 

@@ -56,6 +56,7 @@ const TRAY_LOW_ACCENT: [u8; 4] = [192, 38, 38, 255];
 const TRAY_TRACK: [u8; 4] = [100, 112, 132, 112];
 const TRAY_SURFACE: [u8; 4] = [246, 247, 251, 255];
 const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
+const POPUP_ANCHOR_GAP: i32 = 10;
 
 #[derive(Clone, Copy)]
 enum StartupWarning {
@@ -1291,6 +1292,145 @@ fn configure_popup_window(window: &WebviewWindow) {
     let _ = window.set_always_on_top(true);
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PopupAnchor {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PopupSize {
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PopupWorkArea {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl PopupWorkArea {
+    fn contains(self, anchor: PopupAnchor) -> bool {
+        let min_x = self.x as f64;
+        let min_y = self.y as f64;
+        let max_x = min_x + self.width as f64;
+        let max_y = min_y + self.height as f64;
+
+        anchor.x >= min_x && anchor.x <= max_x && anchor.y >= min_y && anchor.y <= max_y
+    }
+}
+
+fn popup_position_near_anchor(
+    anchor: PopupAnchor,
+    popup: PopupSize,
+    work_area: PopupWorkArea,
+) -> (i32, i32) {
+    let anchor_x = anchor.x.round() as i32;
+    let anchor_y = anchor.y.round() as i32;
+    let popup_width = popup.width as i32;
+    let popup_height = popup.height as i32;
+    let min_x = work_area.x;
+    let min_y = work_area.y;
+    let max_x = work_area
+        .x
+        .saturating_add(work_area.width as i32)
+        .saturating_sub(popup_width);
+    let max_y = work_area
+        .y
+        .saturating_add(work_area.height as i32)
+        .saturating_sub(popup_height);
+    let preferred_x = anchor_x
+        .saturating_sub(popup_width)
+        .saturating_add(POPUP_ANCHOR_GAP);
+    let fallback_x = anchor_x.saturating_add(POPUP_ANCHOR_GAP);
+    let preferred_y = anchor_y
+        .saturating_sub(popup_height)
+        .saturating_sub(POPUP_ANCHOR_GAP);
+    let fallback_y = anchor_y.saturating_add(POPUP_ANCHOR_GAP);
+    let x = if preferred_x >= min_x {
+        preferred_x
+    } else {
+        fallback_x
+    };
+    let y = if preferred_y >= min_y {
+        preferred_y
+    } else {
+        fallback_y
+    };
+
+    (
+        clamp_to_range(x, min_x, max_x),
+        clamp_to_range(y, min_y, max_y),
+    )
+}
+
+fn clamp_to_range(value: i32, min: i32, max: i32) -> i32 {
+    if max < min {
+        min
+    } else {
+        value.clamp(min, max)
+    }
+}
+
+fn popup_work_area_for_anchor(
+    app: &tauri::AppHandle,
+    anchor: PopupAnchor,
+) -> Option<PopupWorkArea> {
+    let monitors = app.available_monitors().unwrap_or_default();
+
+    monitors
+        .iter()
+        .map(|monitor| {
+            let work_area = monitor.work_area();
+
+            PopupWorkArea {
+                x: work_area.position.x,
+                y: work_area.position.y,
+                width: work_area.size.width,
+                height: work_area.size.height,
+            }
+        })
+        .find(|work_area| work_area.contains(anchor))
+        .or_else(|| {
+            app.primary_monitor().ok().flatten().map(|monitor| {
+                let work_area = monitor.work_area();
+
+                PopupWorkArea {
+                    x: work_area.position.x,
+                    y: work_area.position.y,
+                    width: work_area.size.width,
+                    height: work_area.size.height,
+                }
+            })
+        })
+}
+
+fn position_popup_window_near_anchor(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
+    anchor: PopupAnchor,
+) {
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let Some(work_area) = popup_work_area_for_anchor(app, anchor) else {
+        return;
+    };
+    let (x, y) = popup_position_near_anchor(
+        anchor,
+        PopupSize {
+            width: size.width,
+            height: size.height,
+        },
+        work_area,
+    );
+
+    let _ = window.set_position(dpi::PhysicalPosition::new(x, y));
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     let window = main_window(app);
 
@@ -1302,13 +1442,14 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn toggle_main_window(app: &tauri::AppHandle) {
+fn toggle_main_window_near(app: &tauri::AppHandle, anchor: PopupAnchor) {
     if let Some(window) = main_window(app) {
         configure_popup_window(&window);
 
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
+            position_popup_window_near_anchor(app, &window, anchor);
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
@@ -1369,10 +1510,17 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
+                position,
                 ..
             } = event
             {
-                toggle_main_window(&click_app_handle);
+                toggle_main_window_near(
+                    &click_app_handle,
+                    PopupAnchor {
+                        x: position.x,
+                        y: position.y,
+                    },
+                );
             }
         })
         .build(app)?;
@@ -2114,6 +2262,88 @@ mod tests {
                 "updatedAt": "2026-06-03T00:00:00Z"
             })
         );
+    }
+
+    #[test]
+    fn popup_position_prefers_above_anchor_and_clamps_to_work_area() {
+        let position = popup_position_near_anchor(
+            PopupAnchor {
+                x: 1900.0,
+                y: 1040.0,
+            },
+            PopupSize {
+                width: 420,
+                height: 640,
+            },
+            PopupWorkArea {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1040,
+            },
+        );
+
+        assert_eq!(position, (1490, 390));
+    }
+
+    #[test]
+    fn popup_position_falls_below_when_anchor_is_near_top_edge() {
+        let position = popup_position_near_anchor(
+            PopupAnchor { x: 20.0, y: 20.0 },
+            PopupSize {
+                width: 420,
+                height: 640,
+            },
+            PopupWorkArea {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1040,
+            },
+        );
+
+        assert_eq!(position, (30, 30));
+    }
+
+    #[test]
+    fn popup_position_supports_negative_origin_monitors() {
+        let position = popup_position_near_anchor(
+            PopupAnchor {
+                x: -1000.0,
+                y: 1040.0,
+            },
+            PopupSize {
+                width: 420,
+                height: 640,
+            },
+            PopupWorkArea {
+                x: -1280,
+                y: 0,
+                width: 1280,
+                height: 1040,
+            },
+        );
+
+        assert_eq!(position, (-990, 390));
+    }
+
+    #[test]
+    fn popup_position_handles_work_area_smaller_than_popup() {
+        let position = popup_position_near_anchor(
+            PopupAnchor { x: 120.0, y: 120.0 },
+            PopupSize {
+                width: 420,
+                height: 640,
+            },
+            PopupWorkArea {
+                x: 10,
+                y: 20,
+                width: 300,
+                height: 300,
+            },
+        );
+
+        assert_eq!(position, (10, 20));
     }
 
     #[test]

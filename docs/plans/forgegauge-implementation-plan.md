@@ -673,24 +673,24 @@ Web providers are allowed only after the automation spike proves a safe backend.
 ### Phase 6.5 — Browser Automation Spike
 
 - [ ] Select browser automation backend.
-- [ ] Compare Playwright, WebDriver, and lightweight browser-control alternatives.
-- [ ] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
+- [x] Compare Playwright, WebDriver, and lightweight browser-control alternatives.
+- [x] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
 - [ ] Validate persistent isolated profile on CachyOS KDE/Wayland.
 - [ ] Validate separate app-owned profile directories/cookie jars per service.
 - [ ] Prove there is no import from default browser profiles.
 - [ ] Prove visible manual login works for both services.
 - [ ] Prove isolated session persistence survives app restart.
 - [ ] Prove each official URL exposes parseable visible fields for the snapshot contract.
-- [ ] Define parser contract and partial/no-data fallback behavior.
-- [ ] Document runtime/package dependencies.
+- [x] Define parser contract and partial/no-data fallback behavior.
+- [x] Document runtime/package dependencies.
 - [ ] Record chosen backend, rejected alternatives, decision matrix, and proceed/defer decision.
-- [ ] Disable password manager, autofill, and save-password prompts or defer web providers.
+- [x] Disable password manager, autofill, and save-password prompts or defer web providers.
 - [ ] Prove fail-closed handling for logged-out, MFA, CAPTCHA, and unexpected UI states.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
 - [ ] Confirm no sensitive page content is written to normal logs.
-- [ ] Confirm authenticated official pages are never loaded in the main Tauri webview.
-- [ ] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
-- [ ] Review CSP and permissions needed before implementing provider UI.
+- [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
+- [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
+- [x] Review CSP and permissions needed before implementing provider UI.
 
 ### Phase 7 — Browser Session Manager
 

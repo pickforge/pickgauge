@@ -44,7 +44,7 @@ Profile inspection progress, 2026-06-03: added a sanitized managed Chromium prof
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
 
-Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch. Manual authenticated login flow and authenticated profile validation remain unchecked.
+Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch while preserving disabled password/autofill preferences. Manual authenticated login flow and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -520,7 +520,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] The chosen backend supports persistent isolated profiles per service.
   - [x] Generated Playwright sidecar relaunches Codex and Claude with distinct temporary profile directories and preserves profile sentinels across relaunch.
 - [ ] The chosen backend does not import default browser cookies, credentials, or profiles.
-- [ ] The chosen backend can disable or avoid password saving/autofill prompts.
+- [x] The chosen backend can disable or avoid password saving/autofill prompts.
+  - [x] Generated Playwright sidecar preserves disabled Chromium password/autofill preferences across real headed relaunch.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
@@ -749,12 +750,13 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Track managed child process ownership per service with PID/handle metadata.
 - [x] Add graceful browser shutdown with timeout/kill fallback.
 - [x] Detect orphaned managed browser processes on startup.
-- [ ] Disable password manager, autofill, and save-password prompts where supported.
+- [x] Disable password manager, autofill, and save-password prompts where supported.
   - [x] Add backend-agnostic Chromium launch policy with password-manager/autofill suppression flags and disabled storage preferences.
   - [x] Initialize Chromium profile preferences with disabled password, autosign-in, profile autofill, and card autofill settings.
   - [x] Wire Chromium preference initialization into managed browser profile preparation.
   - [x] Count Chromium autofill store artifacts without reading store contents.
   - [x] Map Chromium launch policy to Playwright persistent-context launch request with sanitized diagnostics.
+  - [x] Validate real headed Playwright sidecar launches preserve disabled password/autofill preferences across relaunch.
 - [ ] Add manual login window flow.
 Blocked: requires manual CachyOS KDE/Wayland login validation with installed Node/Playwright runtime before claiming the real managed browser launch/login UI is complete.
   - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
@@ -980,9 +982,9 @@ Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browse
 - [ ] No password storage.
   - [x] Chromium managed-profile initialization disables password saving and autosign-in preferences before a future launch.
   - [x] Sanitized profile inspection counts Chromium password and autofill store artifacts without reading store contents.
-- [ ] Managed browser launch disables password manager/autofill/save-password prompts where supported.
+- [x] Managed browser launch disables password manager/autofill/save-password prompts where supported.
   - [x] Chromium managed-profile initialization writes disabled autofill/password preferences with restrictive permissions.
-Blocked: launch-time proof requires selected managed browser backend and a real browser process launch.
+  - [x] Real headed Playwright sidecar launch preserves disabled password/autofill preferences across relaunch.
 - [x] Dedicated browser profiles are separate per service.
   - [x] Configured profile overrides cannot make Codex and Claude share or nest service profile paths.
 - [x] Dedicated browser profiles are app-owned and marker-guarded.

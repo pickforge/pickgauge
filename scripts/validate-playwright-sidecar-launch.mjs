@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +28,19 @@ const launchArgs = [
   "--disable-features=AutofillServerCommunication",
   "--no-first-run",
 ];
+const disabledStoragePreferences = {
+  autofill: {
+    credit_card_enabled: false,
+    enabled: false,
+    profile_enabled: false,
+  },
+  credentials_enable_autosignin: false,
+  credentials_enable_service: false,
+  profile: {
+    password_manager_allow_show_passwords: false,
+    password_manager_enabled: false,
+  },
+};
 const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profiles-"));
 
 try {
@@ -55,18 +75,23 @@ try {
 
 async function validateLaunch({ service, url, profileLabel, profileRoot }) {
   assertNonDefaultProfile(profileRoot);
+  prepareDisabledStoragePreferences(profileRoot);
   await runLaunch({ service, url, profileLabel, profileRoot });
+  verifyDisabledStoragePreferences(profileRoot, service);
 
   const sentinelPath = resolve(profileRoot, "forgegauge-profile-sentinel.txt");
   writeFileSync(sentinelPath, `${service}\n`);
 
   await runLaunch({ service, url, profileLabel, profileRoot });
+  verifyDisabledStoragePreferences(profileRoot, service);
 
   if (!existsSync(sentinelPath)) {
     throw new Error(`${service} sidecar profile did not persist across relaunch`);
   }
 
-  console.log(`Playwright sidecar persisted ${service} isolated profile across relaunch`);
+  console.log(
+    `Playwright sidecar persisted ${service} isolated profile and disabled storage preferences across relaunch`,
+  );
 }
 
 async function runLaunch({ service, url, profileLabel, profileRoot }) {
@@ -177,16 +202,63 @@ function stopProcessGroup(pid) {
 }
 
 function assertNonDefaultProfile(profileRoot) {
-  const home = homedir();
-  const defaultProfileRoots = [
-    resolve(home, ".config/google-chrome"),
-    resolve(home, ".config/chromium"),
-    resolve(home, ".cache/ms-playwright"),
-  ];
-
-  for (const defaultRoot of defaultProfileRoots) {
+  for (const defaultRoot of defaultBrowserProfileRoots()) {
     if (profileRoot === defaultRoot || profileRoot.startsWith(`${defaultRoot}/`)) {
       throw new Error("Sidecar validation profile must not use a default browser profile");
     }
   }
+}
+
+function prepareDisabledStoragePreferences(profileRoot) {
+  const defaultProfileDir = resolve(profileRoot, "Default");
+  mkdirSync(defaultProfileDir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    resolve(defaultProfileDir, "Preferences"),
+    `${JSON.stringify(disabledStoragePreferences, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+}
+
+function verifyDisabledStoragePreferences(profileRoot, service) {
+  const preferencesPath = resolve(profileRoot, "Default", "Preferences");
+  const preferences = JSON.parse(readFileSync(preferencesPath, "utf8"));
+
+  for (const path of [
+    ["credentials_enable_service"],
+    ["credentials_enable_autosignin"],
+    ["profile", "password_manager_enabled"],
+    ["profile", "password_manager_allow_show_passwords"],
+    ["autofill", "profile_enabled"],
+    ["autofill", "credit_card_enabled"],
+  ]) {
+    if (preferenceAtPath(preferences, path) !== false) {
+      throw new Error(`${service} sidecar enabled ${path.join(".")} after launch`);
+    }
+  }
+
+  for (const path of [["autofill", "enabled"]]) {
+    if (preferenceAtPath(preferences, path) === true) {
+      throw new Error(`${service} sidecar enabled ${path.join(".")} after launch`);
+    }
+  }
+
+  const serialized = JSON.stringify(preferences);
+  for (const defaultRoot of defaultBrowserProfileRoots()) {
+    if (serialized.includes(defaultRoot)) {
+      throw new Error(`${service} sidecar preferences reference a default browser profile`);
+    }
+  }
+}
+
+function preferenceAtPath(preferences, path) {
+  return path.reduce((value, key) => value?.[key], preferences);
+}
+
+function defaultBrowserProfileRoots() {
+  const home = homedir();
+
+  return [
+    resolve(home, ".config/google-chrome"),
+    resolve(home, ".config/chromium"),
+  ];
 }

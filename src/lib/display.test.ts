@@ -259,6 +259,30 @@ describe("frontend login prompt visibility", () => {
     ).toBe(false);
   });
 
+  it("keeps login status messages when matching snapshots have no web evidence", () => {
+    expect(
+      loginStatusClearedBySnapshots("codex", [
+        snapshot({
+          service: "codex",
+          source: "local",
+          details: { status: "parsed" },
+        }),
+      ]),
+    ).toBe(false);
+  });
+
+  it("clears stale login status messages when fallback web evidence no longer needs login", () => {
+    expect(
+      loginStatusClearedBySnapshots("codex", [
+        snapshot({
+          service: "codex",
+          source: "local",
+          details: { status: "parsed", webStatus: "network_unavailable" },
+        }),
+      ]),
+    ).toBe(true);
+  });
+
   it("keeps login status messages when the matching service snapshot is absent", () => {
     expect(
       loginStatusClearedBySnapshots("claude", [

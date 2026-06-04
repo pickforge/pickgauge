@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Login status-message clearing guard:
+
+- Tightened the frontend login-status clearing helper so local-only snapshot updates cannot clear a service-specific login-required message without web evidence.
+- Added Vitest coverage proving local-only snapshots preserve the login message, while fallback web evidence that no longer needs login can clear it.
+- Validation: `npm run check`, `npm run lint`, `npm test`, `npm run test:browser-preview`, `npm run build`, and `git diff --check` passed.
+- Remaining caveat: this proves local frontend state handling; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Login status-message clearing:
 
 - Added frontend state handling so a top-level `Codex login required` or `Claude Code login required` message clears when a later snapshot update shows that service no longer needs a login prompt.

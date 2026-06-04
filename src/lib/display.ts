@@ -143,7 +143,15 @@ export function loginPromptVisible(snapshot: UsageSnapshot) {
 export function loginStatusClearedBySnapshots(service: Service, snapshots: UsageSnapshot[]) {
   const snapshot = snapshots.find((snapshot) => snapshot.service === service);
 
-  return snapshot !== undefined && !loginPromptVisible(snapshot);
+  if (snapshot === undefined || loginPromptVisible(snapshot)) {
+    return false;
+  }
+
+  if (snapshot.source === "web" || snapshot.source === "merged") {
+    return true;
+  }
+
+  return snapshot.details.webStatus !== undefined;
 }
 
 function loginActionStatus(value: unknown) {

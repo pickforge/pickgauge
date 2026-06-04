@@ -117,6 +117,8 @@ export type ProviderProfileInspection = {
   profilePrepared: boolean;
   credentialStoreFiles: number;
   autofillStoreFiles: number;
+  cookieStoreFiles: number;
+  siteStorageEntries: number;
   symlinkEntries: number;
   passwordSavingEnabled: boolean;
   autofillEnabled: boolean;

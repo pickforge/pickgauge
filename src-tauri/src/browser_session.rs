@@ -227,6 +227,8 @@ struct RawPlaywrightSidecarLaunchResponse {
 pub struct BrowserProfileStorageInspection {
     pub credential_store_files: usize,
     pub autofill_store_files: usize,
+    pub cookie_store_files: usize,
+    pub site_storage_entries: usize,
     pub symlink_entries: usize,
     pub password_saving_enabled: bool,
     pub autofill_enabled: bool,
@@ -728,6 +730,8 @@ pub fn inspect_chromium_profile_storage(
     let mut inspection = BrowserProfileStorageInspection {
         credential_store_files: 0,
         autofill_store_files: 0,
+        cookie_store_files: 0,
+        site_storage_entries: 0,
         symlink_entries: 0,
         password_saving_enabled: false,
         autofill_enabled: false,
@@ -818,6 +822,14 @@ fn inspect_profile_entries(
                 inspection.autofill_store_files += 1;
             }
 
+            if is_chromium_cookie_data_file(&entry.file_name()) {
+                inspection.cookie_store_files += 1;
+            }
+
+            if is_chromium_site_storage_entry(&entry.file_name()) {
+                inspection.site_storage_entries += 1;
+            }
+
             if metadata.is_dir() {
                 pending.push(entry.path());
             }
@@ -875,6 +887,19 @@ fn is_chromium_autofill_data_file(name: &std::ffi::OsStr) -> bool {
     name.to_str()
         .map(|name| name == "Web Data" || name.starts_with("Web Data-"))
         .unwrap_or(false)
+}
+
+fn is_chromium_cookie_data_file(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .map(|name| name == "Cookies" || name.starts_with("Cookies-"))
+        .unwrap_or(false)
+}
+
+fn is_chromium_site_storage_entry(name: &std::ffi::OsStr) -> bool {
+    matches!(
+        name.to_str(),
+        Some("IndexedDB" | "Local Storage" | "Session Storage" | "Service Worker")
+    )
 }
 
 fn merge_chromium_preferences(target: &mut Value, patch: &Value) -> Result<(), String> {
@@ -1789,6 +1814,8 @@ mod tests {
             BrowserProfileStorageInspection {
                 credential_store_files: 0,
                 autofill_store_files: 0,
+                cookie_store_files: 0,
+                site_storage_entries: 0,
                 symlink_entries: 0,
                 password_saving_enabled: false,
                 autofill_enabled: false,
@@ -1810,6 +1837,8 @@ mod tests {
 
         assert_eq!(inspection.credential_store_files, 0);
         assert_eq!(inspection.autofill_store_files, 0);
+        assert_eq!(inspection.cookie_store_files, 0);
+        assert_eq!(inspection.site_storage_entries, 0);
         assert_eq!(inspection.symlink_entries, 0);
         assert!(!inspection.password_saving_enabled);
         assert!(!inspection.autofill_enabled);
@@ -1839,6 +1868,8 @@ mod tests {
 
         assert_eq!(inspection.credential_store_files, 2);
         assert_eq!(inspection.autofill_store_files, 0);
+        assert_eq!(inspection.cookie_store_files, 0);
+        assert_eq!(inspection.site_storage_entries, 0);
     }
 
     #[test]
@@ -1865,6 +1896,62 @@ mod tests {
 
         assert_eq!(inspection.autofill_store_files, 2);
         assert_eq!(inspection.credential_store_files, 0);
+        assert_eq!(inspection.cookie_store_files, 0);
+        assert_eq!(inspection.site_storage_entries, 0);
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_counts_cookie_store_files() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        let network_dir = profile_path
+            .join(CHROMIUM_DEFAULT_PROFILE_DIR)
+            .join("Network");
+        fs::create_dir_all(&network_dir).expect("network dir is created");
+        fs::write(network_dir.join("Cookies"), "database placeholder")
+            .expect("cookies marker is written");
+        fs::write(network_dir.join("Cookies-wal"), "wal placeholder")
+            .expect("cookies wal marker is written");
+        fs::write(
+            network_dir.join("Cookie Controls"),
+            "non-matching placeholder",
+        )
+        .expect("non-matching marker is written");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+
+        assert_eq!(inspection.cookie_store_files, 2);
+        assert_eq!(inspection.credential_store_files, 0);
+        assert_eq!(inspection.autofill_store_files, 0);
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_counts_site_storage_entries() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("claude");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(default_profile_dir.join("Local Storage"))
+            .expect("local storage dir is created");
+        fs::create_dir_all(default_profile_dir.join("Session Storage"))
+            .expect("session storage dir is created");
+        fs::create_dir_all(default_profile_dir.join("IndexedDB"))
+            .expect("indexeddb dir is created");
+        fs::create_dir_all(default_profile_dir.join("Service Worker"))
+            .expect("service worker dir is created");
+        fs::write(
+            default_profile_dir.join("Storage Notes"),
+            "non-matching placeholder",
+        )
+        .expect("non-matching marker is written");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+
+        assert_eq!(inspection.site_storage_entries, 4);
+        assert_eq!(inspection.cookie_store_files, 0);
+        assert_eq!(inspection.credential_store_files, 0);
+        assert_eq!(inspection.autofill_store_files, 0);
     }
 
     #[test]
@@ -1931,6 +2018,8 @@ mod tests {
         assert_eq!(inspection.symlink_entries, 1);
         assert_eq!(inspection.credential_store_files, 0);
         assert_eq!(inspection.autofill_store_files, 0);
+        assert_eq!(inspection.cookie_store_files, 0);
+        assert_eq!(inspection.site_storage_entries, 0);
     }
 
     fn read_test_preferences(path: &Path) -> Value {

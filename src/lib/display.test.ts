@@ -55,6 +55,8 @@ function profileInspection(
     profilePrepared: true,
     credentialStoreFiles: 0,
     autofillStoreFiles: 0,
+    cookieStoreFiles: 0,
+    siteStorageEntries: 0,
     symlinkEntries: 0,
     passwordSavingEnabled: false,
     autofillEnabled: false,
@@ -285,6 +287,8 @@ describe("frontend profile inspection summaries", () => {
         profileInspection({
           credentialStoreFiles: 2,
           autofillStoreFiles: 3,
+          cookieStoreFiles: 4,
+          siteStorageEntries: 5,
           symlinkEntries: 1,
           passwordSavingEnabled: true,
           autofillEnabled: true,
@@ -292,7 +296,7 @@ describe("frontend profile inspection summaries", () => {
         }),
       ),
     ).toBe(
-      "Codex profile inspection found 2 credential files, 3 autofill store files, 1 symlink entry, password saving enabled, autofill enabled, inspection limit reached",
+      "Codex profile inspection found 2 credential files, 3 autofill store files, 4 cookie store files, 5 site storage entries, 1 symlink entry, password saving enabled, autofill enabled, inspection limit reached",
     );
   });
 });

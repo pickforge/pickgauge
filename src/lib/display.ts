@@ -177,6 +177,25 @@ export function profileInspectionSummary(inspection: ProviderProfileInspection) 
     );
   }
 
+  if (inspection.cookieStoreFiles > 0) {
+    issues.push(
+      `${formatCount(inspection.cookieStoreFiles)} cookie store ${plural(
+        inspection.cookieStoreFiles,
+        "file",
+      )}`,
+    );
+  }
+
+  if (inspection.siteStorageEntries > 0) {
+    issues.push(
+      `${formatCount(inspection.siteStorageEntries)} site storage ${plural(
+        inspection.siteStorageEntries,
+        "entry",
+        "entries",
+      )}`,
+    );
+  }
+
   if (inspection.symlinkEntries > 0) {
     issues.push(
       `${formatCount(inspection.symlinkEntries)} symlink ${plural(

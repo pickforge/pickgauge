@@ -58,6 +58,8 @@ Profile isolation progress, 2026-06-04: canonical managed profile resolution now
 
 Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch, preserve disabled password/autofill preferences, avoid importing seeded fake default Chrome/Chromium profile data, and keep sidecar stdout/stderr free of raw launch data, fake profile sentinels, auth-looking material, and page markup. Manual authenticated login flow and authenticated profile validation remain unchecked.
 
+Profile storage artifact progress, 2026-06-04: extended sanitized managed-profile inspection to report cookie-store and site-storage artifact counts in addition to credential/autofill counts, symlink counts, disabled preference booleans, inspected entry counts, and limit status. IPC and maintenance UI summaries expose only counts/booleans/labels/timestamps. `npm run test:sidecar-launch` now records sanitized headed Playwright evidence that both temporary Codex and Claude persistent profiles produced cookie-store artifacts under distinct service profiles without symlinks, default-profile import, raw profile paths, cookies, auth-looking material, or page markup in sidecar output. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -736,9 +738,10 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
 - [x] Validate persistent isolated profile on CachyOS KDE/Wayland.
   - [x] `npm run test:sidecar-launch` validates headed Playwright profile persistence across relaunch for both official URLs with temporary isolated profiles in the current CachyOS KDE/Wayland session.
-- [ ] Validate separate app-owned profile directories/cookie jars per service.
+- [x] Validate separate app-owned profile directories/cookie jars per service.
   - [x] `cargo test browser_profile --lib` verifies app-owned default paths, ownership markers, restrictive permissions, default-browser path rejection, and distinct/non-nested service profile roots.
   - [x] `cargo test browser_session --lib` verifies service launch plans use distinct profile paths/labels and profile storage inspection remains sanitized.
+  - [x] `npm run test:sidecar-launch` reports `cookieStoreArtifactsDetectedForAllServices: true` and per-service cookie-store artifact counts for distinct temporary Codex/Claude persistent profiles.
 - [x] Prove there is no import from default browser profiles.
   - [x] Validate headed Playwright sidecar launches against fake default Chrome/Chromium profile sentinels without reading real browser profile contents.
 - [ ] Prove visible manual login works for both services.
@@ -1032,6 +1035,7 @@ Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browse
   - [x] Real headed Playwright sidecar launch preserves disabled password/autofill preferences across relaunch.
 - [x] Dedicated browser profiles are separate per service.
   - [x] Configured profile overrides cannot make Codex and Claude share or nest service profile paths.
+  - [x] Headed Playwright sidecar validation reports cookie-store artifacts in distinct temporary Codex/Claude persistent profiles.
 - [x] Dedicated browser profiles are app-owned and marker-guarded.
 - [x] Dedicated browser profiles never use the user's default browser profile.
 - [x] Clear/delete actions stop managed browser processes first.
@@ -1043,6 +1047,7 @@ Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browse
 Blocked: requires authenticated login validation with the selected browser backend.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
   - [x] Profile inspection IPC returns only sanitized counts, booleans, timestamps, service values, and profile labels.
+  - [x] Profile inspection and sidecar launch evidence count cookie/site-storage artifacts without returning artifact names, cookie rows, storage contents, raw paths, or page content.
   - [x] Real headed Playwright sidecar launch validation checks stdout/stderr for sanitized output without raw launch data, seeded profile sentinels, auth/cookie-looking material, or page markup.
 Blocked: real authenticated refresh logging proof requires selected browser backend and web provider implementation.
 - [x] Browser profile is isolated from the main browser profile.

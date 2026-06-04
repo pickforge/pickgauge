@@ -26,6 +26,7 @@ const sidecarPath = resolve(
 );
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
+const profileInspectionEntryLimit = 2_048;
 const launchArgs = [
   "--disable-save-password-bubble",
   "--disable-password-manager-reauthentication",
@@ -90,6 +91,14 @@ try {
     throw new Error("Codex and Claude sidecar validation profiles must be distinct");
   }
 
+  const cookieStoreArtifactsDetectedForAllServices = serviceResults.every(
+    (result) => result.profileStorage.cookieStoreFiles > 0,
+  );
+
+  if (!cookieStoreArtifactsDetectedForAllServices) {
+    throw new Error("Sidecar validation did not detect cookie-store artifacts for every service");
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -102,6 +111,7 @@ try {
         os: osReleaseSummary(),
         targetTriple,
         profileIsolation: {
+          cookieStoreArtifactsDetectedForAllServices,
           distinctServiceProfiles: true,
         },
         services: serviceResults,
@@ -136,12 +146,23 @@ async function validateLaunch({ service, url, profileLabel, profileRoot, default
     throw new Error(`${service} sidecar profile did not persist across relaunch`);
   }
 
+  const profileStorage = inspectChromiumProfileStorage(profileRoot);
+
+  if (profileStorage.symlinkEntries > 0) {
+    throw new Error(`${service} sidecar profile contains symlink entries`);
+  }
+
+  if (profileStorage.entryLimitReached) {
+    throw new Error(`${service} sidecar profile storage inspection reached the entry limit`);
+  }
+
   return {
     defaultProfileImportBlocked: true,
     disabledStoragePreferencesPreserved: true,
     isolatedTemporaryProfile: true,
     profileLabel,
     profilePersistsAcrossRelaunch: true,
+    profileStorage,
     sanitizedOutput: true,
     service,
   };
@@ -443,6 +464,98 @@ function verifyNoDefaultProfileImport(profileRoot, service, defaultProfileFixtur
       throw new Error(`${service} sidecar imported default browser ${storeName}`);
     }
   }
+}
+
+function inspectChromiumProfileStorage(profileRoot) {
+  const inspection = {
+    autofillStoreFiles: 0,
+    cookieStoreFiles: 0,
+    credentialStoreFiles: 0,
+    entryLimitReached: false,
+    inspectedEntries: 0,
+    siteStorageEntries: 0,
+    symlinkEntries: 0,
+  };
+
+  if (!existsSync(profileRoot)) {
+    return inspection;
+  }
+
+  const rootStat = lstatSync(profileRoot);
+
+  if (rootStat.isSymbolicLink()) {
+    inspection.symlinkEntries = 1;
+    return inspection;
+  }
+
+  if (!rootStat.isDirectory()) {
+    throw new Error("Sidecar validation profile must be a directory");
+  }
+
+  const pending = [profileRoot];
+
+  while (pending.length > 0) {
+    if (inspection.inspectedEntries >= profileInspectionEntryLimit) {
+      inspection.entryLimitReached = true;
+      return inspection;
+    }
+
+    const current = pending.pop();
+
+    for (const name of readdirSync(current)) {
+      if (inspection.inspectedEntries >= profileInspectionEntryLimit) {
+        inspection.entryLimitReached = true;
+        return inspection;
+      }
+
+      const entryPath = resolve(current, name);
+      const stat = lstatSync(entryPath);
+      inspection.inspectedEntries += 1;
+
+      if (stat.isSymbolicLink()) {
+        inspection.symlinkEntries += 1;
+        continue;
+      }
+
+      if (isChromiumLoginDataFile(name)) {
+        inspection.credentialStoreFiles += 1;
+      }
+
+      if (isChromiumAutofillDataFile(name)) {
+        inspection.autofillStoreFiles += 1;
+      }
+
+      if (isChromiumCookieDataFile(name)) {
+        inspection.cookieStoreFiles += 1;
+      }
+
+      if (isChromiumSiteStorageEntry(name)) {
+        inspection.siteStorageEntries += 1;
+      }
+
+      if (stat.isDirectory()) {
+        pending.push(entryPath);
+      }
+    }
+  }
+
+  return inspection;
+}
+
+function isChromiumLoginDataFile(name) {
+  return name === "Login Data" || name.startsWith("Login Data-");
+}
+
+function isChromiumAutofillDataFile(name) {
+  return name === "Web Data" || name.startsWith("Web Data-");
+}
+
+function isChromiumCookieDataFile(name) {
+  return name === "Cookies" || name.startsWith("Cookies-");
+}
+
+function isChromiumSiteStorageEntry(name) {
+  return ["IndexedDB", "Local Storage", "Session Storage", "Service Worker"].includes(name);
 }
 
 function verifySanitizedSidecarOutput({

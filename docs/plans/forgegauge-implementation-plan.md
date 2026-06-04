@@ -972,7 +972,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] At least one real local provider.
 - [x] Central usage engine, provider registry, scheduler, shared display cache, and event stream.
 
-Web providers and merge logic should follow once KDE tray behavior and core UI are stable.
+Web providers should follow once KDE tray behavior, backend selection, and manual login/profile isolation checks are stable.
 
 ## Next Implementation Milestone
 
@@ -1008,3 +1008,7 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 - [ ] Record runtime packages and packaging prerequisites discovered during testing.
 
 Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavior confirmation requires user-visible desktop interaction and cannot be verified through the available Playwright/browser-preview tooling in this session.
+
+Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing web providers or the managed browser session process owner.
+
+Blocked: remote release workflow and Windows/macOS artifact verification require a mainline push or workflow dispatch plus access to the resulting GitHub Actions run and release artifacts.

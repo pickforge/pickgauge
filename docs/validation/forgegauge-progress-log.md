@@ -4,6 +4,16 @@
 
 Branch: `forgegauge-implementation`
 
+Playwright sidecar process boundary:
+
+- Added `tauri-plugin-shell` and wired `start_provider_login` to attempt a Rust-owned Playwright sidecar launch when managed web profiles are enabled.
+- The launch path stops any existing managed process for the service, resolves the sidecar name `forgegauge-playwright-sidecar`, writes the serialized `launchLogin` JSON payload to stdin, waits for one sanitized stdout acknowledgment, validates a `launched` response against the original request, and tracks the child through the existing browser session manager.
+- If the sidecar binary is missing, does not acknowledge launch, or rejects the request, the command fails closed to sanitized `login_required` status and emits `login://required` with reason `sidecar_unavailable`; raw paths, raw `userDataDir`, launch args, process errors, and Playwright errors remain excluded from IPC.
+- Tests cover sanitized sidecar response parsing, mismatch/rejection handling without echoing raw paths, sidecar request planning without exposing paths to login-start IPC, web-disabled fallback, and the new login-required reason.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- Tauri `externalBin` registration and real packaged sidecar launch remain unchecked until a target-triple sidecar binary exists under `src-tauri/binaries`; manual login and authenticated profile validation remain unchecked.
+
 Playwright sidecar request serialization:
 
 - Rust now serializes a `PlaywrightSidecarLaunchRequest` matching the sidecar `launchLogin` protocol shape, including `protocolVersion`, backend id, service, HTTPS URL, profile label, raw `userDataDir`, headed mode, and launch args.

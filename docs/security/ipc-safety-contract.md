@@ -1,6 +1,6 @@
 # IPC Safety Contract
 
-Scope: implemented Tauri invoke commands and emitted events as of this checkpoint. The managed browser login flow is not implemented yet; `start_provider_login` defines the sanitized login-required IPC boundary only.
+Scope: implemented Tauri invoke commands and emitted events as of this checkpoint. `start_provider_login` prepares managed profiles, attempts the Rust-owned Playwright sidecar launch when available, and fails closed to a sanitized login-required result when the sidecar is unavailable or rejects the launch.
 
 Command return models:
 
@@ -37,6 +37,8 @@ Rust IPC models use serde `camelCase` fields for structs and lowercase strings f
 | `UsageSource` | `source` | `local`, `web`, `merged`, `fake` |
 | `UsageConfidence` | `confidence` | `high`, `medium`, `low`, `unknown` |
 | `UsageRefreshStatus` | `status` | `started`, `finished`, `failed` |
+| `ProviderLoginStart` | `status` | `login_required`, `launched` |
+| `LoginRequiredEvent` | `reason` | `managed_login_not_available`, `sidecar_unavailable` |
 
 Event payloads:
 

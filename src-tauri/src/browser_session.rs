@@ -20,6 +20,7 @@ pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
 pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
+pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
@@ -194,6 +195,32 @@ pub struct PlaywrightSidecarLaunchDiagnostics {
     pub user_data_dir: String,
     pub headless: bool,
     pub arg_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlaywrightSidecarLaunchResponse {
+    pub protocol_version: u32,
+    pub action: String,
+    pub backend: String,
+    pub service: Service,
+    pub profile_label: String,
+    pub headless: bool,
+    pub arg_count: usize,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPlaywrightSidecarLaunchResponse {
+    ok: bool,
+    status: String,
+    protocol_version: u32,
+    action: Option<String>,
+    backend: Option<String>,
+    service: Option<Service>,
+    profile_label: Option<String>,
+    headless: Option<bool>,
+    arg_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -587,6 +614,64 @@ pub fn playwright_sidecar_launch_request(
         headless: request.headless,
         args: request.args.clone(),
         diagnostics,
+    })
+}
+
+#[allow(dead_code)]
+pub fn playwright_sidecar_launch_response(
+    raw: &str,
+    request: &PlaywrightSidecarLaunchRequest,
+) -> Result<PlaywrightSidecarLaunchResponse, String> {
+    let response = serde_json::from_str::<RawPlaywrightSidecarLaunchResponse>(raw)
+        .map_err(|_| "Managed login sidecar returned invalid response".to_string())?;
+
+    if !response.ok {
+        return Err("Managed login sidecar rejected launch".to_string());
+    }
+
+    if response.status != PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED {
+        return Err("Managed login sidecar did not launch browser".to_string());
+    }
+
+    let Some(action) = response.action else {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    };
+    let Some(backend) = response.backend else {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    };
+    let Some(service) = response.service else {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    };
+    let Some(profile_label) = response.profile_label else {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    };
+    let Some(headless) = response.headless else {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    };
+    let Some(arg_count) = response.arg_count else {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    };
+
+    if response.protocol_version != request.protocol_version
+        || action != request.action
+        || backend != request.backend
+        || service != request.service
+        || profile_label != request.profile_label
+        || headless != request.headless
+        || arg_count != request.args.len()
+    {
+        return Err("Managed login sidecar returned mismatched response".to_string());
+    }
+
+    Ok(PlaywrightSidecarLaunchResponse {
+        protocol_version: response.protocol_version,
+        action,
+        backend,
+        service,
+        profile_label,
+        headless,
+        arg_count,
+        status: response.status,
     })
 }
 
@@ -1480,6 +1565,88 @@ mod tests {
 
         assert_eq!(error, "Managed browser login URL must use HTTPS");
         assert!(!error.contains("example.test"));
+    }
+
+    #[test]
+    fn playwright_sidecar_launch_response_accepts_launched_status() {
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_launch_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "launched",
+            "protocolVersion": 1,
+            "action": "launchLogin",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "codex",
+            "profileLabel": "codex-profile",
+            "headless": false,
+            "argCount": sidecar_request.args.len()
+        })
+        .to_string();
+        let response = playwright_sidecar_launch_response(&raw, &sidecar_request)
+            .expect("launched response is accepted");
+
+        assert_eq!(response.status, PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED);
+        assert_eq!(response.service, Service::Codex);
+        assert_eq!(response.profile_label, "codex-profile");
+        assert_eq!(response.arg_count, sidecar_request.args.len());
+    }
+
+    #[test]
+    fn playwright_sidecar_launch_response_rejects_mismatch_without_echoing_input() {
+        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let plan = chromium_launch_plan(Service::Codex, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_launch_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "launched",
+            "protocolVersion": 1,
+            "action": "launchLogin",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "claude",
+            "profileLabel": "claude-profile",
+            "headless": false,
+            "argCount": sidecar_request.args.len(),
+            "userDataDir": profile_path
+        })
+        .to_string();
+        let error = playwright_sidecar_launch_response(&raw, &sidecar_request)
+            .expect_err("mismatched response is rejected");
+
+        assert_eq!(error, "Managed login sidecar returned mismatched response");
+        assert!(!error.contains(profile_path));
+        assert!(!error.contains("/home/dev"));
+    }
+
+    #[test]
+    fn playwright_sidecar_launch_response_rejects_failed_status_without_raw_code_details() {
+        let plan = chromium_launch_plan(Service::Claude, "/tmp/forgegauge/claude");
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request =
+            playwright_sidecar_launch_request(&launch_request, "https://claude.ai/usage")
+                .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": false,
+            "status": "rejected",
+            "protocolVersion": 1,
+            "code": "/tmp/forgegauge/claude"
+        })
+        .to_string();
+        let error = playwright_sidecar_launch_response(&raw, &sidecar_request)
+            .expect_err("rejected response is rejected");
+
+        assert_eq!(error, "Managed login sidecar rejected launch");
+        assert!(!error.contains("/tmp/forgegauge"));
     }
 
     #[test]

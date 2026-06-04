@@ -5,7 +5,15 @@ pub mod local_provider;
 pub mod usage;
 pub mod web_provider;
 
-use std::{fs, path::Path, sync::Mutex};
+use std::{
+    fs,
+    io::{BufRead, BufReader, Write},
+    path::Path,
+    process::{Child, ChildStdout},
+    sync::{mpsc, Mutex},
+    thread,
+    time::Duration,
+};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -19,12 +27,19 @@ use usage::{
 
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_shell::ShellExt;
 
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
 const LOGIN_REQUIRED_EVENT: &str = "login://required";
 const SESSION_RESET_EVENT: &str = "session://reset";
+const LOGIN_STATUS_REQUIRED: &str = "login_required";
+const LOGIN_STATUS_LAUNCHED: &str = "launched";
+const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_available";
+const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
+const PLAYWRIGHT_SIDECAR_NAME: &str = "forgegauge-playwright-sidecar";
+const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const LOG_FILE_NAME: &str = "forgegauge.log";
 const LOG_REDACTION_POLICY_PATH: &str = "docs/security/log-redaction-policy.md";
 const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
@@ -124,6 +139,11 @@ struct LogLocation {
 struct WindowVisibility {
     status: String,
     updated_at: String,
+}
+
+struct ProviderLoginStartPlan {
+    login: ProviderLoginStart,
+    sidecar_request: Option<browser_session::PlaywrightSidecarLaunchRequest>,
 }
 
 type CommandResult<T> = Result<T, CommandError>;
@@ -447,57 +467,174 @@ fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<O
 fn start_provider_login(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
+    sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
 ) -> CommandResult<ProviderLoginStart> {
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
     let now = usage::now_rfc3339();
-    let login = provider_login_start_report(&config, &app_data_dir, service, now.clone())
+    let plan = provider_login_start_plan(&config, &app_data_dir, service, now.clone())
         .map_err(map_browser_profile_error)?;
-    let event = LoginRequiredEvent {
-        service,
-        url: login.url.clone(),
-        reason: "managed_login_not_available".to_string(),
-        emitted_at: now,
+    let mut login = plan.login;
+    let login_required_reason = if let Some(request) = plan.sidecar_request {
+        match launch_playwright_sidecar_login(&app, &sessions, &request) {
+            Ok(_) => {
+                login.status = LOGIN_STATUS_LAUNCHED.to_string();
+                None
+            }
+            Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
+        }
+    } else {
+        Some(LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE)
     };
 
-    app.emit(LOGIN_REQUIRED_EVENT, &event)
-        .map_err(map_event_emit_error)?;
+    if let Some(reason) = login_required_reason {
+        let event = LoginRequiredEvent {
+            service,
+            url: login.url.clone(),
+            reason: reason.to_string(),
+            emitted_at: now,
+        };
+
+        app.emit(LOGIN_REQUIRED_EVENT, &event)
+            .map_err(map_event_emit_error)?;
+    }
 
     Ok(login)
 }
 
+#[cfg(test)]
 fn provider_login_start_report(
     config: &config::AppConfig,
     app_data_dir: &Path,
     service: Service,
     started_at: String,
 ) -> Result<ProviderLoginStart, String> {
+    provider_login_start_plan(config, app_data_dir, service, started_at).map(|plan| plan.login)
+}
+
+fn provider_login_start_plan(
+    config: &config::AppConfig,
+    app_data_dir: &Path,
+    service: Service,
+    started_at: String,
+) -> Result<ProviderLoginStartPlan, String> {
     let paths = prepare_managed_browser_profiles(config, app_data_dir)?;
-    let launch_diagnostics = paths.as_ref().map(|paths| {
+    let launch_request = paths.as_ref().map(|paths| {
         let profile_path = match service {
             Service::Codex => &paths.codex,
             Service::Claude => &paths.claude,
         };
         let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
-        browser_session::playwright_launch_request(&launch_plan).diagnostics
+        browser_session::playwright_launch_request(&launch_plan)
     });
 
-    let profile_prepared = launch_diagnostics.is_some();
-    let profile_label = launch_diagnostics
+    let sidecar_request = launch_request
         .as_ref()
-        .map(|diagnostics| diagnostics.profile_label.clone())
+        .map(|request| {
+            browser_session::playwright_sidecar_launch_request(request, official_usage_url(service))
+        })
+        .transpose()?;
+    let profile_prepared = launch_request.is_some();
+    let profile_label = launch_request
+        .as_ref()
+        .map(|request| request.profile_label.clone())
         .unwrap_or_else(|| provider_profile_label(service).to_string());
 
-    Ok(ProviderLoginStart {
-        service,
-        url: official_usage_url(service).to_string(),
-        status: "login_required".to_string(),
-        backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
-        profile_label,
-        profile_prepared,
-        started_at,
+    Ok(ProviderLoginStartPlan {
+        login: ProviderLoginStart {
+            service,
+            url: official_usage_url(service).to_string(),
+            status: LOGIN_STATUS_REQUIRED.to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            profile_label,
+            profile_prepared,
+            started_at,
+        },
+        sidecar_request,
     })
+}
+
+fn launch_playwright_sidecar_login(
+    app: &AppHandle,
+    sessions: &browser_session::BrowserSessionManager,
+    request: &browser_session::PlaywrightSidecarLaunchRequest,
+) -> Result<u32, String> {
+    sessions.stop_service(request.service, browser_session::PROFILE_STOP_TIMEOUT)?;
+
+    let marker = browser_session::BrowserSessionMarker::new(request.service);
+    let mut command: std::process::Command = app
+        .shell()
+        .sidecar(PLAYWRIGHT_SIDECAR_NAME)
+        .map_err(|_| "Managed login sidecar is unavailable".to_string())?
+        .into();
+    let (env_key, env_value) = marker.env_pair();
+    command.env(env_key, env_value);
+
+    let mut child = command
+        .spawn()
+        .map_err(|_| "Managed login sidecar is unavailable".to_string())?;
+    if let Err(error) = write_sidecar_launch_request(&mut child, request) {
+        return Err(kill_untracked_child(child, &error));
+    }
+    let Some(stdout) = child.stdout.take() else {
+        return Err(kill_untracked_child(
+            child,
+            "Managed login sidecar did not acknowledge launch",
+        ));
+    };
+    let line = match read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT) {
+        Ok(line) => line,
+        Err(error) => return Err(kill_untracked_child(child, &error)),
+    };
+
+    if let Err(error) = browser_session::playwright_sidecar_launch_response(&line, request) {
+        return Err(kill_untracked_child(child, &error));
+    }
+
+    sessions.track_process(request.service, child, marker)
+}
+
+fn write_sidecar_launch_request(
+    child: &mut Child,
+    request: &browser_session::PlaywrightSidecarLaunchRequest,
+) -> Result<(), String> {
+    let raw = serde_json::to_vec(request)
+        .map_err(|_| "Could not serialize managed login sidecar request".to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Managed login sidecar is unavailable".to_string())?;
+    stdin
+        .write_all(&raw)
+        .and_then(|_| stdin.write_all(b"\n"))
+        .map_err(|_| "Could not write managed login sidecar request".to_string())
+}
+
+fn read_sidecar_stdout_line(stdout: ChildStdout, timeout: Duration) -> Result<String, String> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        let result = reader
+            .read_line(&mut line)
+            .map(|bytes| if bytes == 0 { String::new() } else { line })
+            .map_err(|_| "Could not read managed login sidecar response".to_string());
+        let _ = sender.send(result);
+    });
+
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(line)) if !line.trim().is_empty() => Ok(line),
+        Ok(Ok(_)) => Err("Managed login sidecar did not acknowledge launch".to_string()),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err("Managed login sidecar did not acknowledge launch".to_string()),
+    }
+}
+
+fn kill_untracked_child(mut child: Child, error: &str) -> String {
+    let _ = child.kill();
+    let _ = child.wait();
+    error.to_string()
 }
 
 #[tauri::command]
@@ -1004,6 +1141,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let (config, config_error) = match config::load(&app_handle) {
@@ -1388,6 +1526,57 @@ mod tests {
     }
 
     #[test]
+    fn provider_login_start_plan_builds_sidecar_request_without_exposing_paths_to_ipc() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+
+        let plan = provider_login_start_plan(
+            &config,
+            &dir.path,
+            Service::Codex,
+            "2026-06-04T10:10:00Z".to_string(),
+        )
+        .expect("login start plan succeeds");
+        let sidecar_request = plan
+            .sidecar_request
+            .as_ref()
+            .expect("sidecar request is prepared");
+        let value = serde_json::to_value(&plan.login).expect("login start serializes");
+
+        assert_eq!(plan.login.status, LOGIN_STATUS_REQUIRED);
+        assert_eq!(sidecar_request.service, Service::Codex);
+        assert_eq!(sidecar_request.url, official_usage_url(Service::Codex));
+        assert_eq!(sidecar_request.profile_label, "codex-profile");
+        assert!(sidecar_request
+            .user_data_dir
+            .contains("browser-profiles/codex"));
+        assert_eq!(value["status"], "login_required");
+        assert!(value.get("profilePath").is_none());
+        assert!(value.get("userDataDir").is_none());
+        assert!(!format!("{value:?}").contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn provider_login_start_plan_skips_sidecar_request_when_web_is_disabled() {
+        let dir = TestDir::new();
+        let config = config::AppConfig::default();
+
+        let plan = provider_login_start_plan(
+            &config,
+            &dir.path,
+            Service::Claude,
+            "2026-06-04T10:15:00Z".to_string(),
+        )
+        .expect("login start plan succeeds");
+
+        assert_eq!(plan.login.status, LOGIN_STATUS_REQUIRED);
+        assert_eq!(plan.login.profile_label, "claude-profile");
+        assert!(!plan.login.profile_prepared);
+        assert!(plan.sidecar_request.is_none());
+    }
+
+    #[test]
     fn provider_login_start_report_marks_unprepared_profiles_when_web_is_disabled() {
         let dir = TestDir::new();
         let config = config::AppConfig::default();
@@ -1425,6 +1614,20 @@ mod tests {
                 "emittedAt": "2026-06-03T00:00:00Z"
             })
         );
+    }
+
+    #[test]
+    fn login_required_event_serializes_sidecar_unavailable_reason() {
+        let event = LoginRequiredEvent {
+            service: Service::Codex,
+            url: official_usage_url(Service::Codex).to_string(),
+            reason: "sidecar_unavailable".to_string(),
+            emitted_at: "2026-06-04T10:20:00Z".to_string(),
+        };
+        let value = serde_json::to_value(event).expect("login required event serializes");
+
+        assert_eq!(value["reason"], "sidecar_unavailable");
+        assert!(value.get("details").is_none());
     }
 
     #[test]

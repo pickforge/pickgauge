@@ -91,7 +91,7 @@ export type OfficialUsagePage = {
 export type ProviderLoginStart = {
   service: Service;
   url: string;
-  status: "login_required";
+  status: "login_required" | "launched";
   backend: "playwright-headed-chromium-sidecar";
   profileLabel: string;
   profilePrepared: boolean;
@@ -101,7 +101,7 @@ export type ProviderLoginStart = {
 export type LoginRequiredEvent = {
   service: Service;
   url: string;
-  reason: "managed_login_not_available";
+  reason: "managed_login_not_available" | "sidecar_unavailable";
   emittedAt: string;
 };
 

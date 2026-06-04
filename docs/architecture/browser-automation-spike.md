@@ -30,7 +30,7 @@ Playwright:
 - Browser binaries live in OS cache locations by default, including `~/.cache/ms-playwright` on Linux.
 - `PLAYWRIGHT_BROWSERS_PATH` can redirect the browser-binary cache for packaging or test runs.
 - A bundled sidecar would need a clear install/update strategy for Playwright and its browser binaries.
-- The current sidecar source defines a JSON launch protocol and dry-run validation before bundling. Tauri `externalBin` registration remains deferred until a target-triple sidecar binary exists under `src-tauri/binaries`.
+- The current sidecar source defines a JSON launch protocol and dry-run validation before bundling. Rust now attempts a backend-owned sidecar launch through `tauri-plugin-shell`, writes one JSON `launchLogin` payload to stdin, validates one sanitized stdout response, and tracks the child through the existing browser session manager. Tauri `externalBin` registration remains deferred until a target-triple sidecar binary exists under `src-tauri/binaries`.
 
 Selenium:
 
@@ -45,7 +45,7 @@ Raw CDP:
 Tauri:
 
 - `tauri-plugin-opener` is enough for the already implemented "open official page" action.
-- A managed automation backend should be Rust-owned where practical. If a sidecar is exposed through `tauri-plugin-shell`, capabilities must scope the exact sidecar and arguments with `shell:allow-spawn` or `shell:allow-execute`; no arbitrary shell commands should be exposed to the frontend.
+- The Playwright sidecar launch is Rust-owned through `tauri-plugin-shell`; no frontend shell permission is granted in the current capabilities file. If future frontend shell access is added, capabilities must scope the exact sidecar and arguments with `shell:allow-spawn` or `shell:allow-execute`; no arbitrary shell commands should be exposed to the frontend.
 
 ## Parser Contract
 
@@ -92,7 +92,7 @@ Authenticated official pages must never be loaded in the main Tauri webview. The
 
 ## Proceed/Defer Decision
 
-Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the future sidecar process and emits only sanitized status metadata. Rust now serializes the matching `launchLogin` request shape so the future Tauri sidecar spawn can pass one JSON payload over stdin instead of constructing ad hoc arguments.
+Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the sidecar process and emits only sanitized status metadata. Rust now serializes the matching `launchLogin` request shape, spawns the sidecar through the Tauri shell plugin when available, validates the sanitized launch response, and fails closed with `login_required` when the sidecar is unavailable.
 
 Defer implementation of Codex and Claude web providers until these manual checks pass on CachyOS KDE/Wayland:
 

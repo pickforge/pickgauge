@@ -38,6 +38,8 @@ Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for pr
 
 Browser-preview state fixture progress, 2026-06-04: added browser-preview-only query states for missing local data, network unavailable, expired login, MFA required, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled provider. Vitest covers the query-state mapping and rendered status-note snapshots, and Playwright browser-preview smoke checks verified those states plus the default preview at desktop `1280x900` and mobile `390x900` without horizontal overflow. Real desktop/provider smoke tests remain unchecked.
 
+Browser-preview validator progress, 2026-06-04: added `npm run test:browser-preview`, a repeatable Playwright validation script that starts the Vite browser preview, checks the default and failure/graceful-provider query states at desktop `1280x900` and mobile `390x900`, verifies expected usage cards and status notes, checks horizontal overflow, and exercises the experimental web-provider opt-in desktop-only fallback path. Real desktop/provider smoke tests remain unchecked.
+
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser process launch integration, manual login flow, and authenticated profile validation remain unchecked.
@@ -934,6 +936,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | --- | --- |
 | Documentation only | `git diff --check`, `npm run check` |
 | Frontend/Svelte | `npm run check`, `npm run build` |
+| Browser preview/UI smoke | `npm run test:browser-preview` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
 | Tauri integration | `npm run check`, `npm run build`, `cd src-tauri && cargo check`, `npm run tauri -- build --bundles appimage` or `npm run build:appimage` on CachyOS/Arch-like systems |
 | Release workflow | Local validators plus a real GitHub Actions `workflow_dispatch` or mainline run |
@@ -966,6 +969,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend settings form behavior.
 - [x] Frontend web-provider opt-in toggles and disabled states.
 - [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
+- [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 
 ### Manual Tests To Complete
 

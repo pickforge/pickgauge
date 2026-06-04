@@ -11,6 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "prepare:sidecar": "node scripts/prepare-playwright-sidecar.mjs",
     "test": "vitest run && node --test sidecars/playwright/*.node-test.mjs && node scripts/prepare-playwright-sidecar.mjs --check && node scripts/validate-playwright-sidecar-package.mjs",
+    "test:browser-preview": "node scripts/validate-browser-preview.mjs",
     "test:sidecar-launch": "node scripts/validate-playwright-sidecar-launch.mjs",
     "tauri": "tauri",
     "build:appimage": "npm run prepare:sidecar && NO_STRIP=1 tauri build --bundles appimage"

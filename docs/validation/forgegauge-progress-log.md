@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Repeatable browser-preview validation:
+
+- Added `npm run test:browser-preview`, which starts Vite at `http://127.0.0.1:1420/`, launches Chromium through Playwright, and closes both browser and server after validation.
+- The script checks the default preview plus browser-preview query states for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled provider at desktop `1280x900` and mobile `390x900`.
+- It verifies two usage cards, expected status/stale notes, no horizontal overflow, disabled web controls before opt-in, enabled official refresh/login/profile controls after opt-in, and browser-preview desktop-only fallback messages for Start login, Refresh official, and Hide popup to tray.
+- Validation: `npm run test:browser-preview`, `npm run check`, `npm test`, and `git diff --check` passed.
+
 Tracker reconciliation:
 
 - Narrowed stale Playwright blockers now that sidecar implementation, packaging, local headed launch, profile isolation, password/autofill preference, default-profile isolation, and sanitized-output validation are complete.

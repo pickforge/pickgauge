@@ -42,7 +42,7 @@ Browser-preview validator progress, 2026-06-04: added `npm run test:browser-prev
 
 Manual smoke preflight progress, 2026-06-04: added `npm run smoke:preflight`, a sanitized metadata collector for future manual KDE/auth/platform smoke notes. It reports commit, app/package metadata, OS/session signals, Playwright package version, and repo-relative AppImage/sidecar artifact status without browser profile contents, account data, secrets, or full local paths. Manual observed-behavior and authenticated-profile evidence remains unchecked.
 
-KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies ForgeGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, then terminates the app and removes temporary dirs. This proves D-Bus tray registration in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or quit behavior.
+KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies ForgeGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, dispatches the tray `Quit` menu event, confirms the AppImage exits successfully and unregisters the tray item, then removes temporary dirs. This proves D-Bus tray registration and tray-menu quit handling in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or visual quit-menu interaction.
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
@@ -577,6 +577,7 @@ Blocked: real browser-backed provider failure validation remains unchecked until
 - [ ] Confirm popup/window position is acceptable on single-monitor and multi-monitor KDE setups.
 - [ ] Confirm settings persist after restart.
 - [ ] Confirm quit behavior.
+  - [x] KDE DBusMenu smoke verifies the tray `Quit` item exits the isolated AppImage process and unregisters the tray item.
 - [x] Document runtime packages and packaging prerequisites discovered during testing.
 - [x] Choose fallback behavior if native tray/popup behavior is unreliable.
 
@@ -942,7 +943,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Frontend/Svelte | `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Manual smoke preflight | `npm run smoke:preflight` |
-| KDE tray D-Bus registration smoke | `npm run smoke:kde-tray` |
+| KDE tray D-Bus registration/menu smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
 | Tauri integration | `npm run check`, `npm run build`, `cd src-tauri && cargo check`, `npm run tauri -- build --bundles appimage` or `npm run build:appimage` on CachyOS/Arch-like systems |
 | Release workflow | Local validators plus a real GitHub Actions `workflow_dispatch` or mainline run |
@@ -978,7 +979,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
-- [x] KDE StatusNotifier tray registration smoke command for isolated AppImage launch validation.
+- [x] KDE StatusNotifier tray registration and DBusMenu quit smoke command for isolated AppImage launch validation.
 
 ### Manual Tests To Complete
 
@@ -999,6 +1000,8 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Browser-preview fixtures render `MFA required`, `Additional verification required`, `Unexpected usage page`, `Usage refresh timed out`, and `Usage data could not be parsed` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Provider unavailable/blocked states.
   - [x] Browser-preview fixtures render `Stale data`, `Provider unavailable`, `Usage data is not readable`, `Profile path blocked`, and `Provider disabled` notes for both services at desktop and mobile widths without horizontal overflow.
+- [ ] Quit behavior.
+  - [x] KDE DBusMenu smoke verifies the tray `Quit` item exits the isolated AppImage process and unregisters the tray item.
 - [ ] Windows tray/install smoke test.
 - [ ] macOS tray/install smoke test.
 Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browser checks require approved backend plus authenticated provider state, and Windows/macOS checks require those platform runtimes.

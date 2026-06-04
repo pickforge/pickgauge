@@ -708,7 +708,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [ ] Maintain separate cookie jar/session state per service.
 - [x] Track managed child process ownership per service with PID/handle metadata.
 - [x] Add graceful browser shutdown with timeout/kill fallback.
-- [ ] Detect orphaned managed browser processes on startup.
+- [x] Detect orphaned managed browser processes on startup.
 - [ ] Disable password manager, autofill, and save-password prompts where supported.
 - [ ] Add manual login window flow.
 - [x] Surface login-required state to UI.
@@ -717,7 +717,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Stop managed browser before deleting browser session data.
 - [x] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
 - [x] Add negative tests for unsafe browser profile paths.
-- [ ] Add tests for browser shutdown, orphan detection, and cleanup refusal.
+- [x] Add tests for browser shutdown, orphan detection, and cleanup refusal.
 - [x] Verify profile/cache paths use restrictive local permissions where supported.
 - [x] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
 
@@ -1011,6 +1011,6 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 
 Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavior confirmation requires user-visible desktop interaction and cannot be verified through the available Playwright/browser-preview tooling in this session.
 
-Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard exists; orphan detection and profile persistence validation remain unchecked.
+Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard and startup orphan detection exist; profile persistence validation remains unchecked.
 
 Blocked: remote release workflow and Windows/macOS artifact verification require a mainline push or workflow dispatch plus access to the resulting GitHub Actions run and release artifacts.

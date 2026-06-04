@@ -41,8 +41,9 @@ const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 
 #[derive(Clone, Copy)]
 enum StartupWarning {
-    AutostartSyncFailed,
-    InitialUsageRefreshFailed,
+    AutostartSync,
+    BrowserSessionRecovery,
+    InitialUsageRefresh,
 }
 
 struct ConfigLoadState {
@@ -204,8 +205,11 @@ fn map_autostart_error() -> CommandError {
 
 fn startup_warning_message(warning: StartupWarning) -> &'static str {
     match warning {
-        StartupWarning::AutostartSyncFailed => "ForgeGauge startup warning: autostart sync failed",
-        StartupWarning::InitialUsageRefreshFailed => {
+        StartupWarning::AutostartSync => "ForgeGauge startup warning: autostart sync failed",
+        StartupWarning::BrowserSessionRecovery => {
+            "ForgeGauge startup warning: managed browser recovery failed"
+        }
+        StartupWarning::InitialUsageRefresh => {
             "ForgeGauge startup warning: initial usage refresh failed"
         }
     }
@@ -825,9 +829,18 @@ pub fn run() {
             };
 
             app.manage(ConfigLoadState::new(config_error));
-            app.manage(browser_session::BrowserSessionManager::default());
+            let sessions = match app_handle.path().app_data_dir() {
+                Ok(app_data_dir) => browser_session::BrowserSessionManager::with_registry_path(
+                    app_data_dir.join(browser_session::SESSION_REGISTRY_FILE_NAME),
+                ),
+                Err(_) => browser_session::BrowserSessionManager::default(),
+            };
+            if sessions.detect_orphans_on_startup().is_err() {
+                log_startup_warning(StartupWarning::BrowserSessionRecovery);
+            }
+            app.manage(sessions);
             if sync_autostart(&app_handle, config.autostart.enabled).is_err() {
-                log_startup_warning(StartupWarning::AutostartSyncFailed);
+                log_startup_warning(StartupWarning::AutostartSync);
             }
             app.manage(UsageEngine::new(config));
             if app
@@ -835,7 +848,7 @@ pub fn run() {
                 .refresh_all_and_emit(&app_handle)
                 .is_err()
             {
-                log_startup_warning(StartupWarning::InitialUsageRefreshFailed);
+                log_startup_warning(StartupWarning::InitialUsageRefresh);
             }
             setup_window_lifecycle(&app_handle);
             setup_tray(app)?;
@@ -914,8 +927,9 @@ mod tests {
         ];
 
         for warning in [
-            StartupWarning::AutostartSyncFailed,
-            StartupWarning::InitialUsageRefreshFailed,
+            StartupWarning::AutostartSync,
+            StartupWarning::BrowserSessionRecovery,
+            StartupWarning::InitialUsageRefresh,
         ] {
             let message = startup_warning_message(warning).to_ascii_lowercase();
 

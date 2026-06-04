@@ -18,7 +18,7 @@ Automated validation passed:
 
 - `cargo fmt --check`
 - `cargo check`
-- `cargo test` (`120 passed`)
+- `cargo test` (`123 passed`)
 - `cargo clippy -- -D warnings`
 - `npm test` (`11 passed`)
 - `npm run check`
@@ -38,7 +38,7 @@ Local artifact:
 
 - `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`
 - Size: `105M`
-- Local timestamp: `Jun 3 22:57`
+- Local timestamp: `Jun 3 23:09`
 
 Runtime and packaging prerequisites observed:
 
@@ -59,7 +59,8 @@ Managed browser session safety:
 - `clear_provider_profile` and `reset_provider_session` stop the service's managed browser process before deleting profile data.
 - `BrowserSessionManager` tracks one managed child process per service with the process handle and PID.
 - Shutdown requests graceful termination first, then falls back to kill and reap after a timeout.
-- Backend selection, orphan detection, password-manager controls, and authenticated login validation remain separate unchecked gates.
+- Startup recovery reads a restrictive app-data registry, keeps only marker-verified orphaned browser processes, discards stale/unverified entries, and can stop verified orphans before profile deletion.
+- Backend selection, password-manager controls, and authenticated login validation remain separate unchecked gates.
 
 Deferred evidence:
 

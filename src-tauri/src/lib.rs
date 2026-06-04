@@ -71,6 +71,9 @@ struct ProviderLoginStart {
     service: Service,
     url: String,
     status: String,
+    backend: String,
+    profile_label: String,
+    profile_prepared: bool,
     started_at: String,
 }
 
@@ -448,19 +451,12 @@ fn start_provider_login(
 ) -> CommandResult<ProviderLoginStart> {
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
-    prepare_managed_browser_profiles(&config, &app_data_dir).map_err(map_browser_profile_error)?;
-
     let now = usage::now_rfc3339();
-    let url = official_usage_url(service).to_string();
-    let login = ProviderLoginStart {
-        service,
-        url: url.clone(),
-        status: "login_required".to_string(),
-        started_at: now.clone(),
-    };
+    let login = provider_login_start_report(&config, &app_data_dir, service, now.clone())
+        .map_err(map_browser_profile_error)?;
     let event = LoginRequiredEvent {
         service,
-        url,
+        url: login.url.clone(),
         reason: "managed_login_not_available".to_string(),
         emitted_at: now,
     };
@@ -469,6 +465,39 @@ fn start_provider_login(
         .map_err(map_event_emit_error)?;
 
     Ok(login)
+}
+
+fn provider_login_start_report(
+    config: &config::AppConfig,
+    app_data_dir: &Path,
+    service: Service,
+    started_at: String,
+) -> Result<ProviderLoginStart, String> {
+    let paths = prepare_managed_browser_profiles(config, app_data_dir)?;
+    let launch_diagnostics = paths.as_ref().map(|paths| {
+        let profile_path = match service {
+            Service::Codex => &paths.codex,
+            Service::Claude => &paths.claude,
+        };
+        let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
+        browser_session::playwright_launch_request(&launch_plan).diagnostics
+    });
+
+    let profile_prepared = launch_diagnostics.is_some();
+    let profile_label = launch_diagnostics
+        .as_ref()
+        .map(|diagnostics| diagnostics.profile_label.clone())
+        .unwrap_or_else(|| provider_profile_label(service).to_string());
+
+    Ok(ProviderLoginStart {
+        service,
+        url: official_usage_url(service).to_string(),
+        status: "login_required".to_string(),
+        backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+        profile_label,
+        profile_prepared,
+        started_at,
+    })
 }
 
 #[tauri::command]
@@ -1311,6 +1340,9 @@ mod tests {
             service: Service::Codex,
             url: official_usage_url(Service::Codex).to_string(),
             status: "login_required".to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            profile_label: "codex-profile".to_string(),
+            profile_prepared: true,
             started_at: "2026-06-03T00:00:00Z".to_string(),
         };
         let value = serde_json::to_value(login).expect("provider login start serializes");
@@ -1321,9 +1353,57 @@ mod tests {
                 "service": "codex",
                 "url": "https://chatgpt.com/codex/cloud/settings/analytics",
                 "status": "login_required",
+                "backend": "playwright-headed-chromium-sidecar",
+                "profileLabel": "codex-profile",
+                "profilePrepared": true,
                 "startedAt": "2026-06-03T00:00:00Z"
             })
         );
+    }
+
+    #[test]
+    fn provider_login_start_report_includes_sanitized_playwright_profile_metadata() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+
+        let login = provider_login_start_report(
+            &config,
+            &dir.path,
+            Service::Claude,
+            "2026-06-04T10:00:00Z".to_string(),
+        )
+        .expect("login start report succeeds");
+        let value = serde_json::to_value(&login).expect("login start report serializes");
+
+        assert_eq!(login.backend, browser_session::PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(login.profile_label, "claude-profile");
+        assert!(login.profile_prepared);
+        assert_eq!(value["backend"], "playwright-headed-chromium-sidecar");
+        assert_eq!(value["profileLabel"], "claude-profile");
+        assert_eq!(value["profilePrepared"], true);
+        assert!(value.get("profilePath").is_none());
+        assert!(value.get("userDataDir").is_none());
+        assert!(!format!("{value:?}").contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn provider_login_start_report_marks_unprepared_profiles_when_web_is_disabled() {
+        let dir = TestDir::new();
+        let config = config::AppConfig::default();
+
+        let login = provider_login_start_report(
+            &config,
+            &dir.path,
+            Service::Codex,
+            "2026-06-04T10:05:00Z".to_string(),
+        )
+        .expect("login start report succeeds");
+
+        assert_eq!(login.backend, browser_session::PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(login.profile_label, "codex-profile");
+        assert!(!login.profile_prepared);
+        assert!(!dir.path.join("browser-profiles").exists());
     }
 
     #[test]

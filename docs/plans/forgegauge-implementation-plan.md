@@ -756,6 +756,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [ ] Add manual login window flow.
 Blocked: requires Playwright sidecar process integration before implementing real managed browser launch/login UI.
   - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
+  - [x] Return sanitized Playwright backend/profile metadata from login-start IPC without raw profile paths.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
 - [x] Add guarded clear/delete action for browser profile data.

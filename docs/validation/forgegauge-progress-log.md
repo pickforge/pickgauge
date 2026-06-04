@@ -14,6 +14,15 @@ Playwright backend approval and launch contract:
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles and both profile inspection actions visible.
 - Real Playwright sidecar packaging, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
+Playwright login-start metadata:
+
+- `start_provider_login` now prepares managed profiles when web providers are enabled and returns sanitized Playwright backend metadata: backend id, profile label, and profile-prepared state.
+- The login-start IPC payload still excludes raw profile paths, raw `userDataDir`, launch arguments, cookies, tokens, and authenticated page content.
+- Tests cover sanitized IPC serialization, prepared profile metadata, and the web-disabled unprepared profile path.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`159 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
+- Real Playwright sidecar process launch and manual login remain unchecked.
+
 Profile autofill-store inspection:
 
 - Managed Chromium profile inspection now counts Chromium `Web Data` autofill store artifacts and `Web Data-*` sidecars without opening or reading browser database contents.

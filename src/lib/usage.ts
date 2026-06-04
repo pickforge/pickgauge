@@ -92,6 +92,9 @@ export type ProviderLoginStart = {
   service: Service;
   url: string;
   status: "login_required";
+  backend: "playwright-headed-chromium-sidecar";
+  profileLabel: string;
+  profilePrepared: boolean;
   startedAt: string;
 };
 

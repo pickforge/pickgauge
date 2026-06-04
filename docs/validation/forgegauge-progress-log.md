@@ -23,6 +23,16 @@ Playwright login-start metadata:
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
 - Real Playwright sidecar process launch and manual login remain unchecked.
 
+Playwright sidecar protocol:
+
+- Added a Playwright sidecar source scaffold with a JSON `launchLogin` request protocol and `--dry-run` validation path.
+- The sidecar accepts raw `userDataDir` only as process input for the future sidecar launch path; dry-run and rejected responses emit only backend id, service, profile label, headed/headless mode, argument count, stable status, and stable error codes.
+- The protocol rejects invalid actions, unsupported services/backends, non-HTTPS URLs, headless mode, non-string args, and `--user-data-dir` launch args because Playwright receives the user data directory separately.
+- `npm test` now runs Vitest plus Node sidecar protocol tests.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`159 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
+- Tauri `externalBin` registration and real Playwright sidecar process launch remain unchecked until a target-triple sidecar binary exists under `src-tauri/binaries`.
+
 Profile autofill-store inspection:
 
 - Managed Chromium profile inspection now counts Chromium `Web Data` autofill store artifacts and `Web Data-*` sidecars without opening or reading browser database contents.

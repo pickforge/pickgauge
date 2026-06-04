@@ -30,6 +30,7 @@ Playwright:
 - Browser binaries live in OS cache locations by default, including `~/.cache/ms-playwright` on Linux.
 - `PLAYWRIGHT_BROWSERS_PATH` can redirect the browser-binary cache for packaging or test runs.
 - A bundled sidecar would need a clear install/update strategy for Playwright and its browser binaries.
+- The current sidecar source defines a JSON launch protocol and dry-run validation before bundling. Tauri `externalBin` registration remains deferred until a target-triple sidecar binary exists under `src-tauri/binaries`.
 
 Selenium:
 
@@ -91,7 +92,7 @@ Authenticated official pages must never be loaded in the main Tauri webview. The
 
 ## Proceed/Defer Decision
 
-Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics.
+Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the future sidecar process and emits only sanitized status metadata.
 
 Defer implementation of Codex and Claude web providers until these manual checks pass on CachyOS KDE/Wayland:
 

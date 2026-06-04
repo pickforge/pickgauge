@@ -24,6 +24,8 @@ const sidecarPath = resolve(
   "src-tauri/binaries",
   `forgegauge-playwright-sidecar-${targetTriple}`,
 );
+const launchTimeoutMs = 30_000;
+const stopTimeoutMs = 3_000;
 const launchArgs = [
   "--disable-save-password-bubble",
   "--disable-password-manager-reauthentication",
@@ -59,6 +61,7 @@ const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profile
 
 try {
   const profileRoots = new Map();
+  const serviceResults = [];
   const defaultProfileFixtures = prepareDefaultBrowserProfileFixtures(
     resolve(validationRoot, "fake-home"),
   );
@@ -80,16 +83,34 @@ try {
     },
   ]) {
     profileRoots.set(request.service, request.profileRoot);
-    await validateLaunch(request);
+    serviceResults.push(await validateLaunch(request));
   }
 
   if (profileRoots.get("codex") === profileRoots.get("claude")) {
     throw new Error("Codex and Claude sidecar validation profiles must be distinct");
   }
 
-  console.log("Playwright sidecar kept Codex and Claude validation profiles isolated");
+  console.log(
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        backend: "playwright-headed-chromium-sidecar",
+        targetTriple,
+        profileIsolation: {
+          distinctServiceProfiles: true,
+        },
+        services: serviceResults,
+      },
+      null,
+      2,
+    ),
+  );
 } finally {
   rmSync(validationRoot, { force: true, recursive: true });
+
+  if (existsSync(validationRoot)) {
+    throw new Error("Temporary sidecar validation root must be removed");
+  }
 }
 
 async function validateLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures }) {
@@ -110,9 +131,15 @@ async function validateLaunch({ service, url, profileLabel, profileRoot, default
     throw new Error(`${service} sidecar profile did not persist across relaunch`);
   }
 
-  console.log(
-    `Playwright sidecar persisted ${service} isolated profile with disabled storage preferences, no default profile import, and sanitized output`,
-  );
+  return {
+    defaultProfileImportBlocked: true,
+    disabledStoragePreferencesPreserved: true,
+    isolatedTemporaryProfile: true,
+    profileLabel,
+    profilePersistsAcrossRelaunch: true,
+    sanitizedOutput: true,
+    service,
+  };
 }
 
 async function runLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures }) {
@@ -122,8 +149,8 @@ async function runLaunch({ service, url, profileLabel, profileRoot, defaultProfi
     stdio: ["pipe", "pipe", "pipe"],
   });
   const timeout = setTimeout(() => {
-    stopProcessGroup(child.pid);
-  }, 30_000);
+    signalProcessGroup(child.pid, "SIGTERM");
+  }, launchTimeoutMs);
   let stdout = "";
   let stderr = "";
 
@@ -177,18 +204,16 @@ async function runLaunch({ service, url, profileLabel, profileRoot, defaultProfi
       throw new Error(`${service} sidecar did not create the requested profile directory`);
     }
 
-    console.log(`Playwright sidecar launched ${service} with an isolated temporary profile`);
   } finally {
     clearTimeout(timeout);
-    stopProcessGroup(child.pid);
-    await waitForExit(child);
+    await stopProcessGroup(child);
   }
 }
 
 async function waitForLaunchResponse(readStdout) {
   const started = Date.now();
 
-  while (Date.now() - started < 30_000) {
+  while (Date.now() - started < launchTimeoutMs) {
     const line = readStdout()
       .split(/\r?\n/u)
       .find((candidate) => candidate.trim().length > 0);
@@ -205,25 +230,42 @@ async function waitForLaunchResponse(readStdout) {
 
 async function waitForExit(child) {
   if (child.exitCode !== null || child.signalCode !== null) {
-    return;
+    return true;
   }
 
-  await new Promise((resolveExit) => {
-    const timeout = setTimeout(resolveExit, 3_000);
+  return new Promise((resolveExit) => {
+    const timeout = setTimeout(() => resolveExit(false), stopTimeoutMs);
     child.once("exit", () => {
       clearTimeout(timeout);
-      resolveExit();
+      resolveExit(true);
     });
   });
 }
 
-function stopProcessGroup(pid) {
+async function stopProcessGroup(child) {
+  const pid = child.pid;
+
+  if (!pid) {
+    return;
+  }
+
+  signalProcessGroup(pid, "SIGTERM");
+
+  if (await waitForExit(child)) {
+    return;
+  }
+
+  signalProcessGroup(pid, "SIGKILL");
+  await waitForExit(child);
+}
+
+function signalProcessGroup(pid, signal) {
   if (!pid) {
     return;
   }
 
   try {
-    process.kill(-pid, "SIGTERM");
+    process.kill(-pid, signal);
   } catch {
   }
 }

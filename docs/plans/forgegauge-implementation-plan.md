@@ -134,11 +134,14 @@ Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing that ca
 
 - [ ] Remaining tray-first window lifecycle polish: tray-relative popup behavior where practical, popup dismissal fallback, and KDE/Wayland confirmation.
 - [ ] Full KDE/Wayland smoke test for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
+Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing outside browser-preview tooling.
 - [x] GitHub release workflow remote/mainline run verification.
 - [ ] Windows artifact testing.
 - [ ] macOS Intel artifact testing.
 - [ ] macOS Apple Silicon artifact testing.
+Blocked: requires access to Windows and macOS runtime environments or user-provided platform smoke results.
 - [ ] Claude Code local provider calibration/statusline/ccusage completion.
+Blocked: requires an explicit product decision for ccusage-style cost/block precision: embedded pricing source, shell out to `ccusage`, or keep cost/block precision out of ForgeGauge.
 - [x] Codex local provider calibration/statusline/fixture completion.
 - [x] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
@@ -151,6 +154,7 @@ Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing that ca
 - [ ] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
+Blocked: requires approved browser automation backend and manual authenticated profile/login validation before implementing real web-provider launch and refresh flows.
 - [x] Merge engine for web baselines plus local deltas.
 - [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
@@ -822,6 +826,7 @@ Blocked: requires approved browser automation backend before implementing real m
 - [ ] Verify gauge alternates.
 - [ ] Verify settings persist.
 - [ ] Verify providers fail gracefully.
+Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing.
 - [x] Verify queued release workflow runs on mainline push.
 - [x] Run or trigger release workflow on `main` or through `workflow_dispatch`.
 - [x] Confirm draft release is created with expected `forgegauge-v<version>-<run>.<attempt>` tag.
@@ -897,6 +902,7 @@ Run the relevant subset before completing implementation work:
 - [x] `cargo test`
 - [x] `npm run build:appimage`
 - [ ] Add `npm run lint` if linting is configured later.
+Blocked: no lint script or lint configuration exists in the project yet.
 
 ### Validation Command Matrix
 
@@ -951,6 +957,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Expired login state.
 - [ ] Windows tray/install smoke test.
 - [ ] macOS tray/install smoke test.
+Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browser checks require approved backend plus authenticated provider state, and Windows/macOS checks require those platform runtimes.
 
 ## Security and Privacy Checklist
 
@@ -1014,6 +1021,7 @@ Blocked: real authenticated refresh logging proof requires selected browser back
 - [ ] After Phase 6.5: Confirm browser automation backend is viable before implementing web providers.
 - [ ] After Phase 8: Confirm web provider reliability is acceptable for personal use.
 - [ ] Before packaging: Run automated checks, complete KDE manual smoke test, and confirm release notes mark Windows/macOS artifacts as untested.
+Blocked: review gates require user approval, user-visible KDE validation, authenticated web-provider validation, or platform smoke results as applicable.
 
 ## MVP Cut Line
 

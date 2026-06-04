@@ -4,6 +4,15 @@
 
 Branch: `forgegauge-implementation`
 
+Current-branch browser/auth/preflight validation:
+
+- Reran the browser/auth validation gates on current `forgegauge-implementation` commit `2c13b47`.
+- `npm run test:official-fail-closed` passed for Codex and Claude blank-profile `logged_out` plus forced `network_unavailable` states, all with `headlessRefresh = true`, `visibleBrowserRequired = false`, and sanitized output.
+- `npm run test:synthetic-fail-closed` passed for synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and unexpected-UI page states for Codex and Claude.
+- `npm run test:auth-profile-helper` passed, covering strict disposable profile safety, session-artifact requirements, and sanitized log inspection failure paths.
+- `npm run test:browser-preview` passed for desktop and mobile rendered states, and `npm run smoke:preflight` emitted sanitized current-branch evidence templates with all login-visibility automation booleans true.
+- Remaining caveat: these checks do not replace real authenticated profile smoke or human-visible KDE/platform smoke.
+
 Plan blocker reconciliation:
 
 - Added local `Blocked:` notes for unchecked implementation-sequence and web-provider rows whose detailed evidence already shows they are waiting on user-visible KDE observation or real authenticated Codex/Claude profile smoke.

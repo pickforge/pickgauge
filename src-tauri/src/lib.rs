@@ -35,6 +35,7 @@ const LOGIN_REQUIRED_EVENT: &str = "login://required";
 const SESSION_RESET_EVENT: &str = "session://reset";
 const LOGIN_STATUS_REQUIRED: &str = "login_required";
 const LOGIN_STATUS_LAUNCHED: &str = "launched";
+const LOGIN_STATUS_ALREADY_AUTHENTICATED: &str = "already_authenticated";
 const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_available";
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
@@ -480,12 +481,18 @@ fn start_provider_login(
         .map_err(map_browser_profile_error)?;
     let mut login = plan.login;
     let login_required_reason = if let Some(request) = plan.sidecar_request {
-        match launch_playwright_sidecar_login(&app, &sessions, &request) {
-            Ok(_) => {
-                login.status = LOGIN_STATUS_LAUNCHED.to_string();
+        match headless_web_usage_response(&app, &engine, &sessions, service) {
+            Ok(response) if !should_launch_login_after_preflight(&response.page_state) => {
+                login.status = LOGIN_STATUS_ALREADY_AUTHENTICATED.to_string();
                 None
             }
-            Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
+            _ => match launch_playwright_sidecar_login(&app, &sessions, &request) {
+                Ok(_) => {
+                    login.status = LOGIN_STATUS_LAUNCHED.to_string();
+                    None
+                }
+                Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
+            },
         }
     } else {
         Some(LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE)
@@ -556,6 +563,10 @@ fn provider_login_start_plan(
         },
         sidecar_request,
     })
+}
+
+fn should_launch_login_after_preflight(page_state: &str) -> bool {
+    page_state != "usage"
 }
 
 fn launch_playwright_sidecar_login(
@@ -1823,6 +1834,41 @@ mod tests {
                 "startedAt": "2026-06-03T00:00:00Z"
             })
         );
+    }
+
+    #[test]
+    fn provider_login_start_serializes_already_authenticated_status() {
+        let login = ProviderLoginStart {
+            service: Service::Claude,
+            url: official_usage_url(Service::Claude).to_string(),
+            status: LOGIN_STATUS_ALREADY_AUTHENTICATED.to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            profile_label: "claude-profile".to_string(),
+            profile_prepared: true,
+            started_at: "2026-06-04T12:20:00Z".to_string(),
+        };
+        let value = serde_json::to_value(login).expect("provider login start serializes");
+
+        assert_eq!(value["status"], "already_authenticated");
+        assert_eq!(value["service"], "claude");
+        assert!(value.get("profilePath").is_none());
+        assert!(value.get("userDataDir").is_none());
+    }
+
+    #[test]
+    fn login_preflight_skips_headed_browser_only_after_usage_state() {
+        assert!(!should_launch_login_after_preflight("usage"));
+
+        for page_state in [
+            "logged_out",
+            "mfa_required",
+            "captcha_or_bot_check",
+            "network_unavailable",
+            "timed_out",
+            "unexpected_ui",
+        ] {
+            assert!(should_launch_login_after_preflight(page_state));
+        }
     }
 
     #[test]

@@ -127,6 +127,17 @@
     config.localQuotas[service].planLabel = target.value;
   }
 
+  function providerLoginStatusMessage(service: Service, login: ProviderLoginStart) {
+    switch (login.status) {
+      case "already_authenticated":
+        return `${serviceLabels[service]} already logged in`;
+      case "login_required":
+        return `${serviceLabels[service]} login required`;
+      case "launched":
+        return `Started ${serviceLabels[service]} login`;
+    }
+  }
+
   onMount(() => {
     let cancelled = false;
     let unlistenUsage: (() => void) | null = null;
@@ -276,10 +287,7 @@
     try {
       const login = await invoke<ProviderLoginStart>("start_provider_login", { service });
       error = null;
-      statusMessage =
-        login.status === "login_required"
-          ? `${serviceLabels[service]} login required`
-          : `Started ${serviceLabels[service]} login`;
+      statusMessage = providerLoginStatusMessage(service, login);
     } catch (caught) {
       error = formatError(caught, `Could not start ${serviceLabels[service]} login`);
     } finally {

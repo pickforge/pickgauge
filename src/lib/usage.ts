@@ -91,7 +91,7 @@ export type OfficialUsagePage = {
 export type ProviderLoginStart = {
   service: Service;
   url: string;
-  status: "login_required" | "launched";
+  status: "already_authenticated" | "login_required" | "launched";
   backend: "playwright-headed-chromium-sidecar";
   profileLabel: string;
   profilePrepared: boolean;

@@ -15,6 +15,53 @@ export type UsageSnapshot = {
   details: Record<string, unknown>;
 };
 
+type ProviderStatusCode =
+  | "parsed"
+  | "placeholder"
+  | "not_configured"
+  | "disabled"
+  | "missing_data"
+  | "permission_denied"
+  | "parse_failed"
+  | "login_required"
+  | "mfa_required"
+  | "captcha_or_bot_check"
+  | "network_unavailable"
+  | "timed_out"
+  | "unexpected_ui"
+  | "unsafe_path"
+  | "internal";
+
+const providerStatusMessages: Partial<Record<ProviderStatusCode, string>> = {
+  not_configured: "Provider not configured",
+  disabled: "Provider disabled",
+  missing_data: "No usage data found",
+  permission_denied: "Usage data is not readable",
+  parse_failed: "Usage data could not be parsed",
+  login_required: "Login required",
+  mfa_required: "MFA required",
+  captcha_or_bot_check: "Additional verification required",
+  network_unavailable: "Network unavailable",
+  timed_out: "Usage refresh timed out",
+  unexpected_ui: "Unexpected usage page",
+  unsafe_path: "Profile path blocked",
+  internal: "Provider unavailable",
+};
+
+function isProviderStatusCode(value: unknown): value is ProviderStatusCode {
+  return typeof value === "string" && value in providerStatusMessages;
+}
+
+export function providerStatusMessage(snapshot: UsageSnapshot) {
+  const status = snapshot.details.status;
+
+  if (!isProviderStatusCode(status)) {
+    return null;
+  }
+
+  return providerStatusMessages[status] ?? null;
+}
+
 export type UsageDisplayState = {
   snapshots: UsageSnapshot[];
   updatedAt: string;

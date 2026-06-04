@@ -11,6 +11,7 @@
   import {
     defaultConfig,
     fallbackSnapshots,
+    providerStatusMessage,
     type AppConfig,
     type ClearedProviderProfile,
     type CommandError,
@@ -358,6 +359,10 @@
 
         {#if snapshotIsStale(snapshot)}
           <p class="snapshot-note">Stale data</p>
+        {/if}
+
+        {#if providerStatusMessage(snapshot)}
+          <p class="snapshot-note">{providerStatusMessage(snapshot)}</p>
         {/if}
 
         {#if localActivitySummary(snapshot)}

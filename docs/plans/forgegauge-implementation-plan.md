@@ -709,8 +709,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Detect orphaned managed browser processes on startup.
 - [ ] Disable password manager, autofill, and save-password prompts where supported.
 - [ ] Add manual login window flow.
-- [ ] Surface login-required state to UI.
-- [ ] Add session reset/logout action.
+- [x] Surface login-required state to UI.
+- [x] Add session reset/logout action.
 - [x] Add guarded clear/delete action for browser profile data.
 - [ ] Stop managed browser before deleting browser session data.
 - [ ] Delete only marker-owned paths after deletion-time canonicalization, symlink rejection, marker verification, and live-process checks.
@@ -814,7 +814,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Shows settings controls.
 - [ ] Shows last official check when web provider exists.
 - [x] Shows stale data messaging.
-- [ ] Shows login-required state.
+- [x] Shows login-required state.
 - [x] Adds "Refresh now" action.
 - [x] Adds "Open official Codex page" action.
 - [x] Adds "Open official Claude usage page" action.

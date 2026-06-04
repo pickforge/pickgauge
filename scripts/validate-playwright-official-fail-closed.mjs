@@ -57,6 +57,8 @@ const officialUsageRequests = [
     profileLabel: "claude-profile",
   },
 ];
+const sensitiveOutputPattern =
+  /\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|session[_-]?token)\b/iu;
 let validationRootCleanupFailed = false;
 
 try {
@@ -84,23 +86,24 @@ try {
     );
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        backend: "playwright-headed-chromium-sidecar",
-        desktopSession: {
-          currentDesktop: safeEnv("XDG_CURRENT_DESKTOP"),
-          xdgSessionType: safeEnv("XDG_SESSION_TYPE"),
-        },
-        os: osReleaseSummary(),
-        targetTriple,
-        services: results,
+  const report = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      backend: "playwright-headed-chromium-sidecar",
+      desktopSession: {
+        currentDesktop: safeEnv("XDG_CURRENT_DESKTOP"),
+        xdgSessionType: safeEnv("XDG_SESSION_TYPE"),
       },
-      null,
-      2,
-    ),
+      os: osReleaseSummary(),
+      targetTriple,
+      services: results,
+    },
+    null,
+    2,
   );
+
+  verifySanitizedReport(report);
+  console.log(report);
 } finally {
   rmSync(validationRoot, { force: true, recursive: true });
   validationRootCleanupFailed = existsSync(validationRoot);
@@ -293,12 +296,33 @@ function verifySanitizedOutput({ args, profileRoot, service, stderr, stdout, url
     }
   }
 
-  if (/\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|session[_-]?token)\b/iu.test(output)) {
+  if (sensitiveOutputPattern.test(output)) {
     throw new Error(`${service} headless refresh output leaked auth material`);
   }
 
   if (/<!doctype|<html|<body|<script/iu.test(output)) {
     throw new Error(`${service} headless refresh output leaked page markup`);
+  }
+}
+
+function verifySanitizedReport(report) {
+  for (const fragment of [
+    validationRoot,
+    ...officialUsageRequests.map((request) => request.url),
+    ...launchArgs,
+    process.env.HOME,
+  ].filter(Boolean)) {
+    if (report.includes(fragment)) {
+      throw new Error("Official fail-closed report leaked sensitive launch data");
+    }
+  }
+
+  if (sensitiveOutputPattern.test(report)) {
+    throw new Error("Official fail-closed report leaked auth material");
+  }
+
+  if (/<!doctype|<html|<body|<script/iu.test(report)) {
+    throw new Error("Official fail-closed report leaked page markup");
   }
 }
 

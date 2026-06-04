@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Official fail-closed report sanitization:
+
+- Added a final-report sanitizer to `npm run test:official-fail-closed` before the smoke prints JSON.
+- The smoke now rejects temporary profile roots, official URLs, Chromium launch flags, the home directory, auth-looking material, and page markup in its emitted report.
+- Validation: `node --check scripts/validate-playwright-official-fail-closed.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:official-fail-closed`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the official fail-closed smoke artifact is sanitized; real authenticated app logs still require logged-in app-owned profile smoke.
+
 Authenticated helper environment-input coverage:
 
 - Extended `npm run test:auth-profile-helper` to validate the environment-variable input path for real-profile smoke runs.

@@ -210,6 +210,9 @@ describe("browser preview state fixtures", () => {
     expect(browserPreviewStateFromSearch("?previewState=network-unavailable")).toBe(
       "network-unavailable",
     );
+    expect(browserPreviewStateFromSearch("?previewState=official-usage")).toBe(
+      "official-usage",
+    );
     expect(browserPreviewStateFromSearch("?previewState=expired-login")).toBe("expired-login");
     expect(browserPreviewStateFromSearch("?previewState=mfa-required")).toBe("mfa-required");
     expect(browserPreviewStateFromSearch("?previewState=captcha-or-bot-check")).toBe(
@@ -258,6 +261,14 @@ describe("browser preview state fixtures", () => {
 
     expect(snapshots.map(snapshotIsStale)).toEqual([true, true]);
     expect(snapshots.map(providerStatusMessage)).toEqual([null, null]);
+  });
+
+  it("renders official-usage browser-preview snapshots without a login prompt", () => {
+    const snapshots = browserPreviewSnapshots("official-usage");
+
+    expect(snapshots.map(({ source }) => source)).toEqual(["web", "web"]);
+    expect(snapshots.map(providerStatusMessage)).toEqual([null, null]);
+    expect(snapshots.map(loginPromptVisible)).toEqual([false, false]);
   });
 });
 

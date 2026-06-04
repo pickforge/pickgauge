@@ -96,6 +96,8 @@ Authenticated helper shared-root input progress, 2026-06-04: `npm run smoke:auth
 
 Authenticated helper shared-root safety progress, 2026-06-04: `npm run smoke:auth-profile` now fail-fast validates supplied shared profile roots before deriving service paths, rejecting missing, non-directory, symlinked, and relative roots with sanitized `invalid_profile_root` failures, and known-default-browser roots with sanitized `default_browser_profile` failures. `npm run test:auth-profile-helper` validates missing, non-directory, symlink, and default-browser shared-root rejection without exposing raw root paths. Real authenticated profile evidence remains unchecked.
 
+Authenticated usage preview progress, 2026-06-04: added an `official-usage` browser-preview fixture for the successful official web usage state. Frontend unit coverage and desktop/mobile Playwright browser-preview validation now assert the `Start login` prompt stays hidden after official usage is already available, while login/MFA/CAPTCHA states still expose the explicit headed-login action after web-provider opt-in. Real authenticated official refresh evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`). Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default, network-unavailable, and unexpected-UI preview cards do not expose `Start login` while expired-login, MFA, and CAPTCHA states do after experimental web providers are enabled.
@@ -917,6 +919,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Keep headed Chromium limited to explicit `Start login`.
   - [x] Add app-boundary regression coverage for the headless official refresh request shape.
   - [x] Hide `Start login` until a silent official refresh/fallback web status reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`).
+  - [x] Browser-preview official-usage fixture validates `Start login` remains hidden when a successful official usage state is already available.
   - [x] Add a headless `Start login` preflight that returns `already_authenticated` without launching headed Chromium when usage is reachable.
   - [x] Keep `Start login` from launching headed Chromium when the preflight cannot prove a login/MFA/CAPTCHA user-action state.
   - [x] Add a pure Rust regression helper for headed-login preflight decisions so unknown and unavailable states cannot fall through to headed launch.
@@ -1122,7 +1125,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend confidence/source labels.
 - [x] Frontend settings form behavior.
 - [x] Frontend web-provider opt-in toggles and disabled states.
-- [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
+- [x] Frontend browser-preview status fixtures for successful official usage, missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 - [x] Playwright sidecar visible usage extraction and page-state classifier tests.
 - [x] Synthetic browser-backed Playwright fail-closed smoke for usage, logged-out, MFA, CAPTCHA/bot-check, and unexpected-UI states.
@@ -1147,7 +1150,9 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Dedicated browser login.
   - [x] `npm run smoke:auth-profile -- --help` documents the manual post-login profile validation command, including `npm --silent` guidance for real profile paths, without opening a visible browser.
 - [ ] Official Codex page refresh.
+  - [x] Browser-preview official-usage fixture validates a successful official usage state keeps `Start login` hidden.
 - [ ] Official Claude usage page refresh.
+  - [x] Browser-preview official-usage fixture validates a successful official usage state keeps `Start login` hidden.
 - [ ] Network unavailable state.
   - [x] Headless official smoke validates forced network-unavailable Codex and Claude refreshes without visible browser launch.
   - [x] Browser-preview fixture renders `Network unavailable` notes for both services at desktop and mobile widths without horizontal overflow.

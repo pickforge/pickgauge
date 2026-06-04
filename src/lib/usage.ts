@@ -244,6 +244,7 @@ export const fallbackSnapshots: UsageSnapshot[] = [
 
 export type BrowserPreviewState =
   | "default"
+  | "official-usage"
   | "missing-local-data"
   | "network-unavailable"
   | "expired-login"
@@ -260,6 +261,7 @@ export type BrowserPreviewState =
 
 const browserPreviewStates = new Set<BrowserPreviewState>([
   "default",
+  "official-usage",
   "missing-local-data",
   "network-unavailable",
   "expired-login",
@@ -285,6 +287,13 @@ export function browserPreviewStateFromSearch(search: string): BrowserPreviewSta
 
 export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapshot[] {
   switch (state) {
+    case "official-usage":
+      return previewSnapshots({
+        confidence: "medium",
+        details: { providerId: "preview.web", status: "parsed" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "web",
+      });
     case "missing-local-data":
       return previewSnapshots({
         confidence: "unknown",

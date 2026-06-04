@@ -15,6 +15,7 @@ const viewports = [
 ];
 const previewStates = [
   { state: "default", notes: [] },
+  { state: "official-usage", notes: [], startLoginVisibleAfterOptIn: false },
   { state: "missing-local-data", notes: ["No usage data found"] },
   { state: "network-unavailable", notes: ["Network unavailable"] },
   { state: "expired-login", notes: ["Login required"] },
@@ -137,6 +138,10 @@ async function validatePreviewState(browser, viewport, previewState) {
       );
     }
 
+    if (previewState.startLoginVisibleAfterOptIn === false) {
+      await assertStartLoginHiddenAfterOptIn(page, viewport, previewState.state);
+    }
+
     await assertNoHorizontalOverflow(page, viewport, previewState.state);
   } finally {
     await context.close();
@@ -191,6 +196,20 @@ async function validateDesktopOnlyControlFallbacks(browser) {
   } finally {
     await context.close();
   }
+}
+
+async function assertStartLoginHiddenAfterOptIn(page, viewport, state) {
+  const startLogin = page.getByRole("button", {
+    name: "Start Codex login",
+  });
+
+  assert.equal(await startLogin.count(), 0, `${viewport.label} ${state} should not show Start login`);
+  await page.getByLabel("Experimental web providers").check();
+  assert.equal(
+    await startLogin.count(),
+    0,
+    `${viewport.label} ${state} should keep Start login hidden after opt-in`,
+  );
 }
 
 async function validateStartLoginPrompt(page, state, { expectedVisible }) {

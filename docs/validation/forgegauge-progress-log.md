@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated usage preview login gating:
+
+- Added an `official-usage` browser-preview fixture representing a successful official web usage read.
+- Extended frontend unit coverage and desktop/mobile Playwright preview validation so `Start login` stays hidden for successful official usage while remaining available for explicit login/MFA/CAPTCHA user-action states.
+- Validation: `node --check scripts/validate-browser-preview.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the local preview/UI gating path; real authenticated official refresh still requires logged-in app-owned profiles.
+
 Authenticated helper shared-root safety:
 
 - Added fail-fast validation for supplied shared auth profile roots before deriving service paths.

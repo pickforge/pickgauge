@@ -4,6 +4,11 @@
 
 Branch: `forgegauge-implementation`
 
+Manual-gate blocker note reconciliation:
+
+- Added nearby `Blocked:` notes for summary web-provider rows and Phase 0.5/Phase 2 KDE manual rows that already had automated sub-evidence but still require human-visible or authenticated manual evidence before completion.
+- Kept those checkboxes unchecked because D-Bus/XWayland automation, browser-preview fixtures, and synthetic/blank-profile browser checks do not prove physical tray interaction, visual placement, or real authenticated official-page behavior.
+
 Implementation-readiness note reconciliation:
 
 - Updated the plan's implementation-readiness notes to match current source: `UsageEngine` now includes fail-closed web refresh plumbing and merge behavior, while real authenticated Codex/Claude web-provider validation remains gated on logged-in profile smoke.

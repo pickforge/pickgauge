@@ -248,10 +248,12 @@ Blocked: requires an explicit product decision for ccusage-style cost/block prec
 - [x] Browser profile path configuration, validation, and ownership markers.
 - [x] Browser profile cleanup guardrails.
 - [ ] Browser automation spike for official usage pages.
+Blocked: Playwright backend selection and local/synthetic validation are complete, but real authenticated official-page proof still requires manual logged-in profile smoke.
 - [x] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
+Blocked: requires authenticated Codex profile validation before claiming the real provider is complete.
 - [ ] Opt-in Claude web provider.
-Blocked: requires manual authenticated profile/login validation before real web-provider parsing can be claimed complete.
+Blocked: requires authenticated Claude profile validation before claiming the real provider is complete.
 - [x] Merge engine for web baselines plus local deltas.
 - [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
@@ -675,24 +677,33 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
 - [x] Build local AppImage.
 - [x] Launch AppImage manually once.
 - [ ] Confirm tray icon visibility on CachyOS KDE/Wayland.
+Blocked: requires user-visible KDE tray observation.
 - [ ] Confirm tray click opens popup.
   - [x] KDE DBusMenu smoke verifies `Show ForgeGauge` opens a visible ForgeGauge window.
+Blocked: requires physical tray-click observation.
 - [ ] Confirm popup closes reliably or has acceptable fallback behavior.
   - [x] KDE/XWayland smoke verifies a window close request removes the visible window while keeping the process and tray item alive.
   - [x] KDE/XWayland smoke verifies focus loss hides the popup while keeping the process and tray item alive.
+Blocked: requires user-visible popup close/focus behavior confirmation.
 - [ ] Confirm app can run as tray-first utility without an always-visible main window.
   - [x] KDE/XWayland smoke verifies the isolated AppImage starts with no visible ForgeGauge window before `Show ForgeGauge`.
+Blocked: requires user-visible tray-first runtime confirmation.
 - [ ] Confirm tray gauge alternates between enabled services.
   - [x] KDE StatusNotifier smoke verifies the AppImage tray `IconName` updates and exported PNG colors rotate between `Codex` and `Claude Code` with deterministic enabled services.
+Blocked: requires human-visible tray gauge observation.
 - [ ] Confirm close button either hides to tray or exits only when explicitly intended.
   - [x] KDE/XWayland smoke verifies a close request does not exit the app and `Show ForgeGauge` can reopen/recreate the window afterward.
+Blocked: requires user-visible close-button behavior confirmation.
 - [ ] Confirm popup/window position is acceptable on single-monitor and multi-monitor KDE setups.
   - [x] KDE/XWayland smoke verifies the popup requests skip-taskbar and above/stays-on-top window-manager hints.
   - [x] Rust tests cover tray-anchor popup placement for bottom-right, top-edge, negative-origin, and constrained work-area layouts.
+Blocked: requires user-visible single/multi-monitor placement observation.
 - [ ] Confirm settings persist after restart.
   - [x] KDE/AppImage smoke verifies current-schema config creation and persisted service-toggle/gauge-interval values survive an isolated packaged restart.
+Blocked: requires human-visible settings-form persistence confirmation.
 - [ ] Confirm quit behavior.
   - [x] KDE DBusMenu smoke verifies the tray `Quit` item exits the isolated AppImage process and unregisters the tray item.
+Blocked: requires user-visible quit behavior confirmation.
 - [x] Document runtime packages and packaging prerequisites discovered during testing.
 - [x] Choose fallback behavior if native tray/popup behavior is unreliable.
 
@@ -721,6 +732,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
 - [x] Keep dynamic percentage gauges deferred until provider values are calibrated.
 - [x] Add unit tests for tray state/icon selection.
 - [ ] Run manual visual smoke test on KDE.
+Blocked: requires human-visible KDE tray/popup observation.
 
 ### Phase 3 — Config Store
 

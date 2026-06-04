@@ -10,6 +10,7 @@ Use this checklist after a future managed browser login test. Record only saniti
 - [ ] The Codex and Claude profiles are app-owned and marker-guarded.
 - [ ] The Codex and Claude profiles are separate directories under the configured profile root.
 - [ ] The default system browser profile is closed or ignored and is not imported.
+- [ ] The normal ForgeGauge app log path is available from the app log-location UI or `get_log_location` IPC result.
 
 ## Login Run
 
@@ -25,7 +26,7 @@ Use this checklist after a future managed browser login test. Record only saniti
 
 Inspect only file names, directory names, metadata, and browser preference keys needed to prove password saving is not present. Do not open, print, or copy cookie/session databases, local storage, IndexedDB values, token stores, account IDs, or authenticated page content.
 
-- [ ] Run `npm --silent run smoke:auth-profile -- --codex-profile <codex-profile> --claude-profile <claude-profile> --require-usage --require-session-storage-artifacts --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` or the equivalent environment-variable form, and record only the sanitized JSON result.
+- [ ] Run `npm --silent run smoke:auth-profile -- --codex-profile <codex-profile> --claude-profile <claude-profile> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` or the equivalent environment-variable form, and record only the sanitized JSON result.
 - [ ] Codex profile contains no password-store database such as `Login Data`.
 - [ ] Codex profile contains no password-store journal or sidecar file.
 - [ ] Codex profile contains no autofill-store database such as `Web Data`.
@@ -42,6 +43,7 @@ Inspect only file names, directory names, metadata, and browser preference keys 
 
 ## Log Inspection
 
+- [ ] The authenticated profile smoke result reports `logInspection.inspected = true` and `logInspection.sensitiveContentAbsent = true`.
 - [ ] Normal app logs contain only stable provider/status codes, service names, timestamps, and sanitized profile labels.
 - [ ] Normal app logs do not contain cookies, tokens, auth headers, account identifiers, browser storage, page HTML, visible page text, screenshots, or raw browser error dumps.
 - [ ] Any path shown to the user redacts the home directory as `~` unless it is an app-owned path required for direct user action.

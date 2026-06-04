@@ -1015,7 +1015,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Frontend/Svelte | `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
-| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --require-usage --require-session-storage-artifacts --require-disabled-storage-preferences` |
+| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
@@ -1033,6 +1033,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] For release checks: workflow run URL, release tag, and artifact names are recorded.
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
   - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login app-owned profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
+  - [x] Update the authenticated-login inspection checklist to require sanitized normal app-log inspection alongside profile/storage checks.
 
 ### Automated Tests To Add
 

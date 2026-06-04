@@ -29,6 +29,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let refreshing = $state(false);
+  let refreshingOfficial = $state<Service | null>(null);
   let clearingSnapshots = $state(false);
   let clearingProfile = $state<Service | null>(null);
   let locatingLogs = $state(false);
@@ -293,6 +294,25 @@
     }
   }
 
+  async function refreshOfficialUsage(service: Service) {
+    refreshingOfficial = service;
+    statusMessage = null;
+
+    try {
+      const displayState = await invoke<UsageDisplayState>("refresh_provider", {
+        service,
+        source: "web",
+      });
+      snapshots = displayState.snapshots;
+      error = null;
+      statusMessage = `Official ${serviceLabels[service]} usage refreshed`;
+    } catch (caught) {
+      error = formatError(caught, `Could not refresh official ${serviceLabels[service]} usage`);
+    } finally {
+      refreshingOfficial = null;
+    }
+  }
+
   async function clearSnapshotCache() {
     if (!confirm("Clear cached usage snapshots?")) {
       return;
@@ -420,6 +440,15 @@
         {/if}
 
         <div class="card-actions">
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={!config.providers.webEnabled || refreshingOfficial === snapshot.service}
+            aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
+            onclick={() => refreshOfficialUsage(snapshot.service)}
+          >
+            {refreshingOfficial === snapshot.service ? "Refreshing..." : "Refresh official"}
+          </button>
           <button
             class="secondary-button"
             type="button"

@@ -731,7 +731,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Return `unknown` or lower-confidence snapshot for partial/no visible usage data.
 - [ ] Avoid inventing precision on parse failures.
 - [ ] Surface parse failures in UI without crashing.
-- [ ] Add manual "Refresh official usage" action.
+- [x] Add manual "Refresh official usage" action.
 - [ ] Add sanitized parser fixtures for every implemented web provider.
 - [ ] Add fixture update workflow based on explicit user-consented manual captures.
 - [ ] Reject raw page HTML, account identifiers, cookies, tokens, auth headers, and unsanitized browser errors from fixtures.

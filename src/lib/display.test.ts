@@ -10,7 +10,7 @@ import {
   sourceLabels,
   webProviderControlState,
 } from "./display";
-import { defaultConfig, type AppConfig, type UsageSnapshot } from "./usage";
+import { defaultConfig, providerStatusMessage, type AppConfig, type UsageSnapshot } from "./usage";
 
 function configWithWebEnabled(webEnabled: boolean): AppConfig {
   return {
@@ -100,6 +100,38 @@ describe("frontend confidence and source labels", () => {
       low: "Low",
       unknown: "Unknown",
     });
+  });
+});
+
+describe("frontend provider status notes", () => {
+  it("maps missing local data and web outage statuses to user-facing notes", () => {
+    expect(providerStatusMessage(snapshot({ details: { status: "missing_data" } }))).toBe(
+      "No usage data found",
+    );
+    expect(providerStatusMessage(snapshot({ details: { status: "network_unavailable" } }))).toBe(
+      "Network unavailable",
+    );
+    expect(providerStatusMessage(snapshot({ details: { status: "timed_out" } }))).toBe(
+      "Usage refresh timed out",
+    );
+  });
+
+  it("maps login/interruption statuses without exposing raw provider details", () => {
+    expect(providerStatusMessage(snapshot({ details: { status: "login_required" } }))).toBe(
+      "Login required",
+    );
+    expect(providerStatusMessage(snapshot({ details: { status: "captcha_or_bot_check" } }))).toBe(
+      "Additional verification required",
+    );
+    expect(providerStatusMessage(snapshot({ details: { status: "unexpected_ui" } }))).toBe(
+      "Unexpected usage page",
+    );
+  });
+
+  it("hides parsed, placeholder, and unknown status values", () => {
+    expect(providerStatusMessage(snapshot({ details: { status: "parsed" } }))).toBeNull();
+    expect(providerStatusMessage(snapshot({ details: { status: "placeholder" } }))).toBeNull();
+    expect(providerStatusMessage(snapshot({ details: { status: "raw error text" } }))).toBeNull();
   });
 });
 

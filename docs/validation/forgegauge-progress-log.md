@@ -46,6 +46,12 @@ Additional browser-preview validation on 2026-06-03:
 - Mobile snapshot showed usage cards, enabled web controls, profile inputs, local calibration controls, and maintenance actions fitting inside the viewport.
 - Captured viewport screenshot through Playwright MCP as `forgegauge-validation-mobile.png`.
 
+Frontend status-note test coverage:
+
+- `providerStatusMessage` maps missing local data, network unavailable, timeout, login-required, CAPTCHA/bot-check, and unexpected UI codes to stable user-facing notes.
+- Parsed, placeholder, and unsupported raw status strings do not render a provider status note.
+- Validation: `npm test` (`14 passed`) and `npm run check`.
+
 Local artifact:
 
 - `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`

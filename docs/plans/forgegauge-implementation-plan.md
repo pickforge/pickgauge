@@ -531,7 +531,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Confirm popup/window position is acceptable on single-monitor and multi-monitor KDE setups.
 - [ ] Confirm settings persist after restart.
 - [ ] Confirm quit behavior.
-- [ ] Document runtime packages and packaging prerequisites discovered during testing.
+- [x] Document runtime packages and packaging prerequisites discovered during testing.
 - [ ] Choose fallback behavior if native tray/popup behavior is unreliable.
 
 ### Phase 1 — Tray Shell With Fake Data
@@ -1007,7 +1007,7 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 - [x] Add explicit quit path that fully exits background tray process.
 - [ ] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
 - [ ] Complete KDE/Wayland smoke checks for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
-- [ ] Record runtime packages and packaging prerequisites discovered during testing.
+- [x] Record runtime packages and packaging prerequisites discovered during testing.
 
 Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavior confirmation requires user-visible desktop interaction and cannot be verified through the available Playwright/browser-preview tooling in this session.
 

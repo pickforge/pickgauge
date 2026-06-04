@@ -15,7 +15,8 @@ Login prompt and headed-launch preflight:
 Manual evidence template:
 
 - `npm run smoke:preflight` now includes sanitized pending-observation templates for KDE tray behavior, authenticated web/session checks, and Windows/macOS platform smoke.
-- The templates list required manual fields such as date/session, OS/session type, artifact used, observed KDE behavior, authenticated refresh outcome, visible fields, saved-credential artifact absence, sanitized-log absence, and platform launch/tray/settings/quit behavior.
+- The templates list required manual fields such as date/session, OS/session type, artifact used, observed KDE behavior, authenticated refresh outcome, visible fields, saved-credential artifact absence, sanitized-log absence, platform launch/tray/settings/quit behavior, and automated KDE smoke dependency availability.
+- The preflight output now includes sanitized booleans for `qdbus`, `gdbus`, `xdotool`, `xprop`, and `xmessage` availability, plus StatusNotifier host registration status when it can be queried.
 - The preflight output still excludes cookies, tokens, auth headers, browser profile contents, account identifiers, authenticated page content, and full local paths.
 - Validation: `node --check scripts/collect-smoke-preflight.mjs`, `npm run smoke:preflight`, `npm run check`, and `git diff --check` passed.
 - Remaining caveat: template output is not a substitute for the actual user-observed KDE, authenticated web, or Windows/macOS smoke results.

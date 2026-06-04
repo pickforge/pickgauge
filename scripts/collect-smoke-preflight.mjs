@@ -40,6 +40,10 @@ const preflight = {
     desktopSession: safeEnv("DESKTOP_SESSION"),
     waylandDisplaySet: Boolean(process.env.WAYLAND_DISPLAY),
     x11DisplaySet: Boolean(process.env.DISPLAY),
+    statusNotifierHostRegistered: statusNotifierHostRegistered(),
+  },
+  smokeDependencies: {
+    kdeTray: commandAvailability(["qdbus", "gdbus", "xdotool", "xprop", "xmessage"]),
   },
   artifacts: {
     appImage: fileMetadata(appImagePath),
@@ -61,6 +65,7 @@ const preflight = {
           "popupCloseOrFallback",
           "settingsPersistAfterRestart",
           "quitExitsApp",
+          "automatedSmokeDependenciesAvailable",
         ],
         [
           "pending_user_visible_tray_observation",
@@ -139,6 +144,52 @@ function git(args) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function commandAvailability(commands) {
+  return commands.reduce((availability, command) => {
+    availability[command] = commandAvailable(command);
+    return availability;
+  }, {});
+}
+
+function commandAvailable(command) {
+  return (process.env.PATH ?? "").split(":").some((directory) => {
+    try {
+      const stats = statSync(resolve(directory, command));
+
+      return stats.isFile() && (stats.mode & 0o111) !== 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function statusNotifierHostRegistered() {
+  if (!commandAvailable("qdbus")) {
+    return null;
+  }
+
+  try {
+    return (
+      execFileSync(
+        "qdbus",
+        [
+          "org.kde.StatusNotifierWatcher",
+          "/StatusNotifierWatcher",
+          "org.freedesktop.DBus.Properties.Get",
+          "org.kde.StatusNotifierWatcher",
+          "IsStatusNotifierHostRegistered",
+        ],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      ).trim() === "true"
+    );
   } catch {
     return null;
   }

@@ -17,6 +17,11 @@ const sidecarPath = resolve(
 );
 const readmePath = resolve(repoRoot, "README.md");
 const releaseWorkflowPath = resolve(repoRoot, ".github/workflows/release.yml");
+const appSveltePath = resolve(repoRoot, "src/App.svelte");
+const displayHelperPath = resolve(repoRoot, "src/lib/display.ts");
+const displayTestPath = resolve(repoRoot, "src/lib/display.test.ts");
+const browserPreviewValidationPath = resolve(repoRoot, "scripts/validate-browser-preview.mjs");
+const rustAppPath = resolve(repoRoot, "src-tauri/src/lib.rs");
 const packageJson = readJson(resolve(repoRoot, "package.json"));
 const tauriConfig = readJson(resolve(repoRoot, "src-tauri/tauri.conf.json"));
 const officialUsageUrls = [
@@ -73,6 +78,41 @@ const preflight = {
     },
     platformRuntimeSmokeStillRequired: true,
   },
+  loginVisibilityAutomation: {
+    refreshOfficialRemainsHeadless: fileContainsAll(rustAppPath, [
+      "refreshUsage",
+      "headless",
+      "web_usage_refresh_sidecar_request",
+    ]),
+    startLoginHasHeadlessPreflight: fileContainsAll(rustAppPath, [
+      "headless_web_usage_response",
+      "login_start_preflight_outcome",
+    ]),
+    authenticatedPreflightSkipsHeadedLaunch: fileContainsAll(rustAppPath, [
+      "LOGIN_STATUS_ALREADY_AUTHENTICATED",
+      "launch_headed_browser: false",
+    ]),
+    successfulPreflightUpdatesSnapshots: fileContainsAll(rustAppPath, [
+      "refresh_web_provider_preflight_response",
+      "SNAPSHOTS_UPDATED_EVENT",
+    ]),
+    frontendHidesStartLoginForOfficialUsage: fileContainsAll(browserPreviewValidationPath, [
+      "official-usage",
+      "should keep Start login hidden after opt-in",
+    ]),
+    frontendClearsStaleLoginStatus: fileContainsAll(appSveltePath, [
+      "loginStatusClearedBySnapshots",
+      "loginStatusService",
+    ]),
+    frontendRequiresWebEvidenceToClearLoginStatus: fileContainsAll(displayHelperPath, [
+      "loginStatusClearedBySnapshots",
+      "snapshot.details.webStatus !== undefined",
+    ]),
+    frontendRegressionCoveragePresent: fileContainsAll(displayTestPath, [
+      "ignores fallback login prompts",
+      "keeps login status messages when matching snapshots have no web evidence",
+    ]),
+  },
   manualEvidence: {
     recordObservedKdeTrayBehavior: true,
     recordAuthenticatedLoginOutcomeSeparately: true,
@@ -103,6 +143,9 @@ const preflight = {
           "service",
           "profileLabel",
           "loginPromptShownOnlyWhenNeeded",
+          "headedLoginOpenedOnlyAfterUserActionState",
+          "silentPreflightClearsStaleLoginPrompt",
+          "localOnlyRefreshDoesNotClearNeededLoginPrompt",
           "headlessRefreshReachedUsage",
           "visibleFieldsObserved",
           "savedCredentialArtifactsAbsent",
@@ -326,6 +369,11 @@ function verifySanitizedPreflight(output) {
     sidecarPath,
     readmePath,
     releaseWorkflowPath,
+    appSveltePath,
+    displayHelperPath,
+    displayTestPath,
+    browserPreviewValidationPath,
+    rustAppPath,
     ...officialUsageUrls,
   ].filter(Boolean)) {
     if (output.includes(fragment)) {

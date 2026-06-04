@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Login visibility preflight evidence:
+
+- Extended `npm run smoke:preflight` with sanitized login-visibility automation booleans for headless official refreshes, `Start login` preflight, authenticated no-launch decisions, preflight snapshot updates, official-usage preview prompt hiding, stale login status clearing, web-evidence guards, and frontend regression coverage.
+- Extended the authenticated-web manual evidence template with future observation fields for headed login opening only after user-action states, silent preflight clearing stale login prompts, and local-only refreshes not hiding needed login prompts.
+- Validation: `node --check scripts/collect-smoke-preflight.mjs`, `npm run smoke:preflight`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this improves sanitized future evidence collection; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Login status-message clearing guard:
 
 - Tightened the frontend login-status clearing helper so local-only snapshot updates cannot clear a service-specific login-required message without web evidence.

@@ -79,10 +79,13 @@ export type AppConfig = {
     codex: LocalServiceQuotaSettings;
     claude: LocalServiceQuotaSettings;
   };
+  autostart: {
+    enabled: boolean;
+  };
 };
 
 export const defaultConfig: AppConfig = {
-  version: 3,
+  version: 4,
   enabledServices: {
     codex: true,
     claude: true,
@@ -120,6 +123,9 @@ export const defaultConfig: AppConfig = {
       usageUnit: "tokens",
       limit: 0,
     },
+  },
+  autostart: {
+    enabled: false,
   },
 };
 

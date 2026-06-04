@@ -9,7 +9,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 const CONFIG_FILE_NAME: &str = "config.json";
-const CONFIG_VERSION: u32 = 3;
+const CONFIG_VERSION: u32 = 4;
 const MAX_PLAN_LABEL_LENGTH: usize = 80;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -22,6 +22,7 @@ pub struct AppConfig {
     pub low_usage_threshold: f32,
     pub browser_profiles: BrowserProfileSettings,
     pub local_quotas: LocalQuotaSettings,
+    pub autostart: AutostartSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -60,6 +61,12 @@ pub struct BrowserProfileSettings {
 pub struct LocalQuotaSettings {
     pub codex: LocalServiceQuotaSettings,
     pub claude: LocalServiceQuotaSettings,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutostartSettings {
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -110,6 +117,7 @@ impl Default for AppConfig {
                 claude_path: None,
             },
             local_quotas: LocalQuotaSettings::default(),
+            autostart: AutostartSettings::default(),
         }
     }
 }
@@ -261,6 +269,7 @@ fn migrate_config_value(value: &mut Value) -> Result<(), String> {
         match version {
             1 => migrate_v1_to_v2(value)?,
             2 => migrate_v2_to_v3(value)?,
+            3 => migrate_v3_to_v4(value)?,
             _ => {
                 return Err(format!(
                     "No migration is available for config version {version}"
@@ -298,8 +307,23 @@ fn migrate_v2_to_v3(value: &mut Value) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_v3_to_v4(value: &mut Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Config root must be a JSON object".to_string())?;
+    object
+        .entry("autostart".to_string())
+        .or_insert_with(default_autostart_value);
+    object.insert("version".to_string(), Value::from(4));
+    Ok(())
+}
+
 fn default_local_quotas_value() -> Value {
     serde_json::to_value(LocalQuotaSettings::default()).unwrap_or(Value::Null)
+}
+
+fn default_autostart_value() -> Value {
+    serde_json::to_value(AutostartSettings::default()).unwrap_or(Value::Null)
 }
 
 fn config_value_version(value: &Value) -> Result<u32, String> {
@@ -512,6 +536,7 @@ mod tests {
                 codex: configured_quota("Codex Pro", 250_000.0, 5),
                 claude: configured_quota("Claude Max", 500_000.0, 24),
             },
+            autostart: AutostartSettings { enabled: true },
             ..AppConfig::default()
         };
 
@@ -558,6 +583,7 @@ mod tests {
         assert_eq!(config.intervals.manual_web_refresh_cooldown_seconds, 60);
         assert_eq!(config.intervals.gauge_switch_seconds, 6);
         assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(config.autostart, AutostartSettings::default());
         assert_eq!(
             config.browser_profiles,
             BrowserProfileSettings {
@@ -602,6 +628,7 @@ mod tests {
         assert!(config.enabled_services.codex);
         assert!(!config.enabled_services.claude);
         assert!(config.providers.web_enabled);
+        assert_eq!(config.autostart, AutostartSettings::default());
         assert_eq!(
             config.browser_profiles,
             BrowserProfileSettings {
@@ -614,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_config_migrates_to_v3_with_quota_defaults() {
+    fn v2_config_migrates_to_current_with_quota_and_autostart_defaults() {
         let dir = TestDir::new();
         let path = dir.config_path();
         fs::write(
@@ -649,6 +676,63 @@ mod tests {
 
         assert_eq!(config.version, CONFIG_VERSION);
         assert_eq!(config.local_quotas, LocalQuotaSettings::default());
+        assert_eq!(config.autostart, AutostartSettings::default());
+    }
+
+    #[test]
+    fn v3_config_migrates_to_current_with_autostart_defaults() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        fs::write(
+            &path,
+            r#"{
+  "version": 3,
+  "enabledServices": {
+    "codex": true,
+    "claude": true
+  },
+  "providers": {
+    "localEnabled": true,
+    "webEnabled": false
+  },
+  "intervals": {
+    "localSeconds": 45,
+    "webMinutes": 30,
+    "manualWebRefreshCooldownSeconds": 60,
+    "gaugeSwitchSeconds": 6
+  },
+  "lowUsageThreshold": 20,
+  "browserProfiles": {
+    "rootPath": null,
+    "codexPath": null,
+    "claudePath": null
+  },
+  "localQuotas": {
+    "codex": {
+      "enabled": false,
+      "planLabel": "",
+      "limitKind": "rollingWindow",
+      "windowHours": 5,
+      "usageUnit": "tokens",
+      "limit": 0
+    },
+    "claude": {
+      "enabled": false,
+      "planLabel": "",
+      "limitKind": "rollingWindow",
+      "windowHours": 5,
+      "usageUnit": "tokens",
+      "limit": 0
+    }
+  }
+}"#,
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("v3 config migrates");
+
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(config.autostart, AutostartSettings::default());
     }
 
     #[test]
@@ -697,6 +781,7 @@ mod tests {
                 codex: configured_quota("Codex Team", 125_000.0, 12),
                 claude: configured_quota("Claude Max", 300_000.0, 5),
             },
+            autostart: AutostartSettings { enabled: true },
             ..AppConfig::default()
         };
 
@@ -704,6 +789,7 @@ mod tests {
         let loaded = load_from_path(&path).expect("config loads");
 
         assert_eq!(loaded.local_quotas, config.local_quotas);
+        assert_eq!(loaded.autostart, config.autostart);
     }
 
     #[test]

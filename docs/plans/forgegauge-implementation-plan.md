@@ -132,7 +132,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
 - [ ] Merge engine for web baselines plus local deltas.
-- [ ] Autostart setting.
+- [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
 - [x] Clear/delete actions for browser session data.
 - [x] Basic failure logging view or log file location.
@@ -787,7 +787,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Verify macOS Apple Silicon artifact uploads.
 - [ ] Confirm release is published only after all build matrix jobs succeed.
 - [ ] Record any failing runner labels, action versions, package dependencies, or upload paths.
-- [ ] Add optional autostart setting.
+- [x] Add optional autostart setting.
 - [x] Add basic failure logging view or log file location.
 
 ## UI Requirements
@@ -834,7 +834,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Configure browser profile/session path.
 - [x] Configure optional per-service browser profile path overrides.
 - [x] Configure optional manual plan/limit/window values.
-- [ ] Configure autostart.
+- [x] Configure autostart.
 - [ ] Reset browser session data.
 - [x] Clear cached usage data.
 

@@ -15,6 +15,7 @@ use usage::{
     UsageRefreshStatus, UsageSnapshot, UsageSource,
 };
 
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
 
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
@@ -163,6 +164,21 @@ fn map_open_usage_page_error() -> CommandError {
     )
 }
 
+fn map_autostart_error() -> CommandError {
+    command_error("autostart_update_failed", "Could not update autostart")
+}
+
+fn sync_autostart(app: &AppHandle, enabled: bool) -> CommandResult<()> {
+    let manager = app.autolaunch();
+    let current = manager.is_enabled().map_err(|_| map_autostart_error())?;
+
+    match (enabled, current) {
+        (true, false) => manager.enable().map_err(|_| map_autostart_error()),
+        (false, true) => manager.disable().map_err(|_| map_autostart_error()),
+        _ => Ok(()),
+    }
+}
+
 fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
@@ -240,6 +256,9 @@ fn update_app_config(
     config_load: State<'_, ConfigLoadState>,
     config: config::AppConfig,
 ) -> CommandResult<config::AppConfig> {
+    let previous_config = engine.config().map_err(map_usage_state_error)?;
+    let config = config.normalized();
+
     if browser_profile::should_prepare_browser_profiles(
         &config.browser_profiles,
         config.providers.web_enabled,
@@ -249,7 +268,21 @@ fn update_app_config(
             .map_err(map_browser_profile_error)?;
     }
 
-    let config = config::save(&app, &config).map_err(map_config_save_error)?;
+    let autostart_changed = previous_config.autostart.enabled != config.autostart.enabled;
+    if autostart_changed {
+        sync_autostart(&app, config.autostart.enabled)?;
+    }
+
+    let config = match config::save(&app, &config) {
+        Ok(config) => config,
+        Err(error) => {
+            if autostart_changed {
+                let _ = sync_autostart(&app, previous_config.autostart.enabled);
+            }
+            return Err(map_config_save_error(error));
+        }
+    };
+
     config_load.clear_error().map_err(map_config_state_error)?;
     engine
         .update_config(config.clone())
@@ -640,6 +673,10 @@ pub fn run() {
             refresh_usage,
             update_app_config
         ])
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -649,6 +686,9 @@ pub fn run() {
             };
 
             app.manage(ConfigLoadState::new(config_error));
+            if let Err(error) = sync_autostart(&app_handle, config.autostart.enabled) {
+                eprintln!("Could not sync autostart setting: {}", error.message);
+            }
             app.manage(UsageEngine::new(config));
             if let Err(error) = app.state::<UsageEngine>().refresh_all_and_emit(&app_handle) {
                 eprintln!("Could not refresh initial usage state: {error}");

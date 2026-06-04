@@ -402,6 +402,10 @@
         <input type="checkbox" bind:checked={config.providers.webEnabled} />
         Experimental web providers
       </label>
+      <label>
+        <input type="checkbox" bind:checked={config.autostart.enabled} />
+        Start at login
+      </label>
     </div>
 
     <div class="number-grid">

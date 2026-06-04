@@ -418,7 +418,15 @@ fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<O
 }
 
 #[tauri::command]
-fn start_provider_login(app: AppHandle, service: Service) -> CommandResult<ProviderLoginStart> {
+fn start_provider_login(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+    service: Service,
+) -> CommandResult<ProviderLoginStart> {
+    let config = engine.config().map_err(map_usage_state_error)?;
+    let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
+    prepare_managed_browser_profiles(&config, &app_data_dir).map_err(map_browser_profile_error)?;
+
     let now = usage::now_rfc3339();
     let url = official_usage_url(service).to_string();
     let login = ProviderLoginStart {

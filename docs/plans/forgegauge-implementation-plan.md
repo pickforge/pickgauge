@@ -36,7 +36,7 @@ Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for pr
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` metadata. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
-Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
+Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -728,6 +728,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Initialize Chromium profile preferences with disabled password, autosign-in, profile autofill, and card autofill settings.
   - [x] Wire Chromium preference initialization into managed browser profile preparation.
 - [ ] Add manual login window flow.
+  - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
 - [x] Add guarded clear/delete action for browser profile data.

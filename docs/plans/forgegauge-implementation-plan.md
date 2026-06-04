@@ -869,8 +869,8 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 
 ### Required Evidence Before Checking Items
 
-- [ ] For implemented code: commit/diff evidence exists in source.
-- [ ] For automated validation: command and pass/fail result are recorded in the session or relevant commit notes.
+- [x] For implemented code: commit/diff evidence exists in source.
+- [x] For automated validation: command and pass/fail result are recorded in the session or relevant commit notes.
 - [ ] For manual KDE checks: date/session, OS/session type, artifact/binary used, and observed behavior are recorded.
 - [ ] For release checks: workflow run URL, release tag, and artifact names are recorded.
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.

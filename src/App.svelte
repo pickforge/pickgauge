@@ -135,6 +135,8 @@
         return `${serviceLabels[service]} login required`;
       case "launched":
         return `Started ${serviceLabels[service]} login`;
+      case "preflight_unavailable":
+        return `Could not verify ${serviceLabels[service]} login state`;
     }
   }
 

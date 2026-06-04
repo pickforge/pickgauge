@@ -4,6 +4,14 @@
 
 Branch: `forgegauge-implementation`
 
+Visible login launch guard:
+
+- `Start login` still performs a headless usage preflight before any headed Playwright launch.
+- The headed login browser now launches only for explicit user-action preflight states: `logged_out`, `mfa_required`, or `captcha_or_bot_check`.
+- Authenticated `usage` returns `already_authenticated`; network, timeout, unexpected-UI, and failed preflight checks return a sanitized non-launching `preflight_unavailable` status instead of flashing Chromium.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test --lib`, `cargo clippy -- -D warnings`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, `npm run test:official-fail-closed`, and `git diff --check` passed.
+- Remaining caveat: real post-login authenticated profile evidence still requires a logged-in app-owned profile smoke run.
+
 Release caveat preflight:
 
 - `npm run smoke:preflight` now reports sanitized release-readiness booleans for configured Linux AppImage, Windows, macOS Intel, and macOS Apple Silicon release artifacts.

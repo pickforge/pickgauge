@@ -37,6 +37,7 @@ const SESSION_RESET_EVENT: &str = "session://reset";
 const LOGIN_STATUS_REQUIRED: &str = "login_required";
 const LOGIN_STATUS_LAUNCHED: &str = "launched";
 const LOGIN_STATUS_ALREADY_AUTHENTICATED: &str = "already_authenticated";
+const LOGIN_STATUS_PREFLIGHT_UNAVAILABLE: &str = "preflight_unavailable";
 const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_available";
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
@@ -484,8 +485,16 @@ fn start_provider_login(
     let mut login = plan.login;
     let login_required_reason = if let Some(request) = plan.sidecar_request {
         match headless_web_usage_response(&app, &engine, &sessions, service) {
-            Ok(response) if !should_launch_login_after_preflight(&response.page_state) => {
+            Ok(response) if response.page_state == "usage" => {
                 login.status = LOGIN_STATUS_ALREADY_AUTHENTICATED.to_string();
+                None
+            }
+            Ok(response) if !should_launch_login_after_preflight(&response.page_state) => {
+                login.status = LOGIN_STATUS_PREFLIGHT_UNAVAILABLE.to_string();
+                None
+            }
+            Err(_) => {
+                login.status = LOGIN_STATUS_PREFLIGHT_UNAVAILABLE.to_string();
                 None
             }
             _ => match launch_playwright_sidecar_login(&app, &sessions, &request) {
@@ -568,7 +577,10 @@ fn provider_login_start_plan(
 }
 
 fn should_launch_login_after_preflight(page_state: &str) -> bool {
-    page_state != "usage"
+    matches!(
+        page_state,
+        "logged_out" | "mfa_required" | "captcha_or_bot_check"
+    )
 }
 
 fn launch_playwright_sidecar_login(
@@ -2022,18 +2034,34 @@ mod tests {
     }
 
     #[test]
-    fn login_preflight_skips_headed_browser_only_after_usage_state() {
+    fn provider_login_start_serializes_preflight_unavailable_status() {
+        let login = ProviderLoginStart {
+            service: Service::Codex,
+            url: official_usage_url(Service::Codex).to_string(),
+            status: LOGIN_STATUS_PREFLIGHT_UNAVAILABLE.to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            profile_label: "codex-profile".to_string(),
+            profile_prepared: true,
+            started_at: "2026-06-04T12:25:00Z".to_string(),
+        };
+        let value = serde_json::to_value(login).expect("provider login start serializes");
+
+        assert_eq!(value["status"], "preflight_unavailable");
+        assert_eq!(value["service"], "codex");
+        assert!(value.get("profilePath").is_none());
+        assert!(value.get("userDataDir").is_none());
+    }
+
+    #[test]
+    fn login_preflight_launches_headed_browser_only_for_user_action_states() {
         assert!(!should_launch_login_after_preflight("usage"));
 
-        for page_state in [
-            "logged_out",
-            "mfa_required",
-            "captcha_or_bot_check",
-            "network_unavailable",
-            "timed_out",
-            "unexpected_ui",
-        ] {
+        for page_state in ["logged_out", "mfa_required", "captcha_or_bot_check"] {
             assert!(should_launch_login_after_preflight(page_state));
+        }
+
+        for page_state in ["network_unavailable", "timed_out", "unexpected_ui"] {
+            assert!(!should_launch_login_after_preflight(page_state));
         }
     }
 

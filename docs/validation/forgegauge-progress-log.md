@@ -45,6 +45,13 @@ Runtime and packaging prerequisites observed:
 - Browser-preview and AppImage build validation did not reveal additional package prerequisites.
 - KDE/Wayland tray runtime package confirmation still requires manual desktop smoke testing with the AppImage artifact.
 
+Phase 4 architecture review:
+
+- The frontend and tray read from the shared backend display-state cache.
+- Usage snapshots, refresh events, provider error events, profile reset results, and login-required events have stable serialized IPC shapes covered by tests.
+- Web providers remain behind explicit opt-in, parser contracts, and the login-required IPC boundary.
+- Proceeding into provider work still depends on the separate browser backend/manual-login gate.
+
 Deferred evidence:
 
 - KDE/Wayland tray checks require user-visible desktop interaction.

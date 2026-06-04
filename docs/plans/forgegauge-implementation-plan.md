@@ -957,7 +957,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 
 - [ ] After Phase 0.5: Confirm Tauri tray/popup behavior and required runtime packages on CachyOS KDE/Wayland.
 - [ ] After Phase 1: Confirm tray behavior and popup close fallback work on CachyOS KDE.
-- [ ] After Phase 4: Confirm app architecture is stable before real providers.
+- [x] After Phase 4: Confirm app architecture is stable before real providers.
 - [ ] After Phase 6: Confirm local providers provide enough value to keep.
 - [ ] After Phase 6.5: Confirm browser automation backend is viable before implementing web providers.
 - [ ] After Phase 8: Confirm web provider reliability is acceptable for personal use.

@@ -84,6 +84,8 @@ Authenticated helper fail-fast progress, 2026-06-04: strict authenticated-profil
 
 Authenticated helper dual-service progress, 2026-06-04: extended `npm run test:auth-profile-helper` so the strict blank-profile success path passes both Codex and Claude marker-owned disposable profiles in the same helper run. The validator now asserts sanitized results for both services and a marker-service mismatch failure path without exposing temporary profile paths, log paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
 
+Authenticated helper environment-input progress, 2026-06-04: extended `npm run test:auth-profile-helper` to validate the environment-variable form recommended for real profile paths. Disposable Codex and Claude marker-owned profile roots plus the app log path are supplied through `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `FORGEGAUGE_AUTH_LOG_PATH`, while strict sanitized-log and storage-preference checks remain enabled and output is verified not to expose those paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports `login_required`. Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default preview cards do not expose `Start login` while the expired-login state does after experimental web providers are enabled.
@@ -835,6 +837,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] Add `npm run smoke:auth-profile` to validate future authenticated app-owned profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Add `npm run smoke:auth-profile -- --require-sanitized-log-file` to validate future authenticated runs against the normal app log without returning log paths or log contents.
   - [x] `npm run test:auth-profile-helper` validates sanitized safe-log inspection and sensitive-log rejection without exposing temporary profile or log paths.
+  - [x] `npm run test:auth-profile-helper` validates environment-variable profile/log inputs without exposing temporary profile or log paths.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
 - [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
 - [x] Review CSP and permissions needed before implementing provider UI.
@@ -1070,6 +1073,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Update the authenticated-login inspection checklist to require sanitized normal app-log inspection alongside profile/storage checks.
   - [x] Add `npm run test:auth-profile-helper` to validate strict helper behavior and sanitized failure output for disposable profiles/logs.
   - [x] `npm run test:auth-profile-helper` validates Codex and Claude disposable profile results plus service-marker mismatch rejection without raw path output.
+  - [x] `npm run test:auth-profile-helper` validates the environment-variable profile/log input form recommended for real profile paths.
 
 ### Automated Tests To Add
 
@@ -1099,6 +1103,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and marker-owned dedicated-profile evidence.
 - [x] Authenticated-profile helper validation for strict profile safety, session-artifact requirements, and sanitized log inspection failures.
   - [x] Validate dual-service Codex/Claude helper success and marker-service mismatch failure with disposable profiles.
+  - [x] Validate environment-variable profile/log inputs for disposable Codex/Claude profiles.
 
 ### Manual Tests To Complete
 

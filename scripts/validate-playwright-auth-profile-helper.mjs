@@ -28,6 +28,7 @@ const failClosedStates = new Set([
 try {
   validateHelpOutput();
   validateStrictBlankProfileRefresh();
+  validateEnvironmentProfileInputs();
   validatePreflightFailure({
     code: "credential_store_detected",
     fileName: "Login Data",
@@ -82,6 +83,39 @@ function validateStrictBlankProfileRefresh() {
     "--require-no-autofill-store-files",
     "--require-no-default-profile-references",
   ]);
+  const output = JSON.parse(result.stdout);
+  const services = new Map(output.services.map((service) => [service.service, service]));
+
+  assert.equal(result.status, 0);
+  assert.equal(output.logInspection.inspected, true);
+  assert.equal(output.logInspection.sensitiveContentAbsent, true);
+  assert.equal(output.services.length, 2);
+  assertServiceResult(services.get("codex"), "codex");
+  assertServiceResult(services.get("claude"), "claude");
+  assertSanitized(result, [codexProfileRoot, claudeProfileRoot, logPath]);
+}
+
+function validateEnvironmentProfileInputs() {
+  const codexProfileRoot = createProfile("codex", "env-codex");
+  const claudeProfileRoot = createProfile("claude", "env-claude");
+  const logPath = resolve(validationRoot, "env.log");
+
+  writeFileSync(logPath, "ForgeGauge env smoke completed\n", { mode: 0o600 });
+
+  const result = runHelper(
+    [
+      "--require-sanitized-log-file",
+      "--require-disabled-storage-preferences",
+      "--require-no-credential-store-files",
+      "--require-no-autofill-store-files",
+      "--require-no-default-profile-references",
+    ],
+    {
+      FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT: claudeProfileRoot,
+      FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT: codexProfileRoot,
+      FORGEGAUGE_AUTH_LOG_PATH: logPath,
+    },
+  );
   const output = JSON.parse(result.stdout);
   const services = new Map(output.services.map((service) => [service.service, service]));
 
@@ -211,12 +245,13 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function runHelper(args) {
+function runHelper(args, envOverrides = {}) {
   const result = spawnSync(process.execPath, [helperPath, ...args], {
     cwd: repoRoot,
     encoding: "utf8",
     env: {
       ...process.env,
+      ...envOverrides,
       npm_config_loglevel: "silent",
     },
     timeout: 90_000,

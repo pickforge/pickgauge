@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated helper environment-input coverage:
+
+- Extended `npm run test:auth-profile-helper` to validate the environment-variable input path for real-profile smoke runs.
+- The validator now supplies disposable Codex and Claude profile roots plus the log path through `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `FORGEGAUGE_AUTH_LOG_PATH`, then asserts sanitized dual-service output without exposing temporary paths, official URLs, or the home directory.
+- Validation: `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:auth-profile-helper`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves disposable profile helper input handling; real authenticated profile persistence, saved-credential absence, and authenticated log cleanliness still require logged-in app-owned profiles.
+
 Authenticated helper dual-service coverage:
 
 - Extended `npm run test:auth-profile-helper` so the strict blank-profile success path supplies both Codex and Claude marker-owned disposable profiles in one helper run.

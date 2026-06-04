@@ -109,6 +109,16 @@ Managed browser session safety:
 - Startup recovery reads a restrictive app-data registry, keeps only marker-verified orphaned browser processes, discards stale/unverified entries, and can stop verified orphans before profile deletion.
 - Backend selection, password-manager controls, and authenticated login validation remain separate unchecked gates.
 
+Browser launch policy safety:
+
+- Added a backend-agnostic Chromium launch plan helper for future managed browser integrations.
+- The launch plan binds each service to its provided service-specific profile path through `--user-data-dir`.
+- The launch plan includes password-manager/autofill suppression flags, `--no-first-run`, and disabled Chromium storage preferences for password saving, autosign-in, profile autofill, and card autofill.
+- Sanitized launch diagnostics redact raw profile paths to service profile labels such as `codex-profile` and `claude-profile`.
+- Validation: targeted `cargo test browser_session --lib` passed with the new launch-policy tests.
+- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow.
+- Real backend selection, process launch integration, manual login flow, and authenticated profile inspection remain unchecked.
+
 Web parser fallback coverage:
 
 - Sanitized visible-state inputs now include `network_unavailable` and `timed_out`.

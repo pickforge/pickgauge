@@ -1,5 +1,6 @@
 use crate::usage::Service;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     collections::HashMap,
     fs,
@@ -15,6 +16,12 @@ pub const SESSION_REGISTRY_FILE_NAME: &str = "managed-browser-sessions.json";
 pub const PROCESS_MARKER_ENV: &str = "FORGEGAUGE_BROWSER_PROCESS_MARKER";
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
+const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
+    "--disable-save-password-bubble",
+    "--disable-password-manager-reauthentication",
+    "--disable-features=AutofillServerCommunication",
+    "--no-first-run",
+];
 
 #[derive(Debug)]
 pub struct BrowserSessionManager {
@@ -62,6 +69,23 @@ pub struct BrowserSessionStopResult {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BrowserSessionStartupRecovery {
     pub orphaned_processes: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BrowserLaunchPlan {
+    pub service: Service,
+    pub profile_path: PathBuf,
+    pub profile_label: String,
+    pub args: Vec<String>,
+    pub preferences: serde_json::Value,
+    pub diagnostics: BrowserLaunchDiagnostics,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BrowserLaunchDiagnostics {
+    pub service: Service,
+    pub profile_label: String,
+    pub args: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -351,6 +375,73 @@ impl BrowserSessionManager {
         }
 
         Ok(records)
+    }
+}
+
+#[allow(dead_code)]
+pub fn chromium_launch_plan(
+    service: Service,
+    profile_path: impl Into<PathBuf>,
+) -> BrowserLaunchPlan {
+    let profile_path = profile_path.into();
+    let profile_label = profile_label(service);
+    let mut args = Vec::with_capacity(CHROMIUM_PASSWORD_MANAGER_FLAGS.len() + 1);
+    args.push(format!("--user-data-dir={}", profile_path.display()));
+    args.extend(
+        CHROMIUM_PASSWORD_MANAGER_FLAGS
+            .iter()
+            .map(|flag| flag.to_string()),
+    );
+
+    let diagnostics = BrowserLaunchDiagnostics {
+        service,
+        profile_label: profile_label.clone(),
+        args: sanitized_launch_args(&args, profile_label.as_str()),
+    };
+    let preferences = chromium_disabled_storage_preferences();
+
+    BrowserLaunchPlan {
+        service,
+        profile_path,
+        profile_label,
+        args,
+        preferences,
+        diagnostics,
+    }
+}
+
+fn chromium_disabled_storage_preferences() -> serde_json::Value {
+    json!({
+        "autofill": {
+            "credit_card_enabled": false,
+            "enabled": false,
+            "profile_enabled": false
+        },
+        "credentials_enable_autosignin": false,
+        "credentials_enable_service": false,
+        "profile": {
+            "password_manager_allow_show_passwords": false,
+            "password_manager_enabled": false
+        }
+    })
+}
+
+fn sanitized_launch_args(args: &[String], profile_label: &str) -> Vec<String> {
+    args.iter()
+        .map(|arg| {
+            if arg.starts_with("--user-data-dir=") {
+                format!("--user-data-dir=<{profile_label}>")
+            } else {
+                arg.clone()
+            }
+        })
+        .collect()
+}
+
+fn profile_label(service: Service) -> String {
+    match service {
+        Service::Codex => "codex-profile".to_string(),
+        Service::Claude => "claude-profile".to_string(),
     }
 }
 
@@ -777,6 +868,82 @@ mod tests {
             }
         );
         assert!(!dir.registry_path().exists());
+    }
+
+    #[test]
+    fn chromium_launch_plan_uses_service_profile_path() {
+        let profile_path = PathBuf::from("/tmp/forgegauge/browser-profiles/codex");
+        let plan = chromium_launch_plan(Service::Codex, profile_path.clone());
+
+        assert_eq!(plan.service, Service::Codex);
+        assert_eq!(plan.profile_path, profile_path);
+        assert_eq!(plan.profile_label, "codex-profile");
+        assert!(plan
+            .args
+            .contains(&"--user-data-dir=/tmp/forgegauge/browser-profiles/codex".to_string()));
+    }
+
+    #[test]
+    fn chromium_launch_plan_disables_password_and_autofill_prompts() {
+        let plan = chromium_launch_plan(Service::Claude, "/tmp/forgegauge/browser-profiles/claude");
+
+        assert!(plan
+            .args
+            .contains(&"--disable-save-password-bubble".to_string()));
+        assert!(plan
+            .args
+            .contains(&"--disable-password-manager-reauthentication".to_string()));
+        assert!(plan
+            .args
+            .contains(&"--disable-features=AutofillServerCommunication".to_string()));
+        assert!(plan.args.contains(&"--no-first-run".to_string()));
+        assert_eq!(plan.preferences["credentials_enable_service"], false);
+        assert_eq!(plan.preferences["credentials_enable_autosignin"], false);
+        assert_eq!(
+            plan.preferences["profile"]["password_manager_enabled"],
+            false
+        );
+        assert_eq!(
+            plan.preferences["profile"]["password_manager_allow_show_passwords"],
+            false
+        );
+        assert_eq!(plan.preferences["autofill"]["enabled"], false);
+        assert_eq!(plan.preferences["autofill"]["profile_enabled"], false);
+        assert_eq!(plan.preferences["autofill"]["credit_card_enabled"], false);
+    }
+
+    #[test]
+    fn launch_diagnostics_redact_raw_profile_paths() {
+        let profile_path =
+            "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+        let plan = chromium_launch_plan(Service::Claude, profile_path);
+        let diagnostics = format!("{:?}", plan.diagnostics);
+
+        assert_eq!(plan.diagnostics.service, Service::Claude);
+        assert_eq!(plan.diagnostics.profile_label, "claude-profile");
+        assert!(plan
+            .diagnostics
+            .args
+            .contains(&"--user-data-dir=<claude-profile>".to_string()));
+        assert!(!diagnostics.contains(profile_path));
+        assert!(!diagnostics.contains("/home/dev"));
+    }
+
+    #[test]
+    fn service_launch_plans_have_distinct_profile_labels() {
+        let codex = chromium_launch_plan(Service::Codex, "/tmp/profiles/codex");
+        let claude = chromium_launch_plan(Service::Claude, "/tmp/profiles/claude");
+
+        assert_ne!(codex.profile_label, claude.profile_label);
+        assert_ne!(
+            codex.diagnostics.profile_label,
+            claude.diagnostics.profile_label
+        );
+        assert_eq!(codex.diagnostics.args[0], "--user-data-dir=<codex-profile>");
+        assert_eq!(
+            claude.diagnostics.args[0],
+            "--user-data-dir=<claude-profile>"
+        );
     }
 
     #[cfg(unix)]

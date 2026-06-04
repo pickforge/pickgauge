@@ -36,6 +36,8 @@ Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for pr
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` metadata. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
+Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -503,6 +505,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] The chosen backend can disable or avoid password saving/autofill prompts.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
 - [ ] Browser launch arguments and profile paths are logged only in sanitized form.
+  - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
 - [x] Parser input is sanitized visible text or structured state, not raw authenticated HTML.
 - [x] Fixture regeneration requires explicit user-consented capture.
 - [x] Fixtures are sanitized before writing.
@@ -721,6 +724,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Add graceful browser shutdown with timeout/kill fallback.
 - [x] Detect orphaned managed browser processes on startup.
 - [ ] Disable password manager, autofill, and save-password prompts where supported.
+  - [x] Add backend-agnostic Chromium launch policy with password-manager/autofill suppression flags and disabled storage preferences.
 - [ ] Add manual login window flow.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.

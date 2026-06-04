@@ -98,6 +98,7 @@ struct ProviderProfileInspection {
     profile_label: String,
     profile_prepared: bool,
     credential_store_files: usize,
+    autofill_store_files: usize,
     symlink_entries: usize,
     password_saving_enabled: bool,
     autofill_enabled: bool,
@@ -555,6 +556,7 @@ fn provider_profile_inspection_report(
 ) -> ProviderProfileInspection {
     let inspection = inspection.unwrap_or(browser_session::BrowserProfileStorageInspection {
         credential_store_files: 0,
+        autofill_store_files: 0,
         symlink_entries: 0,
         password_saving_enabled: false,
         autofill_enabled: false,
@@ -567,6 +569,7 @@ fn provider_profile_inspection_report(
         profile_label: provider_profile_label(service).to_string(),
         profile_prepared,
         credential_store_files: inspection.credential_store_files,
+        autofill_store_files: inspection.autofill_store_files,
         symlink_entries: inspection.symlink_entries,
         password_saving_enabled: inspection.password_saving_enabled,
         autofill_enabled: inspection.autofill_enabled,
@@ -1112,6 +1115,7 @@ mod tests {
         assert_eq!(report.profile_label, "claude-profile");
         assert!(!report.profile_prepared);
         assert_eq!(report.credential_store_files, 0);
+        assert_eq!(report.autofill_store_files, 0);
         assert_eq!(report.symlink_entries, 0);
         assert!(!report.password_saving_enabled);
         assert!(!report.autofill_enabled);
@@ -1139,6 +1143,7 @@ mod tests {
         assert_eq!(report.profile_label, "codex-profile");
         assert!(report.profile_prepared);
         assert_eq!(report.credential_store_files, 0);
+        assert_eq!(report.autofill_store_files, 0);
         assert_eq!(report.symlink_entries, 0);
         assert!(!report.password_saving_enabled);
         assert!(!report.autofill_enabled);
@@ -1153,6 +1158,7 @@ mod tests {
             true,
             Some(browser_session::BrowserProfileStorageInspection {
                 credential_store_files: 2,
+                autofill_store_files: 3,
                 symlink_entries: 1,
                 password_saving_enabled: true,
                 autofill_enabled: false,
@@ -1170,6 +1176,7 @@ mod tests {
                 "profileLabel": "codex-profile",
                 "profilePrepared": true,
                 "credentialStoreFiles": 2,
+                "autofillStoreFiles": 3,
                 "symlinkEntries": 1,
                 "passwordSavingEnabled": true,
                 "autofillEnabled": false,

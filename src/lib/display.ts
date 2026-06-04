@@ -168,6 +168,15 @@ export function profileInspectionSummary(inspection: ProviderProfileInspection) 
     );
   }
 
+  if (inspection.autofillStoreFiles > 0) {
+    issues.push(
+      `${formatCount(inspection.autofillStoreFiles)} autofill store ${plural(
+        inspection.autofillStoreFiles,
+        "file",
+      )}`,
+    );
+  }
+
   if (inspection.symlinkEntries > 0) {
     issues.push(
       `${formatCount(inspection.symlinkEntries)} symlink ${plural(

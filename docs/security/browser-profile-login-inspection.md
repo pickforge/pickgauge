@@ -27,9 +27,13 @@ Inspect only file names, directory names, metadata, and browser preference keys 
 
 - [ ] Codex profile contains no password-store database such as `Login Data`.
 - [ ] Codex profile contains no password-store journal or sidecar file.
+- [ ] Codex profile contains no autofill-store database such as `Web Data`.
+- [ ] Codex profile contains no autofill-store journal or sidecar file.
 - [ ] Codex profile preferences do not enable password manager saving or autofill saving.
 - [ ] Claude profile contains no password-store database such as `Login Data`.
 - [ ] Claude profile contains no password-store journal or sidecar file.
+- [ ] Claude profile contains no autofill-store database such as `Web Data`.
+- [ ] Claude profile contains no autofill-store journal or sidecar file.
 - [ ] Claude profile preferences do not enable password manager saving or autofill saving.
 - [ ] Cookie/session files remain inside only the service-specific app-owned profile directory.
 - [ ] No profile file is a symlink to the default browser profile.

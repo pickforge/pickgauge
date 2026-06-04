@@ -113,6 +113,7 @@ export type ProviderProfileInspection = {
   profileLabel: string;
   profilePrepared: boolean;
   credentialStoreFiles: number;
+  autofillStoreFiles: number;
   symlinkEntries: number;
   passwordSavingEnabled: boolean;
   autofillEnabled: boolean;

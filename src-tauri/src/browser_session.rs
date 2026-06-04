@@ -110,6 +110,7 @@ pub struct BrowserLaunchDiagnostics {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BrowserProfileStorageInspection {
     pub credential_store_files: usize,
+    pub autofill_store_files: usize,
     pub symlink_entries: usize,
     pub password_saving_enabled: bool,
     pub autofill_enabled: bool,
@@ -491,6 +492,7 @@ pub fn inspect_chromium_profile_storage(
 ) -> Result<BrowserProfileStorageInspection, String> {
     let mut inspection = BrowserProfileStorageInspection {
         credential_store_files: 0,
+        autofill_store_files: 0,
         symlink_entries: 0,
         password_saving_enabled: false,
         autofill_enabled: false,
@@ -577,6 +579,10 @@ fn inspect_profile_entries(
                 inspection.credential_store_files += 1;
             }
 
+            if is_chromium_autofill_data_file(&entry.file_name()) {
+                inspection.autofill_store_files += 1;
+            }
+
             if metadata.is_dir() {
                 pending.push(entry.path());
             }
@@ -627,6 +633,12 @@ fn preference_bool(preferences: &Value, path: &[&str]) -> bool {
 fn is_chromium_login_data_file(name: &std::ffi::OsStr) -> bool {
     name.to_str()
         .map(|name| name == "Login Data" || name.starts_with("Login Data-"))
+        .unwrap_or(false)
+}
+
+fn is_chromium_autofill_data_file(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .map(|name| name == "Web Data" || name.starts_with("Web Data-"))
         .unwrap_or(false)
 }
 
@@ -1335,6 +1347,7 @@ mod tests {
             inspection,
             BrowserProfileStorageInspection {
                 credential_store_files: 0,
+                autofill_store_files: 0,
                 symlink_entries: 0,
                 password_saving_enabled: false,
                 autofill_enabled: false,
@@ -1355,6 +1368,7 @@ mod tests {
         let debug = format!("{inspection:?}");
 
         assert_eq!(inspection.credential_store_files, 0);
+        assert_eq!(inspection.autofill_store_files, 0);
         assert_eq!(inspection.symlink_entries, 0);
         assert!(!inspection.password_saving_enabled);
         assert!(!inspection.autofill_enabled);
@@ -1383,6 +1397,33 @@ mod tests {
             inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
 
         assert_eq!(inspection.credential_store_files, 2);
+        assert_eq!(inspection.autofill_store_files, 0);
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_counts_autofill_store_files() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        fs::write(default_profile_dir.join("Web Data"), "database placeholder")
+            .expect("web data marker is written");
+        fs::write(
+            default_profile_dir.join("Web Data-journal"),
+            "journal placeholder",
+        )
+        .expect("web data journal marker is written");
+        fs::write(
+            default_profile_dir.join("Web Database"),
+            "non-matching placeholder",
+        )
+        .expect("non-matching marker is written");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+
+        assert_eq!(inspection.autofill_store_files, 2);
+        assert_eq!(inspection.credential_store_files, 0);
     }
 
     #[test]
@@ -1448,6 +1489,7 @@ mod tests {
 
         assert_eq!(inspection.symlink_entries, 1);
         assert_eq!(inspection.credential_store_files, 0);
+        assert_eq!(inspection.autofill_store_files, 0);
     }
 
     fn read_test_preferences(path: &Path) -> Value {

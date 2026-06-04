@@ -40,7 +40,7 @@ Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now 
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
-Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. The inspector is exposed through sanitized IPC and maintenance UI actions for future validation. Manual authenticated profile inspection remains unchecked.
+Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, autofill-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. The inspector is exposed through sanitized IPC and maintenance UI actions for future validation. Manual authenticated profile inspection remains unchecked.
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
 
@@ -741,6 +741,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Add backend-agnostic Chromium launch policy with password-manager/autofill suppression flags and disabled storage preferences.
   - [x] Initialize Chromium profile preferences with disabled password, autosign-in, profile autofill, and card autofill settings.
   - [x] Wire Chromium preference initialization into managed browser profile preparation.
+  - [x] Count Chromium autofill store artifacts without reading store contents.
 - [ ] Add manual login window flow.
   - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
 - [x] Surface login-required state to UI.
@@ -954,6 +955,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Current fake provider does not read or upload account data.
 - [ ] No password storage.
   - [x] Chromium managed-profile initialization disables password saving and autosign-in preferences before a future launch.
+  - [x] Sanitized profile inspection counts Chromium password and autofill store artifacts without reading store contents.
 - [ ] Managed browser launch disables password manager/autofill/save-password prompts where supported.
   - [x] Chromium managed-profile initialization writes disabled autofill/password preferences with restrictive permissions.
 - [x] Dedicated browser profiles are separate per service.

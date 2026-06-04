@@ -115,9 +115,10 @@ Browser launch policy safety:
 - The launch plan binds each service to its provided service-specific profile path through `--user-data-dir`.
 - The launch plan includes password-manager/autofill suppression flags, `--no-first-run`, and disabled Chromium storage preferences for password saving, autosign-in, profile autofill, and card autofill.
 - Added a Chromium profile-preferences initializer that creates or merges `Default/Preferences` under the managed service profile, writes the disabled storage preferences, preserves unrelated preference keys, rejects malformed preference JSON, rejects symlinked paths, and applies restrictive permissions where supported.
+- Wired managed browser profile preparation to initialize Chromium preferences for both Codex and Claude when experimental web profiles are prepared.
 - Sanitized launch diagnostics redact raw profile paths to service profile labels such as `codex-profile` and `claude-profile`.
-- Validation: targeted `cargo test browser_session --lib` passed with launch-policy and preference-initialization tests.
-- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow after the launch-policy and preference-initialization changes.
+- Validation: targeted `cargo test browser_session --lib` and `cargo test prepare_managed_browser_profiles --lib` passed with launch-policy, preference-initialization, and profile-preparation wiring tests.
+- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow after the launch-policy, preference-initialization, and profile-preparation wiring changes.
 - Real backend selection, process launch integration, manual login flow, and authenticated profile inspection remain unchecked.
 
 Web parser fallback coverage:

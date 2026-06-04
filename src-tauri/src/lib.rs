@@ -326,7 +326,7 @@ fn update_app_config(
         config.providers.web_enabled,
     ) {
         let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
-        browser_profile::prepare_browser_profiles(&config.browser_profiles, &app_data_dir)
+        prepare_managed_browser_profiles(&config, &app_data_dir)
             .map_err(map_browser_profile_error)?;
     }
 
@@ -355,6 +355,24 @@ fn update_app_config(
         .refresh_all_and_emit(&app)
         .map_err(map_usage_refresh_error)?;
     Ok(config)
+}
+
+fn prepare_managed_browser_profiles(
+    config: &config::AppConfig,
+    app_data_dir: &Path,
+) -> Result<Option<browser_profile::BrowserProfilePaths>, String> {
+    if !browser_profile::should_prepare_browser_profiles(
+        &config.browser_profiles,
+        config.providers.web_enabled,
+    ) {
+        return Ok(None);
+    }
+
+    let paths = browser_profile::prepare_browser_profiles(&config.browser_profiles, app_data_dir)?;
+    browser_session::prepare_chromium_profile_preferences(&paths.codex)?;
+    browser_session::prepare_chromium_profile_preferences(&paths.claude)?;
+
+    Ok(Some(paths))
 }
 
 #[tauri::command]
@@ -887,12 +905,98 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    static NEXT_TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "forgegauge-lib-test-{}-{}",
+                std::process::id(),
+                NEXT_TEST_DIR_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).expect("test dir is created");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn tray_state(service: Service, remaining_percent: Option<f32>) -> usage::TrayGaugeState {
         usage::TrayGaugeState {
             service,
             remaining_percent,
         }
+    }
+
+    #[test]
+    fn prepare_managed_browser_profiles_skips_when_web_profiles_are_not_needed() {
+        let dir = TestDir::new();
+        let config = config::AppConfig::default();
+
+        let paths = prepare_managed_browser_profiles(&config, &dir.path)
+            .expect("profile preparation skips");
+
+        assert_eq!(paths, None);
+        assert!(!dir.path.join("browser-profiles").exists());
+    }
+
+    #[test]
+    fn prepare_managed_browser_profiles_initializes_chromium_preferences_for_enabled_web_profiles()
+    {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+
+        let paths = prepare_managed_browser_profiles(&config, &dir.path)
+            .expect("profile preparation succeeds")
+            .expect("profile paths are returned");
+        let codex_preferences = read_preferences(
+            paths
+                .codex
+                .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
+                .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
+        );
+        let claude_preferences = read_preferences(
+            paths
+                .claude
+                .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
+                .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
+        );
+
+        assert_preference_false(&codex_preferences, &["credentials_enable_service"]);
+        assert_preference_false(&codex_preferences, &["credentials_enable_autosignin"]);
+        assert_preference_false(&codex_preferences, &["profile", "password_manager_enabled"]);
+        assert_preference_false(&codex_preferences, &["autofill", "enabled"]);
+        assert_preference_false(&codex_preferences, &["autofill", "profile_enabled"]);
+        assert_preference_false(&codex_preferences, &["autofill", "credit_card_enabled"]);
+        assert_preference_false(&claude_preferences, &["credentials_enable_service"]);
+        assert_preference_false(&claude_preferences, &["autofill", "enabled"]);
+    }
+
+    fn read_preferences(path: impl Into<PathBuf>) -> serde_json::Value {
+        let raw = std::fs::read_to_string(path.into()).expect("preferences are readable");
+        serde_json::from_str(&raw).expect("preferences parse")
+    }
+
+    fn assert_preference_false(preferences: &serde_json::Value, path: &[&str]) {
+        let value = path
+            .iter()
+            .fold(preferences, |value, segment| &value[*segment]);
+
+        assert_eq!(value.as_bool(), Some(false), "{path:?} should be false");
     }
 
     #[test]

@@ -6,10 +6,11 @@ Branch: `forgegauge-implementation`
 
 KDE tray registration smoke:
 
-- Added `npm run smoke:kde-tray`, which requires a Linux user session with `qdbus`, `gdbus`, and an active KDE StatusNotifier host.
-- The smoke launches the built AppImage with temporary isolated XDG config/data/cache/state directories, waits for a new ForgeGauge `org.kde.StatusNotifierItem`, verifies title `forgegauge`, id `tray-icon tray app main`, status `Active`, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, dispatches the tray `Quit` menu event, confirms the process exits successfully, confirms the tray item unregisters, and then removes temporary dirs.
-- This proves AppImage tray registration and tray-menu quit handling through KDE's StatusNotifier/DBusMenu interfaces in the current Wayland/KDE session, but not visual tray placement, tray-click popup behavior, close-button behavior, settings persistence, or visual quit-menu interaction.
-- Validation: `npm run smoke:kde-tray`, `git diff --check`, and cleanup checks for leftover ForgeGauge processes, ForgeGauge tray registrations, and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
+- Added `npm run smoke:kde-tray`, which requires a Linux user session with `qdbus`, `gdbus`, `xdotool`, and an active KDE StatusNotifier host.
+- The smoke launches the built AppImage with temporary isolated XDG config/data/cache/state directories, waits for a new ForgeGauge `org.kde.StatusNotifierItem`, verifies title `forgegauge`, id `tray-icon tray app main`, status `Active`, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, verifies `Show ForgeGauge` opens a visible XWayland window, verifies a window-close request removes the visible window while the process and tray item remain alive, verifies `Show ForgeGauge` reopens or recreates the window, dispatches the tray `Quit` menu event, confirms the process exits successfully, confirms the tray item unregisters, and then removes temporary dirs.
+- The main Tauri window is now configured non-closable where supported, implicit all-windows-closed exits are prevented, and the tray Show path recreates the main webview if KDE/XWayland destroyed it after close.
+- This proves AppImage tray registration, tray-menu show/quit handling, and automated XWayland close/reopen fallback through KDE's StatusNotifier/DBusMenu interfaces in the current Wayland/KDE session, but not visual tray placement, physical tray-click behavior, popup position, settings persistence, or visual quit-menu interaction.
+- Validation: `npm run smoke:kde-tray`, `npm run build:appimage`, `npm run check`, `npm test`, `cargo fmt --check`, `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `git diff --check`, and cleanup checks for leftover ForgeGauge processes, ForgeGauge tray registrations, visible ForgeGauge windows, and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
 
 Manual smoke preflight:
 

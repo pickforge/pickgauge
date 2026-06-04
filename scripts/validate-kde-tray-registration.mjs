@@ -31,6 +31,11 @@ if (!commandAvailable("gdbus")) {
   process.exit(0);
 }
 
+if (!commandAvailable("xdotool")) {
+  console.log("Skipping KDE tray registration smoke because xdotool is unavailable");
+  process.exit(0);
+}
+
 if (!statusNotifierHostRegistered()) {
   console.log("Skipping KDE tray registration smoke because no StatusNotifier host is registered");
   process.exit(0);
@@ -66,7 +71,9 @@ child.stderr.on("data", (chunk) => {
 
 try {
   const item = await waitForForgeGaugeTrayItem(beforeItems, child);
-  const menu = await validateTrayMenuQuit(item, child);
+  const menuItems = await waitForTrayMenuItems(item);
+  const window = await validateTrayWindowLifecycle(item, child, menuItems);
+  const menu = await validateTrayMenuQuit(item, child, menuItems);
 
   assertSanitizedProcessOutput(stdout, stderr);
 
@@ -87,6 +94,7 @@ try {
       itemStatus: item.status,
       itemTitle: item.title,
       menu,
+      window,
     },
     isolatedXdgDirs: true,
   };
@@ -199,26 +207,74 @@ function qdbus(args) {
   }).trim();
 }
 
-async function validateTrayMenuQuit(item, child) {
-  const menuItems = await waitForTrayMenuItems(item);
+async function validateTrayWindowLifecycle(item, child, menuItems) {
+  const showItem = findMenuItem(menuItems, "Show ForgeGauge");
+
+  assert.ok(showItem, "Tray menu must expose Show ForgeGauge");
+
+  const visibleBeforeShow = visibleForgeGaugeWindowIds();
+
+  assert.equal(
+    visibleBeforeShow.length,
+    0,
+    "Isolated AppImage launch must start without a visible ForgeGauge window",
+  );
+
+  triggerTrayMenuItem(item, showItem);
+
+  const firstWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeShow);
+  const firstWindowTitle = xdotool(["getwindowname", firstWindowId]);
+
+  assert.equal(firstWindowTitle, "ForgeGauge", "Show menu item must open ForgeGauge window");
+
+  xdotool(["windowclose", firstWindowId]);
+
+  assert.equal(
+    await waitForWindowHidden(firstWindowId),
+    true,
+    "Window close request must remove the visible ForgeGauge window",
+  );
+  assert.equal(child.exitCode, null, "Window close request must not exit ForgeGauge");
+  assert.equal(child.signalCode, null, "Window close request must not signal ForgeGauge");
+  assert.equal(
+    registeredStatusNotifierItems().has(item.address),
+    true,
+    "Tray item must remain registered after window close request",
+  );
+
+  const visibleBeforeReshow = visibleForgeGaugeWindowIds();
+
+  assert.equal(
+    visibleBeforeReshow.length,
+    0,
+    "Window close request must leave no visible ForgeGauge window before reshow",
+  );
+
+  triggerTrayMenuItem(item, showItem);
+
+  const secondWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeReshow);
+  const secondWindowTitle = xdotool(["getwindowname", secondWindowId]);
+
+  assert.equal(secondWindowTitle, "ForgeGauge", "Show menu item must reopen ForgeGauge window");
+
+  return {
+    closeKeepsProcessRunning: true,
+    closeKeepsTrayRegistered: true,
+    initialVisibleWindowCount: visibleBeforeShow.length,
+    reshowAfterClose: true,
+    showMenuOpensWindow: true,
+    windowTitle: secondWindowTitle,
+  };
+}
+
+async function validateTrayMenuQuit(item, child, menuItems) {
   const showItem = findMenuItem(menuItems, "Show ForgeGauge");
   const quitItem = findMenuItem(menuItems, "Quit");
 
   assert.ok(showItem, "Tray menu must expose Show ForgeGauge");
   assert.ok(quitItem, "Tray menu must expose Quit");
 
-  gdbusCall([
-    "--dest",
-    item.service,
-    "--object-path",
-    item.menuPath,
-    "--method",
-    "com.canonical.dbusmenu.Event",
-    String(quitItem.id),
-    "clicked",
-    "<''>",
-    "0",
-  ]);
+  triggerTrayMenuItem(item, quitItem);
 
   assert.equal(
     await waitForProcessExit(child, stopTimeoutMs),
@@ -238,6 +294,21 @@ async function validateTrayMenuQuit(item, child) {
     showItemLabel: showItem.label,
     trayItemUnregisteredAfterQuit: true,
   };
+}
+
+function triggerTrayMenuItem(item, menuItem) {
+  gdbusCall([
+    "--dest",
+    item.service,
+    "--object-path",
+    item.menuPath,
+    "--method",
+    "com.canonical.dbusmenu.Event",
+    String(menuItem.id),
+    "clicked",
+    "<''>",
+    "0",
+  ]);
 }
 
 async function waitForTrayMenuItems(item) {
@@ -311,6 +382,55 @@ function findMenuItem(menuItems, label) {
 
 function gdbusCall(args) {
   return execFileSync("gdbus", ["call", "--session", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+async function waitForVisibleForgeGaugeWindow(previousWindowIds) {
+  const started = Date.now();
+  const previous = new Set(previousWindowIds);
+
+  while (Date.now() - started < menuTimeoutMs) {
+    const windowId = visibleForgeGaugeWindowIds().find((id) => !previous.has(id));
+
+    if (windowId) {
+      return windowId;
+    }
+
+    await delay(100);
+  }
+
+  throw new Error("Timed out waiting for visible ForgeGauge window");
+}
+
+async function waitForWindowHidden(windowId) {
+  const started = Date.now();
+
+  while (Date.now() - started < stopTimeoutMs) {
+    if (!visibleForgeGaugeWindowIds().includes(windowId)) {
+      return true;
+    }
+
+    await delay(100);
+  }
+
+  return false;
+}
+
+function visibleForgeGaugeWindowIds() {
+  try {
+    return xdotool(["search", "--onlyvisible", "--name", "ForgeGauge"])
+      .split(/\r?\n/u)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function xdotool(args) {
+  return execFileSync("xdotool", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();

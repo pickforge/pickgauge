@@ -18,7 +18,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State, WindowEvent,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use usage::{
     Service, UsageDisplayState, UsageEngine, UsageProviderErrorEvent, UsageRefreshEvent,
@@ -1038,7 +1038,20 @@ fn start_gauge_rotation(tray: TrayIcon, app: AppHandle) {
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    let window = app.get_webview_window("main").or_else(|| {
+        WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            .title("ForgeGauge")
+            .inner_size(420.0, 640.0)
+            .min_inner_size(360.0, 520.0)
+            .resizable(true)
+            .center()
+            .visible(false)
+            .closable(false)
+            .build()
+            .ok()
+    });
+
+    if let Some(window) = window {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -1176,8 +1189,26 @@ pub fn run() {
             start_usage_scheduler(app_handle);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running ForgeGauge");
+        .build(tauri::generate_context!())
+        .expect("error while building ForgeGauge")
+        .run(|app_handle, event| match event {
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                api.prevent_close();
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+            tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } => {
+                api.prevent_exit();
+            }
+            _ => {}
+        });
 }
 
 #[cfg(test)]

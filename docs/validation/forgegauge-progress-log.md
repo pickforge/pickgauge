@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Manual smoke preflight:
+
+- Added `npm run smoke:preflight`, which emits sanitized JSON for future manual smoke notes: commit, package/app metadata, OS/session signals, Playwright package version, and repo-relative AppImage/sidecar artifact status.
+- The preflight output excludes cookies, tokens, auth headers, browser profile contents, account identifiers, authenticated page content, and full local paths, and it fails if the home directory path appears in the emitted JSON.
+- This supports the manual evidence checklist but does not replace user-observed KDE tray behavior, authenticated login/profile checks, provider refresh smoke, or Windows/macOS runtime smoke.
+- Validation: `npm run smoke:preflight`, `npm run check`, `npm test`, and `git diff --check` passed.
+
 Repeatable browser-preview validation:
 
 - Added `npm run test:browser-preview`, which starts Vite at `http://127.0.0.1:1420/`, launches Chromium through Playwright, and closes both browser and server after validation.

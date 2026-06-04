@@ -47,6 +47,7 @@ Inspect only file names, directory names, metadata, and browser preference keys 
 
 ## Evidence To Record
 
+- [ ] Run `npm run smoke:preflight` and keep only the sanitized JSON output with the manual smoke notes.
 - [ ] Date and local session type.
 - [ ] OS and desktop session.
 - [ ] ForgeGauge commit and artifact/build path.

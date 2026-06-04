@@ -83,10 +83,21 @@ export function localActivitySummary(snapshot: UsageSnapshot, locales?: Intl.Loc
         ? plural(activityCount ?? 0, "thread")
         : plural(activityCount ?? 0, "record");
   const modelCount = detailNumber(snapshot, "modelCount");
+  const serverToolUseCount = detailNumber(snapshot, "serverToolUseCount");
   const parts = [`${formatCount(totalTokens, locales)} tokens`];
 
   if (activityCount !== null && activityCount > 0) {
     parts.push(`${formatCount(activityCount, locales)} ${activityLabel}`);
+  }
+
+  if (serverToolUseCount !== null && serverToolUseCount > 0) {
+    parts.push(
+      `${formatCount(serverToolUseCount, locales)} server tool ${plural(
+        serverToolUseCount,
+        "use",
+        "uses",
+      )}`,
+    );
   }
 
   if (modelCount !== null && modelCount > 0) {

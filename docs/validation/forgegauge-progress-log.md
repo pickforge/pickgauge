@@ -37,6 +37,16 @@ Fail-closed web merge coverage:
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`153 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
 
+Claude server-tool usage aggregation:
+
+- Claude local parsing now sums numeric `message.usage.server_tool_use` values recursively into a sanitized `serverToolUseCount`.
+- The frontend local activity summary includes `serverToolUseCount` as a compact activity segment when present.
+- Tests cover sanitized fixture parsing, nested server-tool count aggregation, and local summary display.
+- Raw server-tool field names, payloads, content, IDs, cost, and block data remain excluded from snapshot details.
+- The broader Claude cost/block decision remains blocked.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`154 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
+
 ## 2026-06-03 America/Sao_Paulo
 
 Branch: `forgegauge-implementation`

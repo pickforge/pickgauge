@@ -51,6 +51,7 @@ struct ClaudeUsageSummary {
     output_tokens: u64,
     cache_creation_input_tokens: u64,
     cache_read_input_tokens: u64,
+    server_tool_use_count: u64,
     first_timestamp: Option<String>,
     last_timestamp: Option<String>,
     models: HashSet<String>,
@@ -97,6 +98,7 @@ struct ClaudeUsage {
     output_tokens: Option<u64>,
     cache_creation_input_tokens: Option<u64>,
     cache_read_input_tokens: Option<u64>,
+    server_tool_use: Option<serde_json::Value>,
 }
 
 impl ClaudeLocalProvider {
@@ -169,6 +171,7 @@ impl ClaudeLocalProvider {
                         "cacheTokens": summary.cache_tokens(),
                         "cacheCreationInputTokens": summary.cache_creation_input_tokens,
                         "cacheReadInputTokens": summary.cache_read_input_tokens,
+                        "serverToolUseCount": summary.server_tool_use_count,
                         "windowUsageRecords": summary.window_usage_records,
                         "recordsOutsideWindow": summary.records_outside_window,
                         "recordsWithoutTimestamp": summary.records_without_timestamp,
@@ -524,6 +527,7 @@ impl ClaudeUsageSummary {
         let output_tokens = usage.output_tokens.unwrap_or_default();
         let cache_creation_input_tokens = usage.cache_creation_input_tokens.unwrap_or_default();
         let cache_read_input_tokens = usage.cache_read_input_tokens.unwrap_or_default();
+        let server_tool_use_count = server_tool_use_count(usage.server_tool_use.as_ref());
         let record_tokens = input_tokens
             .saturating_add(output_tokens)
             .saturating_add(cache_creation_input_tokens)
@@ -538,6 +542,9 @@ impl ClaudeUsageSummary {
         self.cache_read_input_tokens = self
             .cache_read_input_tokens
             .saturating_add(cache_read_input_tokens);
+        self.server_tool_use_count = self
+            .server_tool_use_count
+            .saturating_add(server_tool_use_count);
 
         if let Some(timestamp) = record.timestamp {
             let timestamp_ms = parse_rfc3339_ms(&timestamp);
@@ -573,6 +580,21 @@ impl ClaudeUsageSummary {
         if let Some(session_id) = record.session_id {
             self.sessions.insert(session_id);
         }
+    }
+}
+
+fn server_tool_use_count(value: Option<&serde_json::Value>) -> u64 {
+    match value {
+        Some(serde_json::Value::Number(number)) => number.as_u64().unwrap_or_default(),
+        Some(serde_json::Value::Array(values)) => values
+            .iter()
+            .map(|value| server_tool_use_count(Some(value)))
+            .sum(),
+        Some(serde_json::Value::Object(values)) => values
+            .values()
+            .map(|value| server_tool_use_count(Some(value)))
+            .sum(),
+        _ => 0,
     }
 }
 
@@ -1012,6 +1034,7 @@ mod tests {
         assert_eq!(snapshot.details["cacheTokens"], 30);
         assert_eq!(snapshot.details["cacheCreationInputTokens"], 10);
         assert_eq!(snapshot.details["cacheReadInputTokens"], 20);
+        assert_eq!(snapshot.details["serverToolUseCount"], 2);
         assert_eq!(snapshot.details["modelCount"], 1);
         assert_eq!(snapshot.details["sessionCount"], 1);
         assert_eq!(
@@ -1022,6 +1045,28 @@ mod tests {
         assert!(snapshot.details.get("content").is_none());
         assert!(snapshot.details.get("sessionId").is_none());
         assert!(snapshot.details.get("cwd").is_none());
+    }
+
+    #[test]
+    fn claude_local_provider_aggregates_nested_server_tool_use_counts() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(
+            projects_dir.join("session.jsonl"),
+            r#"{"type":"assistant","timestamp":"2026-06-03T10:00:00Z","sessionId":"fixture-session","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":100,"output_tokens":50,"server_tool_use":{"web_search_requests":2,"nested":{"tool_calls":3},"ignored":"raw text"}}}}"#,
+        )
+        .expect("fixture file is written");
+        let provider = ClaudeLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T12:00:00Z");
+
+        assert_eq!(snapshot.details["usageRecords"], 1);
+        assert_eq!(snapshot.details["totalTokens"], 150);
+        assert_eq!(snapshot.details["serverToolUseCount"], 5);
+        assert!(snapshot.details.get("server_tool_use").is_none());
+        assert!(snapshot.details.get("web_search_requests").is_none());
+        assert!(snapshot.details.get("ignored").is_none());
     }
 
     #[test]

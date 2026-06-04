@@ -75,12 +75,13 @@ describe("frontend display formatting", () => {
           details: {
             totalTokens: 1234,
             sessionCount: 2,
+            serverToolUseCount: 3,
             modelCount: 1,
           },
         }),
         "en-US",
       ),
-    ).toBe("Local activity: 1,234 tokens | 2 sessions | 1 model");
+    ).toBe("Local activity: 1,234 tokens | 2 sessions | 3 server tool uses | 1 model");
   });
 
   it("does not summarize web snapshots or calibrated local percentages", () => {

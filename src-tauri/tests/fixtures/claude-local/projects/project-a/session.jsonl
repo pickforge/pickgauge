@@ -1,4 +1,4 @@
 {"type":"user","timestamp":"2026-06-03T09:59:00Z","sessionId":"fixture-session","message":{"role":"user","content":"redacted fixture prompt"}}
 {"type":"assistant","timestamp":"2026-06-03T10:00:00Z","sessionId":"fixture-session","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":120,"output_tokens":30,"cache_creation_input_tokens":10,"cache_read_input_tokens":5}}}
-{"type":"assistant","timestamp":"2026-06-03T10:05:00Z","sessionId":"fixture-session","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":200,"output_tokens":40,"cache_read_input_tokens":15}}}
+{"type":"assistant","timestamp":"2026-06-03T10:05:00Z","sessionId":"fixture-session","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":200,"output_tokens":40,"cache_read_input_tokens":15,"server_tool_use":{"web_search_requests":2}}}}
 {not valid json}

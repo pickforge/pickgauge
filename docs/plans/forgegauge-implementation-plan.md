@@ -24,6 +24,8 @@ Local provider discovery progress, 2026-06-03: completed privacy-limited read-on
 
 Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Cost/block aggregation and full local-provider completion remain unchecked.
 
+Claude server-tool progress, 2026-06-04: Claude local parsing now aggregates numeric `message.usage.server_tool_use` values into a sanitized `serverToolUseCount` and the frontend local activity summary can display that aggregate. Raw server-tool keys, payloads, content, IDs, costs, and block data remain excluded.
+
 Codex local provider progress, 2026-06-03: added an injectable Codex local data root, a sanitized `state_5.sqlite` fixture, and a read-only parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, enforces bounded thread scans, and supports calibrated web-baseline deltas.
 
 Local provider policy progress, 2026-06-03: hardened local-provider edge cases for malformed and truncated records. Claude scans only exact `.jsonl` files, ignores `.jsonl.1` style rotations, counts truncated lines as sanitized invalid records, and reports source RFC3339 timestamp metadata. Codex reads only `state_5.sqlite`, treats corrupt or schema-incompatible databases as sanitized parse failures, counts malformed token rows without leaking row data, and reports Unix epoch millisecond metadata. Without active calibration, both local providers keep machine-local activity clearly uncalibrated and avoid inferring rolling-window percentages.
@@ -662,6 +664,7 @@ Blocked: real browser-backed provider failure validation remains unchecked until
 - [x] Inspect Claude Code statusline-compatible data if available.
 - [x] Support ccusage-compatible parsing where practical.
 - [ ] Parse timestamps, model, input/output/cache tokens, session blocks, estimated cost/usage, and rolling window activity.
+  - [x] Aggregate numeric Claude `server_tool_use` usage counts without exposing raw server-tool fields.
 Blocked: current local Claude JSONL parsing covers timestamps, model/session counts, token classes, and calibrated rolling-window activity, but ccusage-style cost and billing-block output needs an explicit decision to add a pricing source, shell out to `ccusage`, or keep cost/block precision out of ForgeGauge.
 - [x] Define file scanning limits for large logs and many project directories.
 - [x] Define rotated/truncated file behavior.

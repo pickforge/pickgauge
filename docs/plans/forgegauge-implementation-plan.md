@@ -48,7 +48,7 @@ KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a li
 
 KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show ForgeGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible ForgeGauge window, the tray menu `Show ForgeGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show ForgeGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or human-visible settings-form persistence.
 
-KDE popup utility-window progress, 2026-06-04: the popup window now applies skip-taskbar and always-on-top hints when created or shown, hides on focus loss, and left tray click toggles visibility instead of only showing an already-visible popup. `npm run smoke:kde-tray` now requires `xprop` and verifies the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` plus an above/stays-on-top state. This proves automated utility-window hints for the packaged popup, but not physical tray-click behavior, exact tray-relative placement, focus-loss behavior under every compositor path, or multi-monitor placement.
+KDE popup utility-window progress, 2026-06-04: the popup window now applies skip-taskbar and always-on-top hints when created or shown, hides on focus loss, and left tray click toggles visibility instead of only showing an already-visible popup. `npm run smoke:kde-tray` now requires `xprop` and `xmessage`, verifies the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` plus an above/stays-on-top state, moves focus to a throwaway X11 window, and verifies focus loss hides the ForgeGauge popup while the process and tray item remain alive. This proves automated utility-window hints and focus-loss dismissal for the packaged popup, but not physical tray-click behavior, exact tray-relative placement, focus-loss behavior under every compositor path, or multi-monitor placement.
 
 KDE settings persistence smoke progress, 2026-06-04: `npm run smoke:kde-tray` now restarts the packaged AppImage with isolated XDG directories, verifies ForgeGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval settings into that isolated config, restarts the AppImage from the same isolated root, and verifies those persisted settings survive the packaged restart before tray `Quit` cleanup. This proves packaged config persistence across an isolated restart, but not a human-visible settings-form save inside the KDE webview.
 
@@ -609,6 +609,7 @@ Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-
   - [x] KDE DBusMenu smoke verifies `Show ForgeGauge` opens a visible ForgeGauge window.
 - [ ] Confirm popup closes reliably or has acceptable fallback behavior.
   - [x] KDE/XWayland smoke verifies a window close request removes the visible window while keeping the process and tray item alive.
+  - [x] KDE/XWayland smoke verifies focus loss hides the popup while keeping the process and tray item alive.
 - [ ] Confirm app can run as tray-first utility without an always-visible main window.
   - [x] KDE/XWayland smoke verifies the isolated AppImage starts with no visible ForgeGauge window before `Show ForgeGauge`.
 - [ ] Confirm tray gauge alternates between enabled services.
@@ -1056,6 +1057,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Popup position and dismissal behavior.
   - [x] KDE/XWayland smoke verifies tray `Show ForgeGauge` opens a visible window, close removes it without exiting, and `Show ForgeGauge` reopens/recreates it.
   - [x] KDE/XWayland smoke verifies the popup requests skip-taskbar and above/stays-on-top window-manager hints.
+  - [x] KDE/XWayland smoke verifies focus loss hides the popup while keeping the process and tray item alive.
 - [ ] Settings persistence after restart.
   - [x] KDE/AppImage smoke verifies isolated config creation and persisted service-toggle/gauge-interval values survive packaged restart.
 - [ ] Dedicated browser login.

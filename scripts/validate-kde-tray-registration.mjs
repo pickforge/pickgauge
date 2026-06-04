@@ -59,6 +59,11 @@ if (!commandAvailable("xprop")) {
   process.exit(0);
 }
 
+if (!commandAvailable("xmessage")) {
+  console.log("Skipping KDE tray registration smoke because xmessage is unavailable");
+  process.exit(0);
+}
+
 if (!statusNotifierHostRegistered()) {
   console.log("Skipping KDE tray registration smoke because no StatusNotifier host is registered");
   process.exit(0);
@@ -482,17 +487,45 @@ async function validateTrayWindowLifecycle(item, child, menuItems) {
 
   assert.equal(firstWindowTitle, "ForgeGauge", "Show menu item must open ForgeGauge window");
 
-  xdotool(["windowclose", firstWindowId]);
+  await validateFocusLossHidesPopup(firstWindowId);
+  assert.equal(child.exitCode, null, "Focus loss must not exit ForgeGauge");
+  assert.equal(child.signalCode, null, "Focus loss must not signal ForgeGauge");
+  assert.equal(
+    await waitForTrayItemRegistered(item.address),
+    true,
+    "Tray item must remain registered after focus loss",
+  );
+
+  const visibleBeforeCloseCheck = visibleForgeGaugeWindowIds();
 
   assert.equal(
-    await waitForWindowHidden(firstWindowId),
+    visibleBeforeCloseCheck.length,
+    0,
+    "Focus loss must leave no visible ForgeGauge window before close-check reshow",
+  );
+
+  triggerTrayMenuItem(item, showItem);
+
+  const closeCheckWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeCloseCheck);
+  const closeCheckWindowTitle = xdotool(["getwindowname", closeCheckWindowId]);
+
+  assert.equal(
+    closeCheckWindowTitle,
+    "ForgeGauge",
+    "Show menu item must reopen ForgeGauge window after focus loss",
+  );
+
+  xdotool(["windowclose", closeCheckWindowId]);
+
+  assert.equal(
+    await waitForWindowHidden(closeCheckWindowId),
     true,
     "Window close request must remove the visible ForgeGauge window",
   );
   assert.equal(child.exitCode, null, "Window close request must not exit ForgeGauge");
   assert.equal(child.signalCode, null, "Window close request must not signal ForgeGauge");
   assert.equal(
-    registeredStatusNotifierItems().has(item.address),
+    await waitForTrayItemRegistered(item.address),
     true,
     "Tray item must remain registered after window close request",
   );
@@ -515,6 +548,9 @@ async function validateTrayWindowLifecycle(item, child, menuItems) {
   return {
     closeKeepsProcessRunning: true,
     closeKeepsTrayRegistered: true,
+    focusLossHidesPopup: true,
+    focusLossKeepsProcessRunning: true,
+    focusLossKeepsTrayRegistered: true,
     initialVisibleWindowCount: visibleBeforeShow.length,
     reshowAfterClose: true,
     showMenuOpensWindow: true,
@@ -522,6 +558,37 @@ async function validateTrayWindowLifecycle(item, child, menuItems) {
     staysAboveHint: windowHints.staysAbove,
     windowTitle: secondWindowTitle,
   };
+}
+
+async function validateFocusLossHidesPopup(windowId) {
+  const focusTarget = await launchFocusTarget();
+
+  try {
+    xdotool(["windowactivate", focusTarget.windowId]);
+
+    assert.equal(
+      await waitForWindowHidden(windowId),
+      true,
+      "Focus loss must hide the ForgeGauge popup",
+    );
+  } finally {
+    await stopProcess(focusTarget.child);
+  }
+}
+
+async function launchFocusTarget() {
+  const targetTitle = "FocusSmokeTarget";
+  const child = spawn(
+    "xmessage",
+    ["-name", targetTitle, "-title", targetTitle, "-buttons", "OK:0", "focus smoke"],
+    {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  const windowId = await waitForVisibleWindowByName(`^${targetTitle}$`, []);
+
+  return { child, windowId };
 }
 
 function validatePopupWindowHints(windowId) {
@@ -724,6 +791,20 @@ async function waitForTrayItemUnregistered(itemAddress) {
   return false;
 }
 
+async function waitForTrayItemRegistered(itemAddress) {
+  const started = Date.now();
+
+  while (Date.now() - started < stopTimeoutMs) {
+    if (registeredStatusNotifierItems().has(itemAddress)) {
+      return true;
+    }
+
+    await delay(100);
+  }
+
+  return false;
+}
+
 function trayMenuItems(item) {
   const items = [];
 
@@ -770,11 +851,15 @@ function gdbusCall(args) {
 }
 
 async function waitForVisibleForgeGaugeWindow(previousWindowIds) {
+  return waitForVisibleWindowByName("^ForgeGauge$", previousWindowIds);
+}
+
+async function waitForVisibleWindowByName(name, previousWindowIds) {
   const started = Date.now();
   const previous = new Set(previousWindowIds);
 
   while (Date.now() - started < menuTimeoutMs) {
-    const windowId = visibleForgeGaugeWindowIds().find((id) => !previous.has(id));
+    const windowId = visibleWindowIdsByName(name).find((id) => !previous.has(id));
 
     if (windowId) {
       return windowId;
@@ -801,8 +886,12 @@ async function waitForWindowHidden(windowId) {
 }
 
 function visibleForgeGaugeWindowIds() {
+  return visibleWindowIdsByName("^ForgeGauge$");
+}
+
+function visibleWindowIdsByName(name) {
   try {
-    return xdotool(["search", "--onlyvisible", "--name", "ForgeGauge"])
+    return xdotool(["search", "--onlyvisible", "--name", name])
       .split(/\r?\n/u)
       .map((item) => item.trim())
       .filter(Boolean);

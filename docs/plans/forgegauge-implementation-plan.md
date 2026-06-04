@@ -82,6 +82,8 @@ Authenticated log sanitization smoke progress, 2026-06-04: extended `npm run smo
 
 Authenticated helper fail-fast progress, 2026-06-04: strict authenticated-profile smoke checks now inspect marker-owned profile storage and disabled/default-profile preferences before starting Playwright, then inspect again after headless refresh. Added `npm run test:auth-profile-helper` to validate sanitized helper output, strict blank-profile refresh, pre-launch credential/autofill/default-profile-reference failures, session-artifact strict failure, and sensitive-log failure without exposing temporary paths or official URLs. Real authenticated profile evidence remains unchecked.
 
+Authenticated helper dual-service progress, 2026-06-04: extended `npm run test:auth-profile-helper` so the strict blank-profile success path passes both Codex and Claude marker-owned disposable profiles in the same helper run. The validator now asserts sanitized results for both services and a marker-service mismatch failure path without exposing temporary profile paths, log paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports `login_required`. Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default preview cards do not expose `Start login` while the expired-login state does after experimental web providers are enabled.
@@ -827,6 +829,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] Add `npm run smoke:auth-profile -- --require-no-autofill-store-files` strict mode to fail sanitized future post-login checks when Chromium autofill-store files are present.
   - [x] Add `npm run smoke:auth-profile -- --require-no-default-profile-references` strict mode to fail sanitized future post-login checks when Chromium preferences reference default browser profile paths.
   - [x] `npm run test:auth-profile-helper` validates strict credential-store, autofill-store, and default-profile-reference failures before Playwright refresh.
+  - [x] `npm run test:auth-profile-helper` validates a dual-service strict blank-profile helper run for Codex and Claude marker-owned profiles.
 - [ ] Confirm no sensitive page content is written to normal logs.
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
   - [x] Add `npm run smoke:auth-profile` to validate future authenticated app-owned profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
@@ -1066,6 +1069,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login app-owned profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Update the authenticated-login inspection checklist to require sanitized normal app-log inspection alongside profile/storage checks.
   - [x] Add `npm run test:auth-profile-helper` to validate strict helper behavior and sanitized failure output for disposable profiles/logs.
+  - [x] `npm run test:auth-profile-helper` validates Codex and Claude disposable profile results plus service-marker mismatch rejection without raw path output.
 
 ### Automated Tests To Add
 
@@ -1094,6 +1098,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] KDE StatusNotifier tray registration, DBusMenu quit, XWayland show/close/reopen, and isolated packaged-restart config-persistence smoke command for AppImage launch validation.
 - [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and marker-owned dedicated-profile evidence.
 - [x] Authenticated-profile helper validation for strict profile safety, session-artifact requirements, and sanitized log inspection failures.
+  - [x] Validate dual-service Codex/Claude helper success and marker-service mismatch failure with disposable profiles.
 
 ### Manual Tests To Complete
 

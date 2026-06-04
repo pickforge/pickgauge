@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated helper dual-service coverage:
+
+- Extended `npm run test:auth-profile-helper` so the strict blank-profile success path supplies both Codex and Claude marker-owned disposable profiles in one helper run.
+- The validator now asserts sanitized service results for both profile labels and checks a marker-service mismatch failure without exposing temporary profile paths, log paths, official URLs, or the home directory.
+- Validation: `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:auth-profile-helper`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves disposable profile helper behavior; real authenticated profile persistence, saved-credential absence, and authenticated log cleanliness still require logged-in app-owned profiles.
+
 Official network fail-closed coverage:
 
 - Extended `npm run test:official-fail-closed` so forced dead-proxy headless `refreshUsage` checks run for both Codex and Claude temporary profiles.

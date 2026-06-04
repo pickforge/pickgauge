@@ -40,6 +40,7 @@ try {
     flag: "--require-no-autofill-store-files",
     name: "autofill-store",
   });
+  validateProfileMarkerMismatchFailure();
   validateDefaultProfileReferenceFailure();
   validateSessionArtifactRequirementFailure();
   validateSensitiveLogFailure();
@@ -62,14 +63,17 @@ function validateHelpOutput() {
 }
 
 function validateStrictBlankProfileRefresh() {
-  const profileRoot = createProfile("codex", "strict-blank");
+  const codexProfileRoot = createProfile("codex", "strict-blank-codex");
+  const claudeProfileRoot = createProfile("claude", "strict-blank-claude");
   const logPath = resolve(validationRoot, "strict-blank.log");
 
   writeFileSync(logPath, "ForgeGauge startup completed\n", { mode: 0o600 });
 
   const result = runHelper([
     "--codex-profile",
-    profileRoot,
+    codexProfileRoot,
+    "--claude-profile",
+    claudeProfileRoot,
     "--log-file",
     logPath,
     "--require-sanitized-log-file",
@@ -79,12 +83,20 @@ function validateStrictBlankProfileRefresh() {
     "--require-no-default-profile-references",
   ]);
   const output = JSON.parse(result.stdout);
-  const [service] = output.services;
+  const services = new Map(output.services.map((service) => [service.service, service]));
 
   assert.equal(result.status, 0);
   assert.equal(output.logInspection.inspected, true);
   assert.equal(output.logInspection.sensitiveContentAbsent, true);
-  assert.equal(service.service, "codex");
+  assert.equal(output.services.length, 2);
+  assertServiceResult(services.get("codex"), "codex");
+  assertServiceResult(services.get("claude"), "claude");
+  assertSanitized(result, [codexProfileRoot, claudeProfileRoot, logPath]);
+}
+
+function assertServiceResult(service, serviceName) {
+  assert.ok(service, `${serviceName} service result should be present`);
+  assert.equal(service.service, serviceName);
   assert.equal(service.headlessRefresh, true);
   assert.equal(service.visibleBrowserRequired, false);
   assert.equal(service.profileMarker.appOwned, true);
@@ -96,7 +108,14 @@ function validateStrictBlankProfileRefresh() {
     service.failClosedState === null || failClosedStates.has(service.failClosedState),
     `Unexpected fail-closed state: ${service.failClosedState}`,
   );
-  assertSanitized(result, [profileRoot, logPath]);
+}
+
+function validateProfileMarkerMismatchFailure() {
+  const profileRoot = createProfile("claude", "marker-mismatch");
+  const result = runHelper(["--codex-profile", profileRoot]);
+
+  assertFailureCode(result, "invalid_profile_marker");
+  assertSanitized(result, [profileRoot]);
 }
 
 function validatePreflightFailure({ code, fileName, flag, name }) {

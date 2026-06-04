@@ -15,6 +15,8 @@ const sidecarPath = resolve(
   repoRoot,
   "src-tauri/binaries/forgegauge-playwright-sidecar-x86_64-unknown-linux-gnu",
 );
+const readmePath = resolve(repoRoot, "README.md");
+const releaseWorkflowPath = resolve(repoRoot, ".github/workflows/release.yml");
 const packageJson = readJson(resolve(repoRoot, "package.json"));
 const tauriConfig = readJson(resolve(repoRoot, "src-tauri/tauri.conf.json"));
 const preflight = {
@@ -48,6 +50,22 @@ const preflight = {
   artifacts: {
     appImage: fileMetadata(appImagePath),
     playwrightSidecar: fileMetadata(sidecarPath),
+  },
+  releaseReadiness: {
+    platformArtifactsConfigured: {
+      linuxAppImage: fileContainsAll(releaseWorkflowPath, ["linux-appimage", "*.AppImage"]),
+      windows: fileContainsAll(releaseWorkflowPath, ["windows", "*.msi", "*.exe"]),
+      macosIntel: fileContainsAll(releaseWorkflowPath, ["macos-intel", "*.dmg"]),
+      macosAppleSilicon: fileContainsAll(releaseWorkflowPath, ["macos-apple-silicon", "*.dmg"]),
+    },
+    windowsMacosUntestedCaveat: {
+      readme: fileContainsAll(readmePath, ["Windows and macOS", "untested"]),
+      releaseWorkflowNotes: fileContainsAll(releaseWorkflowPath, [
+        "Windows and macOS",
+        "untested",
+      ]),
+    },
+    platformRuntimeSmokeStillRequired: true,
   },
   manualEvidence: {
     recordObservedKdeTrayBehavior: true,
@@ -266,6 +284,16 @@ function readJson(path) {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch {
     return null;
+  }
+}
+
+function fileContainsAll(path, fragments) {
+  try {
+    const content = readFileSync(path, "utf8");
+
+    return fragments.every((fragment) => content.includes(fragment));
+  } catch {
+    return false;
   }
 }
 

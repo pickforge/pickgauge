@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Release caveat preflight:
+
+- `npm run smoke:preflight` now reports sanitized release-readiness booleans for configured Linux AppImage, Windows, macOS Intel, and macOS Apple Silicon release artifacts.
+- The preflight also checks that README and release workflow notes still mark Windows/macOS builds as untested while leaving platform runtime smoke marked as required.
+- Validation: `node --check scripts/collect-smoke-preflight.mjs`, `npm run smoke:preflight`, `npm run lint`, `npm run check`, and `git diff --check` passed.
+- Remaining caveat: this only verifies release metadata and caveat text; it does not replace Windows/macOS runtime installation or launch smoke.
+
 Lint baseline:
 
 - Added `npm run lint` with ESLint flat config for Svelte, TypeScript, browser code, Node scripts, sidecar code, and Vite config while ignoring generated/build outputs.

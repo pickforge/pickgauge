@@ -1030,6 +1030,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Add sanitized preflight templates listing the required KDE/auth/platform manual observation fields without collecting secrets or raw local paths.
   - [x] Add sanitized preflight booleans for KDE smoke dependency availability and StatusNotifier host registration.
 - [x] For release checks: workflow run URL, release tag, and artifact names are recorded.
+  - [x] Add sanitized preflight booleans confirming platform artifacts are configured and README/release notes still mark Windows/macOS artifacts as untested.
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
   - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login app-owned profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Update the authenticated-login inspection checklist to require sanitized normal app-log inspection alongside profile/storage checks.
@@ -1159,6 +1160,7 @@ Blocked: real authenticated refresh logging proof requires logged-in app-owned p
 - [ ] After Phase 6.5: Confirm browser automation backend is viable before implementing web providers.
 - [ ] After Phase 8: Confirm web provider reliability is acceptable for personal use.
 - [ ] Before packaging: Run automated checks, complete KDE manual smoke test, and confirm release notes mark Windows/macOS artifacts as untested.
+  - [x] `npm run smoke:preflight` records sanitized release-readiness booleans for platform artifact configuration and the Windows/macOS untested caveat.
 Blocked: review gates require user approval, user-visible KDE validation, authenticated web-provider validation, or platform smoke results as applicable.
 
 ## MVP Cut Line

@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appImagePath = resolve(
@@ -25,7 +26,13 @@ const appImagePath = resolve(
 const itemTimeoutMs = 12_000;
 const menuTimeoutMs = 5_000;
 const configTimeoutMs = 5_000;
+const rotationTimeoutMs = 18_000;
 const stopTimeoutMs = 3_000;
+const trayIconPngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const trayServiceColors = {
+  Codex: [37, 99, 235, 255],
+  "Claude Code": [199, 91, 18, 255],
+};
 
 if (process.platform !== "linux") {
   console.log(`Skipping KDE tray registration smoke on ${process.platform}`);
@@ -67,12 +74,16 @@ try {
   const menu = await validateTrayMenuQuit(item, child, menuItems);
   const initialStdout = child.stdoutText();
   const initialStderr = child.stderrText();
+  const gaugeRotation = await validateTrayGaugeRotation({
+    configPath: initialConfig.path,
+    isolatedRoot,
+  });
   const settingsPersistence = await validateSettingsPersistence({
     configPath: initialConfig.path,
     isolatedRoot,
   });
 
-  assertSanitizedProcessOutput(initialStdout, initialStderr, child.stdoutText(), child.stderrText());
+  assertSanitizedProcessOutput(initialStdout, initialStderr);
 
   const result = {
     generatedAt: new Date().toISOString(),
@@ -90,6 +101,7 @@ try {
       itemPath: item.objectPath,
       itemStatus: item.status,
       itemTitle: item.title,
+      gaugeRotation,
       menu,
       settingsPersistence,
       window,
@@ -202,6 +214,216 @@ function isForgeGaugeItem(item) {
   const haystack = `${item.id} ${item.objectPath} ${item.title}`.toLowerCase();
 
   return haystack.includes("forgegauge") || haystack.includes("tray app main");
+}
+
+async function validateTrayGaugeRotation({ configPath, isolatedRoot }) {
+  const deterministicConfig = readConfig(configPath);
+
+  writeConfig(configPath, {
+    ...deterministicConfig,
+    enabledServices: {
+      codex: true,
+      claude: true,
+    },
+    providers: {
+      ...deterministicConfig.providers,
+      localEnabled: false,
+      webEnabled: false,
+    },
+    intervals: {
+      ...deterministicConfig.intervals,
+      gaugeSwitchSeconds: 5,
+    },
+  });
+
+  const beforeRestartItems = registeredStatusNotifierItems();
+
+  child = launchAppImage(isolatedRoot);
+
+  try {
+    const item = await waitForForgeGaugeTrayItem(beforeRestartItems, child);
+    const menuItems = await waitForTrayMenuItems(item);
+    const observedServices = await waitForTrayIconServices(item);
+
+    await validateTrayMenuQuit(item, child, menuItems);
+    assertSanitizedProcessOutput(child.stdoutText(), child.stderrText());
+
+    return {
+      deterministicLocalProvidersDisabled: true,
+      iconUpdatedOverDbus: true,
+      observedServices,
+      rotatesBetweenEnabledServices: true,
+    };
+  } finally {
+    await stopProcess(child);
+  }
+}
+
+async function waitForTrayIconServices(item) {
+  const seenServices = new Set();
+  const started = Date.now();
+
+  while (Date.now() - started < rotationTimeoutMs) {
+    const service = trayIconService(item);
+
+    if (service) {
+      seenServices.add(service);
+    }
+
+    if (seenServices.has("Codex") && seenServices.has("Claude Code")) {
+      return ["Codex", "Claude Code"];
+    }
+
+    await delay(250);
+  }
+
+  throw new Error("Timed out waiting for tray icon gauge rotation");
+}
+
+function trayIconService(item) {
+  try {
+    const iconPath = qdbusProperty(item.service, item.objectPath, "IconName");
+
+    if (!isTrayIconPath(iconPath)) {
+      return null;
+    }
+
+    const rgba = decodePngRgba(readFileSync(iconPath));
+
+    for (const [service, color] of Object.entries(trayServiceColors)) {
+      if (rgbaContainsColor(rgba, color)) {
+        return service;
+      }
+    }
+  } catch {
+  }
+
+  return null;
+}
+
+function isTrayIconPath(path) {
+  return /^\/run\/user\/\d+\/tray-icon\/tray-icon-main-\d+\.png$/u.test(path) && existsSync(path);
+}
+
+function rgbaContainsColor(rgba, [red, green, blue, alpha]) {
+  for (let index = 0; index < rgba.length; index += 4) {
+    if (
+      rgba[index] === red &&
+      rgba[index + 1] === green &&
+      rgba[index + 2] === blue &&
+      rgba[index + 3] === alpha
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function decodePngRgba(png) {
+  assert.equal(png.subarray(0, 8).equals(trayIconPngSignature), true, "Tray icon must be a PNG");
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idatChunks = [];
+
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.subarray(offset + 4, offset + 8).toString("ascii");
+    const data = png.subarray(offset + 8, offset + 8 + length);
+
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+      assert.equal(data[10], 0, "Tray icon PNG must use deflate compression");
+      assert.equal(data[11], 0, "Tray icon PNG must use standard filtering");
+      assert.equal(data[12], 0, "Tray icon PNG must be non-interlaced");
+    } else if (type === "IDAT") {
+      idatChunks.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+
+    offset += 12 + length;
+  }
+
+  assert.equal(bitDepth, 8, "Tray icon PNG must use 8-bit channels");
+  assert.equal(colorType, 6, "Tray icon PNG must use RGBA pixels");
+
+  const bytesPerPixel = 4;
+  const stride = width * bytesPerPixel;
+  const inflated = inflateSync(Buffer.concat(idatChunks));
+  const rgba = Buffer.alloc(width * height * bytesPerPixel);
+  let sourceOffset = 0;
+  let outputOffset = 0;
+  let previousRow = Buffer.alloc(stride);
+
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[sourceOffset];
+    const rawRow = inflated.subarray(sourceOffset + 1, sourceOffset + 1 + stride);
+    const row = Buffer.alloc(stride);
+
+    for (let index = 0; index < stride; index += 1) {
+      const left = index >= bytesPerPixel ? row[index - bytesPerPixel] : 0;
+      const up = previousRow[index] ?? 0;
+      const upLeft = index >= bytesPerPixel ? previousRow[index - bytesPerPixel] : 0;
+
+      row[index] = (rawRow[index] + pngFilterValue(filter, left, up, upLeft)) & 0xff;
+    }
+
+    row.copy(rgba, outputOffset);
+    previousRow = row;
+    sourceOffset += stride + 1;
+    outputOffset += stride;
+  }
+
+  return rgba;
+}
+
+function pngFilterValue(filter, left, up, upLeft) {
+  if (filter === 0) {
+    return 0;
+  }
+
+  if (filter === 1) {
+    return left;
+  }
+
+  if (filter === 2) {
+    return up;
+  }
+
+  if (filter === 3) {
+    return Math.floor((left + up) / 2);
+  }
+
+  if (filter === 4) {
+    return paethPredictor(left, up, upLeft);
+  }
+
+  throw new Error(`Unsupported PNG filter ${filter}`);
+}
+
+function paethPredictor(left, up, upLeft) {
+  const estimate = left + up - upLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upLeftDistance = Math.abs(estimate - upLeft);
+
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) {
+    return left;
+  }
+
+  if (upDistance <= upLeftDistance) {
+    return up;
+  }
+
+  return upLeft;
 }
 
 function statusNotifierHostRegistered() {
@@ -343,7 +565,7 @@ async function validateSettingsPersistence({ configPath, isolatedRoot }) {
     },
   };
 
-  writeFileSync(configPath, `${JSON.stringify(updatedConfig, null, 2)}\n`, { mode: 0o600 });
+  writeConfig(configPath, updatedConfig);
 
   const beforeRestartItems = registeredStatusNotifierItems();
 
@@ -422,6 +644,10 @@ function findConfigFile(root) {
 
 function readConfig(path) {
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function writeConfig(path, config) {
+  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
 
 function triggerTrayMenuItem(item, menuItem) {

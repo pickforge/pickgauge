@@ -47,6 +47,13 @@ Packaged settings persistence smoke:
 - Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `git diff --check`, `npm run check`, `npm run smoke:kde-tray`, and cleanup checks for leftover ForgeGauge processes and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
 - Remaining caveat: this proves packaged config survival across an isolated restart, but not a human-visible settings-form save inside the KDE webview or physical tray placement/click behavior.
 
+KDE gauge rotation smoke:
+
+- `npm run smoke:kde-tray` now validates packaged tray icon rotation through KDE StatusNotifier D-Bus before the settings-persistence restart.
+- The smoke restarts the AppImage with deterministic local providers disabled, polls ForgeGauge StatusNotifier `IconName` updates, decodes the exported tray PNGs, and passes only after observing both the `Codex` and `Claude Code` service accent colors. It reports only sanitized service labels and booleans in the JSON evidence.
+- Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `npm run smoke:kde-tray`, `npm run check`, and `git diff --check` passed.
+- Remaining caveat: this proves D-Bus icon updates and rendered service-color rotation in the current KDE/Wayland session, but not physical tray placement, visible icon animation, physical tray click behavior, or tooltip text exposure.
+
 Browser session manager status reconciliation:
 
 - Marked the isolated browser session manager complete in the plan while leaving authenticated login, authenticated cookie/session validation, saved-credential absence after login, and real provider refresh parsing unchecked.

@@ -50,6 +50,8 @@ KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configur
 
 KDE settings persistence smoke progress, 2026-06-04: `npm run smoke:kde-tray` now restarts the packaged AppImage with isolated XDG directories, verifies ForgeGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval settings into that isolated config, restarts the AppImage from the same isolated root, and verifies those persisted settings survive the packaged restart before tray `Quit` cleanup. This proves packaged config persistence across an isolated restart, but not a human-visible settings-form save inside the KDE webview.
 
+KDE gauge rotation smoke progress, 2026-06-04: `npm run smoke:kde-tray` now also restarts the packaged AppImage with deterministic local providers disabled, observes StatusNotifier `IconName` updates over D-Bus, decodes the exported tray PNGs, and verifies the rendered icon rotation includes both the `Codex` and `Claude Code` service accent colors. The smoke records only sanitized service labels and booleans, not raw D-Bus payloads, icon paths, or screen captures. This proves automated packaged tray icon rotation for enabled services under deterministic data, but not physical tray placement or human-visible icon animation.
+
 Browser session manager reconciliation progress, 2026-06-04: reconciled stale checklist state for the isolated browser session manager. `cargo test browser_session --lib` and `cargo test browser_profile --lib` verify app-owned marker-guarded profile roots, default app-owned profile paths, distinct/non-nested service profile paths, browser process tracking, shutdown/orphan recovery, Playwright persistent-context launch request construction, disabled password/autofill preferences, redacted diagnostics, sanitized profile inspection, and safe profile clearing. `npm run test:sidecar-launch` now emits sanitized CachyOS/KDE/Wayland JSON evidence while verifying headed Playwright launches to both official URLs with temporary isolated Codex/Claude profiles, profile persistence across relaunch, disabled storage preferences, no seeded default-profile import, sanitized stdout/stderr, process-group cleanup, and temporary profile root removal. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
@@ -606,6 +608,8 @@ Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-
   - [x] KDE/XWayland smoke verifies a window close request removes the visible window while keeping the process and tray item alive.
 - [ ] Confirm app can run as tray-first utility without an always-visible main window.
   - [x] KDE/XWayland smoke verifies the isolated AppImage starts with no visible ForgeGauge window before `Show ForgeGauge`.
+- [ ] Confirm tray gauge alternates between enabled services.
+  - [x] KDE StatusNotifier smoke verifies the AppImage tray `IconName` updates and exported PNG colors rotate between `Codex` and `Claude Code` with deterministic enabled services.
 - [ ] Confirm close button either hides to tray or exits only when explicitly intended.
   - [x] KDE/XWayland smoke verifies a close request does not exit the app and `Show ForgeGauge` can reopen/recreate the window afterward.
 - [ ] Confirm popup/window position is acceptable on single-monitor and multi-monitor KDE setups.
@@ -907,6 +911,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 - [ ] Verify tray appears.
 - [ ] Verify popup opens/closes.
 - [ ] Verify gauge alternates.
+  - [x] KDE StatusNotifier smoke verifies sanitized D-Bus icon updates and rendered PNG color rotation between `Codex` and `Claude Code` under deterministic data.
 - [ ] Verify settings persist.
 - [ ] Verify providers fail gracefully.
 Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing.

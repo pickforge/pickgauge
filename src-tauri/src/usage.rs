@@ -1855,6 +1855,34 @@ mod tests {
     }
 
     #[test]
+    fn disabled_web_providers_are_not_registered_for_all_refreshes() {
+        let engine = UsageEngine::new(config_with_services(true, true));
+        let providers = {
+            let state = engine.lock().expect("usage engine locks");
+            state
+                .providers
+                .iter()
+                .map(|provider| provider_descriptor(provider.as_ref()))
+                .collect::<Vec<_>>()
+        };
+
+        assert!(providers
+            .iter()
+            .all(|provider| provider.source != UsageSource::Web));
+        assert!(providers.iter().all(|provider| !matches!(
+            provider.provider_id,
+            UsageProviderId::CodexWeb | UsageProviderId::ClaudeWeb
+        )));
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+
+        assert!(display_state
+            .snapshots
+            .iter()
+            .all(|snapshot| snapshot.source != UsageSource::Web));
+    }
+
+    #[test]
     fn manual_web_refresh_passes_opt_in_before_provider_lookup() {
         let engine = UsageEngine::new(web_enabled_config());
 

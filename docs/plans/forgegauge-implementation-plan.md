@@ -743,7 +743,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add parser tests for unexpected UI.
 - [x] Add parser tests for parse failure.
 - [x] Add fixture sanitization tests or review checks.
-- [ ] Add provider-level tests proving web providers do not run unless explicitly enabled.
+- [x] Add provider-level tests proving web providers do not run unless explicitly enabled.
 
 ### Phase 9 — Merge Engine
 

@@ -74,7 +74,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] AppImage bundling works locally on CachyOS/Arch-like systems through `npm run build:appimage`.
 - [x] Real local usage providers work without account credentials.
 - [ ] Opt-in web providers use dedicated browser profiles and never store passwords.
-Blocked: requires Playwright sidecar implementation plus authenticated login/profile validation before real opt-in web providers can be claimed to use dedicated profiles and never store passwords.
+Blocked: requires authenticated login/profile validation before real opt-in web providers can be claimed to use dedicated profiles and never store passwords.
 - [x] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
 - [x] Merged usage values combine official web baselines with calibrated local deltas.
 - [ ] Full KDE/Wayland tray smoke test is confirmed by the user.
@@ -158,7 +158,7 @@ Blocked: requires an explicit product decision for ccusage-style cost/block prec
 - [ ] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
-Blocked: requires Playwright sidecar implementation and manual authenticated profile/login validation before real web-provider launch and refresh flows can be completed.
+Blocked: requires manual authenticated profile/login validation before real web-provider refresh flows can be completed.
 - [x] Merge engine for web baselines plus local deltas.
 - [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
@@ -732,6 +732,9 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Chosen backend is Playwright headed Chromium sidecar; web providers remain gated on manual authenticated CachyOS KDE/Wayland testing.
 - [x] Disable password manager, autofill, and save-password prompts or defer web providers.
 - [ ] Prove fail-closed handling for logged-out, MFA, CAPTCHA, and unexpected UI states.
+  - [x] Parser fixtures and tests cover logged-out, MFA, CAPTCHA/bot-check, unexpected UI, network unavailable, timeout, missing visible data, and parse-failure states.
+  - [x] Display merge and browser-preview fixtures keep local data visible and surface sanitized fail-closed web status notes without horizontal overflow.
+Blocked: real browser-backed provider failure validation still requires authenticated/manual provider smoke tests.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
 - [ ] Confirm no sensitive page content is written to normal logs.
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
@@ -1062,7 +1065,7 @@ Blocked: review gates require user approval, user-visible KDE validation, authen
 - [x] At least one real local provider.
 - [x] Central usage engine, provider registry, scheduler, shared display cache, and event stream.
 
-Web providers should follow once KDE tray behavior, backend selection, and manual login/profile isolation checks are stable.
+Web providers should follow once KDE tray behavior and manual login/profile isolation checks are stable; backend selection is complete.
 
 ## Next Implementation Milestone
 
@@ -1099,6 +1102,6 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 
 Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavior confirmation requires user-visible desktop interaction and cannot be verified through the available Playwright/browser-preview tooling in this session.
 
-Blocked: Playwright backend selection is approved, but manual CachyOS KDE/Wayland login/profile validation remains required before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard and startup orphan detection exist; profile persistence validation remains unchecked.
+Blocked: Playwright sidecar implementation and local launch validation are complete, but manual CachyOS KDE/Wayland login/profile validation remains required before implementing real web-provider refresh flows. The backend-agnostic process stop guard and startup orphan detection exist; authenticated app-owned profile persistence validation remains unchecked.
 
 Blocked: current-feature release verification still requires pushing or dispatching this feature branch through the release workflow, and Windows/macOS install behavior still requires manual platform smoke testing. Remote `main` workflow execution and artifact upload verification are recorded.

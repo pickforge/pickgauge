@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Tracker reconciliation:
+
+- Narrowed stale Playwright blockers now that sidecar implementation, packaging, local headed launch, profile isolation, password/autofill preference, default-profile isolation, and sanitized-output validation are complete.
+- Recorded fail-closed parser/display/browser-preview evidence under the remaining logged-out/MFA/CAPTCHA/unexpected-UI proof item while leaving real browser-backed provider failure validation unchecked.
+- Remaining blockers are manual authenticated login/profile validation, real provider refresh smoke tests, KDE/Wayland tray smoke, and Windows/macOS runtime smoke.
+- Validation: `cargo test web_provider`, `cargo test web_interruption`, `cargo test web_provider_fails_closed`, `npm run check`, and `git diff --check` passed.
+
 Browser-preview state fixtures:
 
 - Added browser-preview-only query states for `missing-local-data`, `network-unavailable`, `expired-login`, `mfa-required`, `captcha-or-bot-check`, `unexpected-ui`, `timed-out`, `parse-failed`, `stale-data`, `provider-unavailable`, `permission-denied`, `unsafe-profile-path`, and `provider-disabled`.

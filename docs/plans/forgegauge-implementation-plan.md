@@ -800,7 +800,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Orange/brand Claude asset is available.
 - [x] Gray/unknown state asset is available.
 - [x] Red/low state asset is available.
-- [ ] Dynamic percentage gauge icons.
+- [x] Dynamic percentage gauge icons.
 - [ ] Confirm tray behavior on CachyOS KDE/Wayland.
 
 ### Popup UI

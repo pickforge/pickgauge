@@ -24,18 +24,17 @@ const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytic
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
 const LOG_FILE_NAME: &str = "forgegauge.log";
 const LOG_REDACTION_POLICY_PATH: &str = "docs/security/log-redaction-policy.md";
-const TRAY_CODEX: &[u8] = include_bytes!("../../assets/branding/tray-codex-64.png");
-const TRAY_CLAUDE: &[u8] = include_bytes!("../../assets/branding/tray-claude-64.png");
-const TRAY_LOW: &[u8] = include_bytes!("../../assets/branding/tray-low-64.png");
 const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TrayIconAsset {
-    Codex,
-    Claude,
-    Low,
-    Unknown,
-}
+const TRAY_ICON_SIZE: u32 = 64;
+const TRAY_ICON_CENTER: f32 = 32.0;
+const TRAY_ICON_OUTER_RADIUS: f32 = 30.0;
+const TRAY_ICON_INNER_RADIUS: f32 = 21.0;
+const TRAY_CODEX_ACCENT: [u8; 4] = [37, 99, 235, 255];
+const TRAY_CLAUDE_ACCENT: [u8; 4] = [199, 91, 18, 255];
+const TRAY_LOW_ACCENT: [u8; 4] = [192, 38, 38, 255];
+const TRAY_TRACK: [u8; 4] = [100, 112, 132, 112];
+const TRAY_SURFACE: [u8; 4] = [246, 247, 251, 255];
+const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 
 struct ConfigLoadState {
     error: Mutex<Option<String>>,
@@ -514,31 +513,71 @@ fn refresh_provider(
     }
 }
 
-impl TrayIconAsset {
-    fn bytes(self) -> &'static [u8] {
-        match self {
-            Self::Codex => TRAY_CODEX,
-            Self::Claude => TRAY_CLAUDE,
-            Self::Low => TRAY_LOW,
-            Self::Unknown => TRAY_UNKNOWN,
-        }
-    }
+fn tray_icon_rgba_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Option<Vec<u8>> {
+    state.remaining_percent.map(|percent| {
+        dynamic_tray_icon_rgba(
+            state.service,
+            percent.clamp(0.0, 100.0),
+            low_usage_threshold.clamp(0.0, 100.0),
+        )
+    })
 }
 
-fn tray_icon_asset_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> TrayIconAsset {
-    match state.remaining_percent {
-        None => TrayIconAsset::Unknown,
-        Some(percent) if percent <= low_usage_threshold => TrayIconAsset::Low,
-        Some(_) => match state.service {
-            Service::Codex => TrayIconAsset::Codex,
-            Service::Claude => TrayIconAsset::Claude,
-        },
+fn dynamic_tray_icon_rgba(
+    service: Service,
+    remaining_percent: f32,
+    low_usage_threshold: f32,
+) -> Vec<u8> {
+    let accent = tray_accent_for(service, remaining_percent, low_usage_threshold);
+    let progress = remaining_percent / 100.0;
+    let size = TRAY_ICON_SIZE as usize;
+    let mut rgba = vec![0; size * size * 4];
+
+    for y in 0..TRAY_ICON_SIZE {
+        for x in 0..TRAY_ICON_SIZE {
+            let dx = x as f32 + 0.5 - TRAY_ICON_CENTER;
+            let dy = y as f32 + 0.5 - TRAY_ICON_CENTER;
+            let distance = (dx.mul_add(dx, dy * dy)).sqrt();
+            let color = if (TRAY_ICON_INNER_RADIUS..=TRAY_ICON_OUTER_RADIUS).contains(&distance) {
+                let angle =
+                    (dy.atan2(dx) + std::f32::consts::FRAC_PI_2).rem_euclid(std::f32::consts::TAU);
+
+                if angle / std::f32::consts::TAU <= progress {
+                    accent
+                } else {
+                    TRAY_TRACK
+                }
+            } else if distance < TRAY_ICON_INNER_RADIUS {
+                TRAY_SURFACE
+            } else {
+                TRAY_TRANSPARENT
+            };
+            let index = ((y * TRAY_ICON_SIZE + x) * 4) as usize;
+            rgba[index..index + 4].copy_from_slice(&color);
+        }
+    }
+
+    rgba
+}
+
+fn tray_accent_for(service: Service, remaining_percent: f32, low_usage_threshold: f32) -> [u8; 4] {
+    if remaining_percent <= low_usage_threshold {
+        return TRAY_LOW_ACCENT;
+    }
+
+    match service {
+        Service::Codex => TRAY_CODEX_ACCENT,
+        Service::Claude => TRAY_CLAUDE_ACCENT,
     }
 }
 
 fn tray_icon_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Image<'static> {
-    Image::from_bytes(tray_icon_asset_for(state, low_usage_threshold).bytes())
-        .expect("valid bundled tray icon")
+    if let Some(rgba) = tray_icon_rgba_for(state, low_usage_threshold) {
+        return Image::new_owned(rgba, TRAY_ICON_SIZE, TRAY_ICON_SIZE);
+    }
+
+    Image::from_bytes(TRAY_UNKNOWN)
+        .expect("valid bundled unknown tray icon")
         .to_owned()
 }
 
@@ -852,34 +891,48 @@ mod tests {
     }
 
     #[test]
-    fn unknown_tray_state_uses_unknown_icon_asset() {
-        assert_eq!(
-            tray_icon_asset_for(tray_state(Service::Codex, None), 20.0),
-            TrayIconAsset::Unknown
-        );
+    fn unknown_tray_state_does_not_generate_dynamic_icon() {
+        assert!(tray_icon_rgba_for(tray_state(Service::Codex, None), 20.0).is_none());
     }
 
     #[test]
-    fn low_tray_state_uses_low_icon_asset_at_threshold() {
-        assert_eq!(
-            tray_icon_asset_for(tray_state(Service::Claude, Some(20.0)), 20.0),
-            TrayIconAsset::Low
-        );
+    fn percentage_tray_icon_has_expected_rgba_size() {
+        let rgba = tray_icon_rgba_for(tray_state(Service::Codex, Some(72.0)), 20.0)
+            .expect("known percentage renders dynamic icon");
+
+        assert_eq!(rgba.len(), (TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4) as usize);
     }
 
     #[test]
-    fn codex_tray_state_uses_codex_icon_asset_above_threshold() {
-        assert_eq!(
-            tray_icon_asset_for(tray_state(Service::Codex, Some(21.0)), 20.0),
-            TrayIconAsset::Codex
-        );
+    fn percentage_tray_icon_changes_with_remaining_percent() {
+        let high = tray_icon_rgba_for(tray_state(Service::Codex, Some(80.0)), 20.0)
+            .expect("high percentage renders dynamic icon");
+        let medium = tray_icon_rgba_for(tray_state(Service::Codex, Some(40.0)), 20.0)
+            .expect("medium percentage renders dynamic icon");
+
+        assert_ne!(high, medium);
     }
 
     #[test]
-    fn claude_tray_state_uses_claude_icon_asset_above_threshold() {
-        assert_eq!(
-            tray_icon_asset_for(tray_state(Service::Claude, Some(21.0)), 20.0),
-            TrayIconAsset::Claude
-        );
+    fn percentage_tray_icon_uses_service_accent_above_threshold() {
+        let codex = tray_icon_rgba_for(tray_state(Service::Codex, Some(72.0)), 20.0)
+            .expect("codex percentage renders dynamic icon");
+        let claude = tray_icon_rgba_for(tray_state(Service::Claude, Some(72.0)), 20.0)
+            .expect("claude percentage renders dynamic icon");
+
+        assert!(codex
+            .chunks_exact(4)
+            .any(|pixel| pixel == TRAY_CODEX_ACCENT));
+        assert!(claude
+            .chunks_exact(4)
+            .any(|pixel| pixel == TRAY_CLAUDE_ACCENT));
+    }
+
+    #[test]
+    fn low_percentage_tray_icon_uses_low_accent_at_threshold() {
+        let rgba = tray_icon_rgba_for(tray_state(Service::Claude, Some(20.0)), 20.0)
+            .expect("low percentage renders dynamic icon");
+
+        assert!(rgba.chunks_exact(4).any(|pixel| pixel == TRAY_LOW_ACCENT));
     }
 }

@@ -717,7 +717,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add negative tests for unsafe browser profile paths.
 - [ ] Add tests for browser shutdown, orphan detection, and cleanup refusal.
 - [x] Verify profile/cache paths use restrictive local permissions where supported.
-- [ ] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
+- [x] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
 
 ### Phase 8 — Web Providers
 

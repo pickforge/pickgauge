@@ -924,7 +924,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
 - [ ] Dedicated profiles contain no saved credentials after login validation.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
-- [ ] Browser profile is isolated from the main browser profile.
+- [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.
 - [x] Disabling a web provider cancels future scheduled reads.
 - [x] Clear UI label for experimental web provider.

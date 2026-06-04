@@ -4,13 +4,15 @@
 
 This is the canonical consolidated plan for ForgeGauge. It merges the previous product spec and phased implementation plan into one checklist-driven document.
 
-Current app state: **early Tauri/Svelte MVP with fake fallback data, local Claude/Codex providers with optional manual calibration, persisted settings, branded tray wiring, app icons, AppImage build support, and release workflow scaffolding.**
+Current app state: **early Tauri/Svelte MVP with fake fallback data, local Claude/Codex providers with optional manual calibration, persisted settings, branded tray wiring, app icons, AppImage build support, and a verified release workflow on remote `main`.**
 
 Last readiness review: source checked against this plan after consolidation. The plan is now intended to be executable as the active backlog, with unchecked items representing the remaining implementation work.
 
 Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone for the fake-provider path. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Browser preview smoke checks covered desktop and mobile layouts, settings checkbox interaction, and overflow checks via Playwright; full KDE/Wayland tray smoke testing remains unchecked.
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
+
+Release workflow progress, 2026-06-03: verified successful GitHub Actions release run `26882140665` on remote `main` commit `4861da642752be3e0ea61282d45bf8b850bb5170`. The run created tag `forgegauge-v0.1.0-4.1`, uploaded Linux AppImage, Windows installer/MSI, macOS Intel DMG, and macOS Apple Silicon DMG assets, then published the release after all build matrix jobs succeeded. This verifies the remote mainline workflow and asset uploads, but not the current feature branch or Windows/macOS install behavior.
 
 Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added.
 
@@ -55,7 +57,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
 - [x] Merged usage values combine official web baselines with calibrated local deltas.
 - [ ] Full KDE/Wayland tray smoke test is confirmed by the user.
-- [ ] Remote release workflow is verified after a mainline push.
+- [x] Remote release workflow is verified after a mainline push.
 
 ## Constraints
 
@@ -114,7 +116,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 
 - [ ] Remaining tray-first window lifecycle polish: tray-relative popup behavior where practical, popup dismissal fallback, and KDE/Wayland confirmation.
 - [ ] Full KDE/Wayland smoke test for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
-- [ ] GitHub release workflow remote/mainline run verification.
+- [x] GitHub release workflow remote/mainline run verification.
 - [ ] Windows artifact testing.
 - [ ] macOS Intel artifact testing.
 - [ ] macOS Apple Silicon artifact testing.
@@ -203,7 +205,7 @@ Build in this order to avoid rework:
 6. **Merge and release readiness**
 - [x] Implement merge engine.
    - [ ] Complete KDE smoke test.
-   - [ ] Verify remote release workflow and platform artifacts.
+   - [x] Verify remote release workflow and platform artifact uploads.
 
 ## Definition of Done for Each Phase
 
@@ -781,15 +783,15 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [ ] Verify gauge alternates.
 - [ ] Verify settings persist.
 - [ ] Verify providers fail gracefully.
-- [ ] Verify queued release workflow runs on mainline push.
-- [ ] Run or trigger release workflow on `main` or through `workflow_dispatch`.
-- [ ] Confirm draft release is created with expected `forgegauge-v<version>-<run>.<attempt>` tag.
-- [ ] Verify Linux AppImage artifact uploads.
-- [ ] Verify Windows artifact uploads.
-- [ ] Verify macOS Intel artifact uploads.
-- [ ] Verify macOS Apple Silicon artifact uploads.
-- [ ] Confirm release is published only after all build matrix jobs succeed.
-- [ ] Record any failing runner labels, action versions, package dependencies, or upload paths.
+- [x] Verify queued release workflow runs on mainline push.
+- [x] Run or trigger release workflow on `main` or through `workflow_dispatch`.
+- [x] Confirm draft release is created with expected `forgegauge-v<version>-<run>.<attempt>` tag.
+- [x] Verify Linux AppImage artifact uploads.
+- [x] Verify Windows artifact uploads.
+- [x] Verify macOS Intel artifact uploads.
+- [x] Verify macOS Apple Silicon artifact uploads.
+- [x] Confirm release is published only after all build matrix jobs succeed.
+- [x] Record any failing runner labels, action versions, package dependencies, or upload paths.
 - [x] Add optional autostart setting.
 - [x] Add basic failure logging view or log file location.
 
@@ -873,7 +875,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] For implemented code: commit/diff evidence exists in source.
 - [x] For automated validation: command and pass/fail result are recorded in the session or relevant commit notes.
 - [ ] For manual KDE checks: date/session, OS/session type, artifact/binary used, and observed behavior are recorded.
-- [ ] For release checks: workflow run URL, release tag, and artifact names are recorded.
+- [x] For release checks: workflow run URL, release tag, and artifact names are recorded.
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
 
 ### Automated Tests To Add
@@ -1014,4 +1016,4 @@ Blocked: KDE/Wayland tray visibility, tray click, close-button, and quit-behavio
 
 Blocked: browser automation backend selection requires user approval of the recommended Playwright spike path, then manual CachyOS KDE/Wayland login/profile validation before implementing real managed browser launch/login flows or web providers. The backend-agnostic process stop guard and startup orphan detection exist; profile persistence validation remains unchecked.
 
-Blocked: remote release workflow and Windows/macOS artifact verification require a mainline push or workflow dispatch plus access to the resulting GitHub Actions run and release artifacts.
+Blocked: current-feature release verification still requires pushing or dispatching this feature branch through the release workflow, and Windows/macOS install behavior still requires manual platform smoke testing. Remote `main` workflow execution and artifact upload verification are recorded.

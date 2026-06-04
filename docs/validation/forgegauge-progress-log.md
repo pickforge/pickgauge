@@ -48,6 +48,26 @@ Runtime and packaging prerequisites observed:
 - Browser-preview and AppImage build validation did not reveal additional package prerequisites.
 - KDE/Wayland tray runtime package confirmation still requires manual desktop smoke testing with the AppImage artifact.
 
+Remote release workflow evidence:
+
+- GitHub Actions run: <https://github.com/pickforge/ai-usage-tray/actions/runs/26882140665>
+- Event: `push` on `main`
+- Head commit: `4861da642752be3e0ea61282d45bf8b850bb5170`
+- Conclusion: `success`
+- Release tag: `forgegauge-v0.1.0-4.1`
+- Release URL: <https://github.com/pickforge/ai-usage-tray/releases/tag/forgegauge-v0.1.0-4.1>
+- Release state: published, not draft, not prerelease
+- Uploaded assets:
+  - `linux-appimage-ForgeGauge_0.1.0_amd64.AppImage`
+  - `windows-ForgeGauge_0.1.0_x64-setup.exe`
+  - `windows-ForgeGauge_0.1.0_x64_en-US.msi`
+  - `macos-intel-ForgeGauge_0.1.0_x64.dmg`
+  - `macos-apple-silicon-ForgeGauge_0.1.0_aarch64.dmg`
+- Jobs `Preflight`, `Create draft release`, `Build linux-appimage`, `Build windows`, `Build macos-intel`, `Build macos-apple-silicon`, and `Publish release` all completed successfully.
+- `Publish release` started after the last build matrix job completed and used `gh release edit "$RELEASE_TAG" --draft=false`.
+- No failing runner labels, action versions, package dependencies, or upload paths were observed in this successful run.
+- Scope caveat: this verifies remote `main` at `4861da6`, not feature branch `forgegauge-implementation` at `096e7c1`, and it verifies uploads/build success rather than Windows or macOS install/runtime behavior.
+
 Phase 4 architecture review:
 
 - The frontend and tray read from the shared backend display-state cache.
@@ -67,4 +87,5 @@ Deferred evidence:
 
 - KDE/Wayland tray checks require user-visible desktop interaction.
 - Web/session security checks require browser backend selection and manual authenticated login/profile validation.
-- Release and Windows/macOS artifact checks require a GitHub Actions run and access to produced release artifacts.
+- Current-feature release verification requires pushing or dispatching this feature branch through the release workflow.
+- Windows/macOS install/runtime checks require manual testing on those platforms.

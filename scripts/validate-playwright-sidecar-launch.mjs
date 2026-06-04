@@ -44,6 +44,17 @@ const disabledStoragePreferences = {
   },
 };
 const defaultProfileStoreNames = ["Cookies", "Login Data", "Web Data", "Preferences"];
+const sensitiveOutputPatterns = [
+  {
+    label: "auth or cookie material",
+    pattern:
+      /\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|access[_-]?token|refresh[_-]?token|session[_-]?(id|token)|csrf)\b/iu,
+  },
+  {
+    label: "raw page markup",
+    pattern: /<!doctype|<html|<body|<script/iu,
+  },
+];
 const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profiles-"));
 
 try {
@@ -100,7 +111,7 @@ async function validateLaunch({ service, url, profileLabel, profileRoot, default
   }
 
   console.log(
-    `Playwright sidecar persisted ${service} isolated profile with disabled storage preferences and no default profile import`,
+    `Playwright sidecar persisted ${service} isolated profile with disabled storage preferences, no default profile import, and sanitized output`,
   );
 }
 
@@ -153,9 +164,14 @@ async function runLaunch({ service, url, profileLabel, profileRoot, defaultProfi
       throw new Error(`Unexpected ${service} launch response: ${JSON.stringify(response)}`);
     }
 
-    if (stdout.includes(profileRoot) || stderr.includes(profileRoot)) {
-      throw new Error(`${service} sidecar output leaked the raw profile path`);
-    }
+    verifySanitizedSidecarOutput({
+      defaultProfileFixtures,
+      profileRoot,
+      service,
+      stderr,
+      stdout,
+      url,
+    });
 
     if (!existsSync(profileRoot)) {
       throw new Error(`${service} sidecar did not create the requested profile directory`);
@@ -336,6 +352,38 @@ function verifyNoDefaultProfileImport(profileRoot, service, defaultProfileFixtur
     const storePath = resolve(profileRoot, "Default", storeName);
     if (fileContainsAnySentinel(storePath, defaultProfileFixtures.sentinels)) {
       throw new Error(`${service} sidecar imported default browser ${storeName}`);
+    }
+  }
+}
+
+function verifySanitizedSidecarOutput({
+  defaultProfileFixtures,
+  profileRoot,
+  service,
+  stderr,
+  stdout,
+  url,
+}) {
+  const output = `${stdout}\n${stderr}`;
+  const sensitiveFragments = [
+    profileRoot,
+    url,
+    ...launchArgs,
+    defaultProfileFixtures.fakeHome,
+    ...defaultProfileFixtures.defaultRoots,
+    ...defaultProfileFixtures.sentinels,
+    ...defaultProfileFixtures.sentinelFileNames,
+  ].filter((fragment) => fragment.length > 0);
+
+  for (const fragment of sensitiveFragments) {
+    if (output.includes(fragment)) {
+      throw new Error(`${service} sidecar output leaked sensitive launch data`);
+    }
+  }
+
+  for (const { label, pattern } of sensitiveOutputPatterns) {
+    if (pattern.test(output)) {
+      throw new Error(`${service} sidecar output leaked ${label}`);
     }
   }
 }

@@ -44,7 +44,7 @@ Profile inspection progress, 2026-06-03: added a sanitized managed Chromium prof
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
 
-Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch, preserve disabled password/autofill preferences, and avoid importing seeded fake default Chrome/Chromium profile data. Manual authenticated login flow and authenticated profile validation remain unchecked.
+Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch, preserve disabled password/autofill preferences, avoid importing seeded fake default Chrome/Chromium profile data, and keep sidecar stdout/stderr free of raw launch data, fake profile sentinels, auth-looking material, and page markup. Manual authenticated login flow and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -732,6 +732,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [ ] Prove fail-closed handling for logged-out, MFA, CAPTCHA, and unexpected UI states.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
 - [ ] Confirm no sensitive page content is written to normal logs.
+  - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
 - [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
 - [x] Review CSP and permissions needed before implementing provider UI.
@@ -1000,6 +1001,7 @@ Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browse
 Blocked: requires authenticated login validation with the selected browser backend.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
   - [x] Profile inspection IPC returns only sanitized counts, booleans, timestamps, service values, and profile labels.
+  - [x] Real headed Playwright sidecar launch validation checks stdout/stderr for sanitized output without raw launch data, seeded profile sentinels, auth/cookie-looking material, or page markup.
 Blocked: real authenticated refresh logging proof requires selected browser backend and web provider implementation.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.

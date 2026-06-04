@@ -115,6 +115,11 @@ Web parser fallback coverage:
 - Parser fixtures and tests cover logged-out, MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, partial visible data, parse failure, and unsupported visible fields.
 - This is parser-contract coverage only; real browser-backed provider launch and authenticated network/manual smoke tests remain deferred.
 
+Tracker reconciliation:
+
+- Marked the high-level fallback close/dismiss and Phase 0.5 fallback-choice checklist items complete to match the implemented explicit popup hide-to-tray fallback and the already-completed detailed Phase 1/milestone entries.
+- Manual KDE/Wayland tray visibility, popup open/close behavior, close-button confirmation, settings persistence, and quit behavior remain unchecked.
+
 Deferred evidence:
 
 - KDE/Wayland tray checks require user-visible desktop interaction.

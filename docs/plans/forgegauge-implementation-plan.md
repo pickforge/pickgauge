@@ -186,7 +186,7 @@ Build in this order to avoid rework:
 1. **Tray/window hardening**
    - [x] Decide tray-first window lifecycle.
    - [ ] Validate KDE/Wayland tray and popup behavior.
-   - [ ] Add fallback close/dismiss behavior if focus-loss dismissal is unreliable.
+   - [x] Add fallback close/dismiss behavior if focus-loss dismissal is unreliable.
 
 2. **Core data plumbing**
    - [x] Introduce shared Rust/TypeScript app models.
@@ -543,7 +543,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Confirm settings persist after restart.
 - [ ] Confirm quit behavior.
 - [x] Document runtime packages and packaging prerequisites discovered during testing.
-- [ ] Choose fallback behavior if native tray/popup behavior is unreliable.
+- [x] Choose fallback behavior if native tray/popup behavior is unreliable.
 
 ### Phase 1 — Tray Shell With Fake Data
 

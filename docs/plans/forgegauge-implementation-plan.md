@@ -4,7 +4,7 @@
 
 This is the canonical consolidated plan for ForgeGauge. It merges the previous product spec and phased implementation plan into one checklist-driven document.
 
-Current app state: **early Tauri/Svelte MVP with fake usage data, uncalibrated local Claude/Codex providers, persisted settings, branded tray wiring, app icons, AppImage build support, and release workflow scaffolding.**
+Current app state: **early Tauri/Svelte MVP with fake fallback data, local Claude/Codex providers with optional manual calibration, persisted settings, branded tray wiring, app icons, AppImage build support, and release workflow scaffolding.**
 
 Last readiness review: source checked against this plan after consolidation. The plan is now intended to be executable as the active backlog, with unchecked items representing the remaining implementation work.
 
@@ -16,15 +16,15 @@ Config progress, 2026-06-03: added a raw JSON config load boundary, default fill
 
 Calibration config progress, 2026-06-03: added config version `3` with per-service local quota settings for enablement, plan label, limit kind, rolling-window duration, usage unit, and user-entered token limit. The settings UI now persists those values, and config tests cover `v1 -> v2 -> v3` migration, `v2 -> v3` migration, round trips, and normalization.
 
-Calibration provider progress, 2026-06-03: local Claude and Codex providers now consume enabled token-limit calibration settings, map timestamped records into the configured rolling window, and emit low-confidence local percentages only when at least one parsed record maps to that window. Unmapped or disabled calibration continues to return `remaining_percent = None`. Merge deltas against official web baselines remain unchecked.
+Calibration provider progress, 2026-06-03: local Claude and Codex providers now consume enabled token-limit calibration settings, map timestamped records into the configured rolling window, and emit low-confidence local percentages only when at least one parsed record maps to that window. Unmapped or disabled calibration continues to return `remaining_percent = None`. The merge engine can combine a fresh official web baseline with compatible calibrated local deltas.
 
-Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, scan policy, and safe metadata boundaries without committing raw local records or authenticated data. Calibration schema, status-derived data, and captured fixture policy remain unchecked.
+Local provider discovery progress, 2026-06-03: completed privacy-limited read-only shape discovery for local Claude Code and Codex roots and recorded sanitized findings in `docs/discovery/local-provider-data-shapes.md`. Discovery covered file locations, aggregate counts, JSON keys, SQLite schemas, candidate source precedence, machine-local scope, fixture strategy, scan policy, statusline availability, and safe metadata boundaries without committing raw local records or authenticated data.
 
-Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Status-derived data, ccusage compatibility, web-baseline deltas, and full local-provider completion remain unchecked.
+Claude local provider progress, 2026-06-03: added an injectable Claude local data root and a synthetic-fixture JSONL parser for `~/.claude/projects/**/*.jsonl`, then wired the Claude local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with token/cache/session/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots for missing project data or invalid records, and enforces bounded JSONL file/record scans with sanitized skip counters. Cost/block aggregation and full local-provider completion remain unchecked.
 
-Codex local provider progress, 2026-06-03: added an injectable Codex local data root and a read-only `state_5.sqlite` parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, and enforces bounded thread scans. Status-derived data, fixture capture, web-baseline deltas, and full local-provider completion remain unchecked.
+Codex local provider progress, 2026-06-03: added an injectable Codex local data root, a sanitized `state_5.sqlite` fixture, and a read-only parser for local thread token counts, then wired the Codex local provider into the usage registry when local providers are enabled. The provider emits local low-confidence snapshots with aggregate thread/token/model counts and `remaining_percent = None` when uncalibrated, emits sanitized unknown snapshots when the state database is missing or unreadable, enforces bounded thread scans, and supports calibrated web-baseline deltas.
 
-Local provider policy progress, 2026-06-03: hardened local-provider edge cases for malformed and truncated records. Claude scans only exact `.jsonl` files, ignores `.jsonl.1` style rotations, counts truncated lines as sanitized invalid records, and reports source RFC3339 timestamp metadata. Codex reads only `state_5.sqlite`, treats corrupt or schema-incompatible databases as sanitized parse failures, counts malformed token rows without leaking row data, and reports Unix epoch millisecond metadata. Both local providers still aggregate all bounded machine-local activity before calibration and do not infer rolling-window percentages.
+Local provider policy progress, 2026-06-03: hardened local-provider edge cases for malformed and truncated records. Claude scans only exact `.jsonl` files, ignores `.jsonl.1` style rotations, counts truncated lines as sanitized invalid records, and reports source RFC3339 timestamp metadata. Codex reads only `state_5.sqlite`, treats corrupt or schema-incompatible databases as sanitized parse failures, counts malformed token rows without leaking row data, and reports Unix epoch millisecond metadata. Without active calibration, both local providers keep machine-local activity clearly uncalibrated and avoid inferring rolling-window percentages.
 
 Supersedes:
 
@@ -50,9 +50,9 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Settings allow enabling/disabling services and provider classes.
 - [x] Web providers are disabled by default.
 - [x] AppImage bundling works locally on CachyOS/Arch-like systems through `npm run build:appimage`.
-- [ ] Real local usage providers work without account credentials.
+- [x] Real local usage providers work without account credentials.
 - [ ] Opt-in web providers use dedicated browser profiles and never store passwords.
-- [ ] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
+- [x] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
 - [x] Merged usage values combine official web baselines with calibrated local deltas.
 - [ ] Full KDE/Wayland tray smoke test is confirmed by the user.
 - [ ] Remote release workflow is verified after a mainline push.
@@ -119,7 +119,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] macOS Intel artifact testing.
 - [ ] macOS Apple Silicon artifact testing.
 - [ ] Claude Code local provider calibration/statusline/ccusage completion.
-- [ ] Codex local provider calibration/statusline/fixture completion.
+- [x] Codex local provider calibration/statusline/fixture completion.
 - [x] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
 - [x] Snapshot cache for latest provider results.
@@ -189,10 +189,10 @@ Build in this order to avoid rework:
    - [x] Add quota/window config fields only after migration support exists.
 
 4. **Local providers**
-   - [ ] Discover Claude and Codex local data formats.
-   - [ ] Build parsers with sanitized fixtures.
-   - [ ] Return honest `unknown` or uncalibrated snapshots before adding calibrated percentages.
-   - [ ] Add manual calibration config and percent-delta support.
+   - [x] Discover Claude and Codex local data formats.
+   - [x] Build parsers with sanitized fixtures.
+   - [x] Return honest `unknown` or uncalibrated snapshots before adding calibrated percentages.
+   - [x] Add manual calibration config and percent-delta support.
 
 5. **Browser automation and web providers**
    - [ ] Complete automation spike and backend decision matrix.

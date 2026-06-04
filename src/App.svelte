@@ -13,6 +13,7 @@
     formatPercent,
     formatTimestamp,
     lastOfficialCheck,
+    loginPromptVisible,
     localActivitySummary,
     profileInspectionSummary,
     profilePathFromInput,
@@ -526,15 +527,17 @@
           >
             {refreshingOfficial === snapshot.service ? "Refreshing..." : "Refresh official"}
           </button>
-          <button
-            class="secondary-button"
-            type="button"
-            disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
-            aria-label={`Start ${serviceLabels[snapshot.service]} login`}
-            onclick={() => startProviderLogin(snapshot.service)}
-          >
-            {startingLogin === snapshot.service ? "Starting..." : "Start login"}
-          </button>
+          {#if loginPromptVisible(snapshot)}
+            <button
+              class="secondary-button"
+              type="button"
+              disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
+              aria-label={`Start ${serviceLabels[snapshot.service]} login`}
+              onclick={() => startProviderLogin(snapshot.service)}
+            >
+              {startingLogin === snapshot.service ? "Starting..." : "Start login"}
+            </button>
+          {/if}
           <button
             class="secondary-button"
             type="button"

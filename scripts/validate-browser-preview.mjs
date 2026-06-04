@@ -156,26 +156,37 @@ async function validateDesktopOnlyControlFallbacks(browser) {
     const officialRefresh = page.getByRole("button", {
       name: "Refresh official Codex usage",
     });
-    const startLogin = page.getByRole("button", {
+    const defaultStartLogin = page.getByRole("button", {
       name: "Start Codex login",
     });
     const codexProfile = page.getByLabel("Codex profile");
 
     assert.equal(await officialRefresh.isDisabled(), true);
-    assert.equal(await startLogin.isDisabled(), true);
+    assert.equal(await defaultStartLogin.count(), 0);
     assert.equal(await codexProfile.isDisabled(), true);
 
     await page.getByLabel("Experimental web providers").check();
 
     assert.equal(await officialRefresh.isDisabled(), false);
-    assert.equal(await startLogin.isDisabled(), false);
+    assert.equal(await defaultStartLogin.count(), 0);
     assert.equal(await codexProfile.isDisabled(), false);
-
-    await startLogin.click();
-    await assertVisibleText(page, "Codex login starts from the desktop app");
 
     await officialRefresh.click();
     await assertVisibleText(page, "Official Codex usage refreshes in the desktop app");
+
+    await page.goto(`${baseUrl}?previewState=expired-login`, { waitUntil: "domcontentloaded" });
+    await page.locator("article.usage-card").first().waitFor();
+
+    const expiredLoginStart = page.getByRole("button", {
+      name: "Start Codex login",
+    });
+
+    assert.equal(await expiredLoginStart.isDisabled(), true);
+    await page.getByLabel("Experimental web providers").check();
+    assert.equal(await expiredLoginStart.isDisabled(), false);
+
+    await expiredLoginStart.click();
+    await assertVisibleText(page, "Codex login starts from the desktop app");
 
     await page.getByRole("button", { name: "Hide popup to tray" }).click();
     await assertVisibleText(page, "Popup hides to tray in the desktop app");

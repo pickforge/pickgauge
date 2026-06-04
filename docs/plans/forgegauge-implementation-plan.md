@@ -68,6 +68,8 @@ Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:au
 
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
+Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports `login_required`. Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default preview cards do not expose `Start login` while the expired-login state does after experimental web providers are enabled.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -550,6 +552,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] `npm run test:official-fail-closed` validates blank profiles are checked with `headless: true` and `visibleBrowserRequired: false`.
   - [x] Scheduled due-refresh web checks use the same headless Playwright sidecar without consuming manual refresh cooldown.
   - [x] Rust unit coverage asserts the app-side official refresh request builder uses `refreshUsage` with `headless: true` and never passes `--user-data-dir` through browser args.
+  - [x] Frontend only renders `Start login` after a web status of `login_required`; default/parsed/non-login web states keep the visible browser action hidden.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
   - [x] Browser launch plan debug output redacts raw profile paths and raw `--user-data-dir` arguments.
@@ -838,6 +841,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Wire scheduled due-refresh web checks through headless sidecar results without visible browser launch.
   - [x] Keep headed Chromium limited to explicit `Start login`.
   - [x] Add app-boundary regression coverage for the headless official refresh request shape.
+  - [x] Hide `Start login` until a silent official refresh/fallback web status reports `login_required`.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.
 - [x] Define exact visible fields required for each provider before parsing implementation.

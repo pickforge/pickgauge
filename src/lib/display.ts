@@ -129,6 +129,13 @@ export function lastOfficialCheck(snapshot: UsageSnapshot) {
   return checkedAt === null ? null : formatTimestamp(checkedAt);
 }
 
+export function loginPromptVisible(snapshot: UsageSnapshot) {
+  return (
+    snapshot.details.status === "login_required" ||
+    snapshot.details.webStatus === "login_required"
+  );
+}
+
 export function profilePathValue(value: string | null) {
   return value ?? "";
 }

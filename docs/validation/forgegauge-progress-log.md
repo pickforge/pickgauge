@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Login preflight launch gating:
+
+- Factored the desktop `Start login` preflight into an explicit Rust outcome carrying both the returned login status and whether a headed browser launch is allowed.
+- Added Rust regressions proving `usage` returns `already_authenticated` without headed launch, unavailable/unknown states return `preflight_unavailable` without headed launch, and only logged-out/MFA/CAPTCHA states request headed launch.
+- Validation: `cargo fmt --check`, `cargo test --lib login_start_preflight_outcome`, `cargo test --lib login_preflight`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the local command decision boundary; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Authenticated usage preview login gating:
 
 - Added an `official-usage` browser-preview fixture representing a successful official web usage read.

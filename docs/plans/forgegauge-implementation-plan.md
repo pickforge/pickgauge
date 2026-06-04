@@ -98,6 +98,8 @@ Authenticated helper shared-root safety progress, 2026-06-04: `npm run smoke:aut
 
 Authenticated usage preview progress, 2026-06-04: added an `official-usage` browser-preview fixture for the successful official web usage state. Frontend unit coverage and desktop/mobile Playwright browser-preview validation now assert the `Start login` prompt stays hidden after official usage is already available, while login/MFA/CAPTCHA states still expose the explicit headed-login action after web-provider opt-in. Real authenticated official refresh evidence remains unchecked.
 
+Login preflight outcome progress, 2026-06-04: factored the desktop `Start login` preflight into an explicit Rust outcome containing the returned login status and whether a headed browser launch is allowed. Rust regressions now assert `usage` maps to `already_authenticated` with no headed launch, unavailable/unknown states map to `preflight_unavailable` with no headed launch, and only logged-out/MFA/CAPTCHA states can request the headed login sidecar. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`). Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default, network-unavailable, and unexpected-UI preview cards do not expose `Start login` while expired-login, MFA, and CAPTCHA states do after experimental web providers are enabled.
@@ -922,6 +924,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Browser-preview official-usage fixture validates `Start login` remains hidden when a successful official usage state is already available.
   - [x] Add a headless `Start login` preflight that returns `already_authenticated` without launching headed Chromium when usage is reachable.
   - [x] Keep `Start login` from launching headed Chromium when the preflight cannot prove a login/MFA/CAPTCHA user-action state.
+  - [x] Rust preflight outcome tests assert authenticated and unavailable states never request a headed login launch.
   - [x] Add a pure Rust regression helper for headed-login preflight decisions so unknown and unavailable states cannot fall through to headed launch.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.

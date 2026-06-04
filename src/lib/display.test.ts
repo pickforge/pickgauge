@@ -12,6 +12,8 @@ import {
   webProviderControlState,
 } from "./display";
 import {
+  browserPreviewSnapshots,
+  browserPreviewStateFromSearch,
   defaultConfig,
   providerStatusMessage,
   type AppConfig,
@@ -175,6 +177,34 @@ describe("frontend provider status notes", () => {
         }),
       ),
     ).toBe("Login required");
+  });
+});
+
+describe("browser preview state fixtures", () => {
+  it("parses known preview state query parameters with a safe default", () => {
+    expect(browserPreviewStateFromSearch("?previewState=missing-local-data")).toBe(
+      "missing-local-data",
+    );
+    expect(browserPreviewStateFromSearch("?previewState=network-unavailable")).toBe(
+      "network-unavailable",
+    );
+    expect(browserPreviewStateFromSearch("?previewState=expired-login")).toBe("expired-login");
+    expect(browserPreviewStateFromSearch("?previewState=<script>")).toBe("default");
+  });
+
+  it("renders status-note snapshots for browser-preview smoke states", () => {
+    expect(browserPreviewSnapshots("missing-local-data").map(providerStatusMessage)).toEqual([
+      "No usage data found",
+      "No usage data found",
+    ]);
+    expect(browserPreviewSnapshots("network-unavailable").map(providerStatusMessage)).toEqual([
+      "Network unavailable",
+      "Network unavailable",
+    ]);
+    expect(browserPreviewSnapshots("expired-login").map(providerStatusMessage)).toEqual([
+      "Login required",
+      "Login required",
+    ]);
   });
 });
 

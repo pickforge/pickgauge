@@ -4,6 +4,14 @@
 
 Branch: `forgegauge-implementation`
 
+Browser-preview state fixtures:
+
+- Added browser-preview-only query states for `missing-local-data`, `network-unavailable`, and `expired-login`.
+- Vitest now covers preview-state query parsing and the rendered status-note snapshots for `No usage data found`, `Network unavailable`, and `Login required`.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded the default preview plus all three query states at desktop `1280x900` and mobile `390x900`. Each state rendered two usage articles, the expected service status notes, and no horizontal overflow.
+- Validation: `npm test` (`18` Vitest tests, `4` Node sidecar protocol tests, and generated sidecar dry-run passed), `npm run check`, `npm run build`, `npm run test:sidecar-launch`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed.
+- This proves the browser-preview status-note rendering for those states, but does not replace real desktop/provider smoke tests for network outages, missing local data, or expired authenticated sessions.
+
 Playwright sidecar runtime launch:
 
 - Added the Playwright npm package as the local runtime dependency for the Node sidecar.

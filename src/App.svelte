@@ -23,6 +23,8 @@
     webProviderControlState,
   } from "./lib/display";
   import {
+    browserPreviewSnapshots,
+    browserPreviewStateFromSearch,
     defaultConfig,
     fallbackSnapshots,
     providerStatusMessage,
@@ -130,6 +132,7 @@
     let unlistenLogin: (() => void) | null = null;
 
     if (!desktopApiAvailable()) {
+      snapshots = browserPreviewSnapshots(browserPreviewStateFromSearch(window.location.search));
       loading = false;
       return () => {
         cancelled = true;

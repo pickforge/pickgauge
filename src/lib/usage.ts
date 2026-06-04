@@ -239,3 +239,58 @@ export const fallbackSnapshots: UsageSnapshot[] = [
     details: { status: "placeholder" },
   },
 ];
+
+export type BrowserPreviewState = "default" | "missing-local-data" | "network-unavailable" | "expired-login";
+
+const browserPreviewStates = new Set<BrowserPreviewState>([
+  "default",
+  "missing-local-data",
+  "network-unavailable",
+  "expired-login",
+]);
+
+export function browserPreviewStateFromSearch(search: string): BrowserPreviewState {
+  const state = new URLSearchParams(search).get("previewState");
+
+  return state !== null && browserPreviewStates.has(state as BrowserPreviewState)
+    ? (state as BrowserPreviewState)
+    : "default";
+}
+
+export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapshot[] {
+  switch (state) {
+    case "missing-local-data":
+      return previewSnapshots({
+        confidence: "unknown",
+        details: { status: "missing_data" },
+        lastUpdated: "Preview missing local data",
+        remainingPercent: null,
+        source: "local",
+        usedPercent: null,
+      });
+    case "network-unavailable":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "network_unavailable" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "expired-login":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "login_required" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "default":
+      return fallbackSnapshots;
+  }
+}
+
+function previewSnapshots(partial: Partial<UsageSnapshot>): UsageSnapshot[] {
+  return fallbackSnapshots.map((snapshot) => ({
+    ...snapshot,
+    ...partial,
+    details: {
+      ...partial.details,
+    },
+  }));
+}

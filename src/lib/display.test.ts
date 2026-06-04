@@ -133,6 +133,19 @@ describe("frontend provider status notes", () => {
     expect(providerStatusMessage(snapshot({ details: { status: "placeholder" } }))).toBeNull();
     expect(providerStatusMessage(snapshot({ details: { status: "raw error text" } }))).toBeNull();
   });
+
+  it("uses fallback web status notes when local data stays visible", () => {
+    expect(
+      providerStatusMessage(
+        snapshot({
+          details: {
+            status: "parsed",
+            webStatus: "login_required",
+          },
+        }),
+      ),
+    ).toBe("Login required");
+  });
 });
 
 describe("frontend settings form behavior", () => {

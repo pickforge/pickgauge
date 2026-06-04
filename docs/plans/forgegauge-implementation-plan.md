@@ -34,6 +34,8 @@ Browser-preview validation progress, 2026-06-03: reran the Vite browser preview 
 
 Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for provider status notes shown on usage cards, including missing local data, network unavailable, timed out, login required, CAPTCHA/bot-check, unexpected UI, and hidden parsed/placeholder/unknown raw status values. Manual missing-data, network, and expired-login smoke tests remain unchecked because they require end-to-end desktop/provider state validation.
 
+Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` metadata. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -734,6 +736,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 
 - [ ] Add Codex web provider for the Codex analytics URL.
 - [ ] Add Claude web provider for the Claude usage URL.
+- [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.
 - [x] Define exact visible fields required for each provider before parsing implementation.
 - [x] Define fallback behavior when only partial visible data exists.

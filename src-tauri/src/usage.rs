@@ -175,6 +175,11 @@ struct FakeUsageProvider {
     remaining_percent: f32,
 }
 
+#[derive(Clone, Copy)]
+struct FailClosedWebProvider {
+    service: Service,
+}
+
 struct SystemClock;
 
 #[derive(Clone, Debug, Default)]
@@ -609,6 +614,10 @@ impl UsageEngine {
                 })
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
+            (UsageProviderId::CodexWeb, Service::Codex)
+            | (UsageProviderId::ClaudeWeb, Service::Claude) => {
+                Err(UsageProviderError::LoginRequired)
+            }
             _ => Err(UsageProviderError::Internal),
         }
     }
@@ -767,6 +776,21 @@ fn merge_service_snapshots(
     let fake = latest_snapshot_with_source(&snapshots, UsageSource::Fake);
 
     if let Some(web) = web {
+        if !web_has_usage_percent(web) {
+            if let Some(fallback) = local.or(fake) {
+                return Some(web_unavailable_fallback_snapshot(web, fallback));
+            }
+
+            let mut snapshot = web.clone();
+            set_detail(&mut snapshot, "mergeStatus", "web_unavailable");
+            set_detail(
+                &mut snapshot,
+                "lastOfficialCheckAt",
+                web.last_updated.clone(),
+            );
+            return Some(snapshot);
+        }
+
         if web_baseline_stale(web, config, now) {
             let mut snapshot = web.clone();
             snapshot.confidence = lower_confidence(snapshot.confidence);
@@ -809,6 +833,34 @@ fn merge_service_snapshots(
     }
 
     local.cloned().or_else(|| fake.cloned())
+}
+
+fn web_has_usage_percent(snapshot: &UsageSnapshot) -> bool {
+    snapshot.remaining_percent.is_some() || snapshot.used_percent.is_some()
+}
+
+fn web_unavailable_fallback_snapshot(
+    web: &UsageSnapshot,
+    fallback: &UsageSnapshot,
+) -> UsageSnapshot {
+    let mut snapshot = fallback.clone();
+    snapshot.confidence = lower_confidence(snapshot.confidence);
+    set_detail(&mut snapshot, "mergeStatus", "web_unavailable_fallback");
+    set_detail(
+        &mut snapshot,
+        "lastOfficialCheckAt",
+        web.last_updated.clone(),
+    );
+
+    if let Some(status) = web.details.get("status").cloned() {
+        set_detail(&mut snapshot, "webStatus", status);
+    }
+
+    if let Some(provider_id) = web.details.get("providerId").cloned() {
+        set_detail(&mut snapshot, "webProviderId", provider_id);
+    }
+
+    snapshot
 }
 
 fn latest_snapshot_with_source<'a>(
@@ -957,6 +1009,25 @@ impl UsageProvider for FakeUsageProvider {
     }
 }
 
+impl UsageProvider for FailClosedWebProvider {
+    fn provider_id(&self) -> UsageProviderId {
+        UsageProviderId::for_service_source(self.service(), self.source())
+            .expect("web providers have a provider id")
+    }
+
+    fn service(&self) -> Service {
+        self.service
+    }
+
+    fn source(&self) -> UsageSource {
+        UsageSource::Web
+    }
+
+    fn refresh(&self, _now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+        Err(UsageProviderError::LoginRequired)
+    }
+}
+
 impl UsageProvider for ClaudeLocalProvider {
     fn provider_id(&self) -> UsageProviderId {
         UsageProviderId::ClaudeLocal
@@ -1054,6 +1125,12 @@ fn providers_for_config(
                 remaining_percent: 72.0,
             }));
         }
+
+        if config.providers.web_enabled {
+            providers.push(Box::new(FailClosedWebProvider {
+                service: Service::Codex,
+            }));
+        }
     }
 
     if config.enabled_services.claude {
@@ -1072,6 +1149,12 @@ fn providers_for_config(
             providers.push(Box::new(FakeUsageProvider {
                 service: Service::Claude,
                 remaining_percent: 41.0,
+            }));
+        }
+
+        if config.providers.web_enabled {
+            providers.push(Box::new(FailClosedWebProvider {
+                service: Service::Claude,
             }));
         }
     }
@@ -1439,6 +1522,25 @@ mod tests {
                 "source": UsageSource::Web.code(),
             }),
         }
+    }
+
+    fn web_error_snapshot(
+        service: Service,
+        error: UsageProviderError,
+        last_updated: &str,
+    ) -> UsageSnapshot {
+        let provider_id = UsageProviderId::for_service_source(service, UsageSource::Web)
+            .expect("web provider id");
+        let provider = ProviderDescriptor {
+            provider_key: provider_id.refresh_key(service),
+            provider_id,
+            service,
+            source: UsageSource::Web,
+            local_data_root: None,
+            local_calibration: None,
+        };
+
+        error_snapshot(&provider, error, last_updated)
     }
 
     fn local_delta_snapshot(
@@ -1883,14 +1985,23 @@ mod tests {
     }
 
     #[test]
-    fn manual_web_refresh_passes_opt_in_before_provider_lookup() {
+    fn manual_web_refresh_fails_closed_when_backend_is_not_selected() {
         let engine = UsageEngine::new(web_enabled_config());
 
-        let error = engine
+        let display_state = engine
             .refresh_provider_source(Service::Codex, UsageSource::Web)
-            .expect_err("web provider is not implemented yet");
+            .expect("web provider fails closed");
+        let snapshot = display_state
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.service == Service::Codex)
+            .expect("codex snapshot exists");
 
-        assert_eq!(error, "Provider is not configured");
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.details["status"], "login_required");
+        assert_eq!(snapshot.details["providerId"], "codex.web");
+        assert_eq!(snapshot.details["mergeStatus"], "web_unavailable");
     }
 
     #[test]
@@ -2227,6 +2338,36 @@ mod tests {
         assert_eq!(snapshot.remaining_percent, Some(80.0));
         assert_eq!(snapshot.confidence, UsageConfidence::Medium);
         assert_eq!(snapshot.details["mergeStatus"], "local_delta_unavailable");
+    }
+
+    #[test]
+    fn display_state_keeps_local_snapshot_when_web_provider_fails_closed() {
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                (
+                    "codex.web",
+                    web_error_snapshot(
+                        Service::Codex,
+                        UsageProviderError::LoginRequired,
+                        "2026-06-03T23:10:00Z",
+                    ),
+                ),
+                (
+                    "codex.local",
+                    uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:05:00Z"),
+                ),
+            ],
+            "2026-06-03T23:10:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Local);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(snapshot.details["webStatus"], "login_required");
+        assert_eq!(snapshot.details["webProviderId"], "codex.web");
+        assert_eq!(snapshot.details["mergeStatus"], "web_unavailable_fallback");
     }
 
     #[test]

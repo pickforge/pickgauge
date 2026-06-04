@@ -52,14 +52,16 @@ function isProviderStatusCode(value: unknown): value is ProviderStatusCode {
   return typeof value === "string" && value in providerStatusMessages;
 }
 
-export function providerStatusMessage(snapshot: UsageSnapshot) {
-  const status = snapshot.details.status;
-
-  if (!isProviderStatusCode(status)) {
+function statusMessage(value: unknown) {
+  if (!isProviderStatusCode(value)) {
     return null;
   }
 
-  return providerStatusMessages[status] ?? null;
+  return providerStatusMessages[value] ?? null;
+}
+
+export function providerStatusMessage(snapshot: UsageSnapshot) {
+  return statusMessage(snapshot.details.status) ?? statusMessage(snapshot.details.webStatus);
 }
 
 export function redactedUserPath(path: string) {

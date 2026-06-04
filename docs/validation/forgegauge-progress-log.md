@@ -52,6 +52,15 @@ Frontend status-note test coverage:
 - Parsed, placeholder, and unsupported raw status strings do not render a provider status note.
 - Validation: `npm test` (`14 passed`) and `npm run check`.
 
+Fail-closed web boundary validation:
+
+- Explicit web-provider opt-in registers Codex and Claude web provider boundaries.
+- Until a browser backend is selected, targeted official web refresh returns a sanitized `login_required` web snapshot instead of throwing `Provider is not configured`.
+- If a local or fake snapshot is already available, display merging keeps that snapshot visible and adds sanitized `webStatus`, `webProviderId`, and `lastOfficialCheckAt` metadata.
+- `providerStatusMessage` reads fallback `webStatus` metadata so the usage card can still show `Login required` while local data remains visible.
+- Browser preview confirmed the official-refresh fallback still renders without horizontal overflow at desktop `1280x900` and mobile `390x900`.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`127 passed`), `cargo clippy -- -D warnings`, `npm test` (`15 passed`), `npm run check`, and `git diff --check`.
+
 Local artifact:
 
 - `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`

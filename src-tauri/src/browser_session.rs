@@ -1,6 +1,6 @@
 use crate::usage::Service;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
@@ -14,6 +14,8 @@ use std::{
 pub const PROFILE_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 pub const SESSION_REGISTRY_FILE_NAME: &str = "managed-browser-sessions.json";
 pub const PROCESS_MARKER_ENV: &str = "FORGEGAUGE_BROWSER_PROCESS_MARKER";
+pub const CHROMIUM_DEFAULT_PROFILE_DIR: &str = "Default";
+pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
@@ -426,6 +428,75 @@ fn chromium_disabled_storage_preferences() -> serde_json::Value {
     })
 }
 
+#[allow(dead_code)]
+pub fn prepare_chromium_profile_preferences(profile_path: &Path) -> Result<PathBuf, String> {
+    reject_symlink_path(profile_path)?;
+    fs::create_dir_all(profile_path)
+        .map_err(|_| "Could not prepare managed browser preferences".to_string())?;
+    set_restrictive_directory_permissions(profile_path)
+        .map_err(|_| "Could not prepare managed browser preferences".to_string())?;
+
+    let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+    reject_symlink_path(&default_profile_dir)?;
+    fs::create_dir_all(&default_profile_dir)
+        .map_err(|_| "Could not prepare managed browser preferences".to_string())?;
+    set_restrictive_directory_permissions(&default_profile_dir)
+        .map_err(|_| "Could not prepare managed browser preferences".to_string())?;
+
+    let preferences_path = default_profile_dir.join(CHROMIUM_PREFERENCES_FILE_NAME);
+    reject_symlink_path(&preferences_path)?;
+    let mut preferences = read_chromium_preferences(&preferences_path)?;
+    merge_chromium_preferences(&mut preferences, &chromium_disabled_storage_preferences())?;
+
+    let raw = serde_json::to_string_pretty(&preferences)
+        .map_err(|_| "Could not serialize managed browser preferences".to_string())?;
+    fs::write(&preferences_path, raw)
+        .map_err(|_| "Could not write managed browser preferences".to_string())?;
+    set_restrictive_file_permissions(&preferences_path)
+        .map_err(|_| "Could not write managed browser preferences".to_string())?;
+
+    Ok(preferences_path)
+}
+
+fn read_chromium_preferences(path: &Path) -> Result<Value, String> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+
+    let raw = fs::read_to_string(path)
+        .map_err(|_| "Could not read managed browser preferences".to_string())?;
+    let preferences = serde_json::from_str::<Value>(&raw)
+        .map_err(|_| "Could not parse managed browser preferences".to_string())?;
+
+    if !preferences.is_object() {
+        return Err("Managed browser preferences must be a JSON object".to_string());
+    }
+
+    Ok(preferences)
+}
+
+fn merge_chromium_preferences(target: &mut Value, patch: &Value) -> Result<(), String> {
+    let target = target
+        .as_object_mut()
+        .ok_or_else(|| "Managed browser preferences must be a JSON object".to_string())?;
+    let patch = patch
+        .as_object()
+        .ok_or_else(|| "Managed browser preferences patch must be a JSON object".to_string())?;
+
+    for (key, value) in patch {
+        match (target.get_mut(key), value) {
+            (Some(existing), Value::Object(_)) if existing.is_object() => {
+                merge_chromium_preferences(existing, value)?;
+            }
+            _ => {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn sanitized_launch_args(args: &[String], profile_label: &str) -> Vec<String> {
     args.iter()
         .map(|arg| {
@@ -442,6 +513,17 @@ fn profile_label(service: Service) -> String {
     match service {
         Service::Codex => "codex-profile".to_string(),
         Service::Claude => "claude-profile".to_string(),
+    }
+}
+
+fn reject_symlink_path(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err("Managed browser path must not be a symlink".to_string())
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("Could not inspect managed browser path".to_string()),
     }
 }
 
@@ -944,6 +1026,147 @@ mod tests {
             claude.diagnostics.args[0],
             "--user-data-dir=<claude-profile>"
         );
+    }
+
+    #[test]
+    fn prepare_chromium_profile_preferences_creates_disabled_storage_preferences() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        fs::create_dir_all(&profile_path).expect("profile dir is created");
+
+        let preferences_path =
+            prepare_chromium_profile_preferences(&profile_path).expect("preferences are prepared");
+        let preferences = read_test_preferences(&preferences_path);
+
+        assert_eq!(
+            preferences_path,
+            profile_path
+                .join(CHROMIUM_DEFAULT_PROFILE_DIR)
+                .join(CHROMIUM_PREFERENCES_FILE_NAME)
+        );
+        assert_preference_false(&preferences, &["credentials_enable_service"]);
+        assert_preference_false(&preferences, &["credentials_enable_autosignin"]);
+        assert_preference_false(&preferences, &["profile", "password_manager_enabled"]);
+        assert_preference_false(
+            &preferences,
+            &["profile", "password_manager_allow_show_passwords"],
+        );
+        assert_preference_false(&preferences, &["autofill", "enabled"]);
+        assert_preference_false(&preferences, &["autofill", "profile_enabled"]);
+        assert_preference_false(&preferences, &["autofill", "credit_card_enabled"]);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let service_profile_mode = fs::metadata(&profile_path)
+                .expect("service profile metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            let profile_mode = fs::metadata(preferences_path.parent().expect("parent exists"))
+                .expect("default profile metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            let preferences_mode = fs::metadata(&preferences_path)
+                .expect("preferences metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+
+            assert_eq!(service_profile_mode, 0o700);
+            assert_eq!(profile_mode, 0o700);
+            assert_eq!(preferences_mode, 0o600);
+        }
+    }
+
+    #[test]
+    fn prepare_chromium_profile_preferences_merges_without_removing_existing_values() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("claude");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        let preferences_path = default_profile_dir.join(CHROMIUM_PREFERENCES_FILE_NAME);
+        fs::write(
+            &preferences_path,
+            serde_json::json!({
+                "browser": {
+                    "window_placement": {
+                        "left": 10
+                    }
+                },
+                "autofill": {
+                    "enabled": true,
+                    "custom_key": "preserved"
+                },
+                "credentials_enable_service": true
+            })
+            .to_string(),
+        )
+        .expect("preferences are written");
+
+        prepare_chromium_profile_preferences(&profile_path).expect("preferences are prepared");
+        let preferences = read_test_preferences(&preferences_path);
+
+        assert_eq!(preferences["browser"]["window_placement"]["left"], 10);
+        assert_eq!(preferences["autofill"]["custom_key"], "preserved");
+        assert_preference_false(&preferences, &["autofill", "enabled"]);
+        assert_preference_false(&preferences, &["autofill", "profile_enabled"]);
+        assert_preference_false(&preferences, &["credentials_enable_service"]);
+    }
+
+    #[test]
+    fn prepare_chromium_profile_preferences_rejects_malformed_preferences() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        let preferences_path = default_profile_dir.join(CHROMIUM_PREFERENCES_FILE_NAME);
+        fs::write(&preferences_path, "{not json").expect("malformed preferences are written");
+
+        let error = prepare_chromium_profile_preferences(&profile_path)
+            .expect_err("malformed preferences are rejected");
+
+        assert_eq!(error, "Could not parse managed browser preferences");
+        assert!(!error.contains(profile_path.to_string_lossy().as_ref()));
+        assert!(!error.contains("{not json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_chromium_profile_preferences_rejects_symlinked_preferences() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("claude");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        let target = dir.path.join("target-preferences");
+        fs::write(&target, "{}").expect("target preferences are written");
+        symlink(
+            &target,
+            default_profile_dir.join(CHROMIUM_PREFERENCES_FILE_NAME),
+        )
+        .expect("preferences symlink is created");
+
+        let error = prepare_chromium_profile_preferences(&profile_path)
+            .expect_err("symlinked preferences are rejected");
+
+        assert_eq!(error, "Managed browser path must not be a symlink");
+    }
+
+    fn read_test_preferences(path: &Path) -> Value {
+        let raw = fs::read_to_string(path).expect("preferences are readable");
+        serde_json::from_str(&raw).expect("preferences parse")
+    }
+
+    fn assert_preference_false(preferences: &Value, path: &[&str]) {
+        let value = path
+            .iter()
+            .fold(preferences, |value, segment| &value[*segment]);
+
+        assert_eq!(value.as_bool(), Some(false), "{path:?} should be false");
     }
 
     #[cfg(unix)]

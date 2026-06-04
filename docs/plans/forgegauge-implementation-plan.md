@@ -36,7 +36,7 @@ Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for pr
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` metadata. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
-Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
+Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -725,6 +725,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Detect orphaned managed browser processes on startup.
 - [ ] Disable password manager, autofill, and save-password prompts where supported.
   - [x] Add backend-agnostic Chromium launch policy with password-manager/autofill suppression flags and disabled storage preferences.
+  - [x] Initialize Chromium profile preferences with disabled password, autosign-in, profile autofill, and card autofill settings.
 - [ ] Add manual login window flow.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
@@ -933,7 +934,9 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Web providers default to disabled.
 - [x] Current fake provider does not read or upload account data.
 - [ ] No password storage.
+  - [x] Chromium managed-profile initialization disables password saving and autosign-in preferences before a future launch.
 - [ ] Managed browser launch disables password manager/autofill/save-password prompts where supported.
+  - [x] Chromium managed-profile initialization writes disabled autofill/password preferences with restrictive permissions.
 - [x] Dedicated browser profiles are separate per service.
 - [x] Dedicated browser profiles are app-owned and marker-guarded.
 - [x] Dedicated browser profiles never use the user's default browser profile.

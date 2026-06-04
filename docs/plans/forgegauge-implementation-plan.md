@@ -30,6 +30,8 @@ Local provider policy progress, 2026-06-03: hardened local-provider edge cases f
 
 Web parser fallback progress, 2026-06-03: extended the sanitized visible-state parser contract and fixtures to fail closed for `network_unavailable` and `timed_out` states, in addition to logged-out, MFA, CAPTCHA/bot-check, unexpected UI, missing visible data, parse failure, invalid reset timestamps, and unsupported visible fields. Real browser-backed provider launch, authenticated refresh, and network/manual smoke tests remain unchecked.
 
+Browser-preview validation progress, 2026-06-03: reran the Vite browser preview at `http://127.0.0.1:1420/` with Playwright. Desktop validation confirmed web-provider opt-in enables official refresh/login controls and profile path inputs, the Start login action returns the browser-preview fallback without navigation or crashes, and the hide-to-tray button returns the browser-preview fallback status. Mobile validation at `390px` width found no document or element horizontal overflow, with usage cards, settings controls, profile path inputs, local calibration controls, and maintenance buttons fitting the viewport. KDE/Wayland tray behavior and real desktop-only Tauri APIs remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`

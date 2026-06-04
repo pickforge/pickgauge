@@ -35,6 +35,17 @@ Browser-preview validation passed with Playwright against `http://127.0.0.1:1420
 - Hide-to-tray button rendered without overlapping the brand lockup and returned the browser-preview fallback status.
 - Mobile DOM overflow check passed at `390px` width after web-provider controls were enabled.
 
+Additional browser-preview validation on 2026-06-03:
+
+- Ran `npm run dev` and loaded `http://127.0.0.1:1420/` through Playwright MCP.
+- Desktop `1280x900` snapshot showed the hide button, usage cards, provider controls, disabled web controls before opt-in, and no horizontal overflow.
+- Experimental web-provider opt-in enabled official refresh buttons, Start login buttons, web refresh/cooldown inputs, and browser profile path inputs.
+- Start Codex login returned `Codex login starts from the desktop app` in browser preview without navigation or a thrown error.
+- Hide-to-tray returned `Popup hides to tray in the desktop app` in browser preview.
+- Mobile `390x900` DOM overflow check found `scrollWidth == clientWidth == 390` and zero overflowing elements.
+- Mobile snapshot showed usage cards, enabled web controls, profile inputs, local calibration controls, and maintenance actions fitting inside the viewport.
+- Captured viewport screenshot through Playwright MCP as `forgegauge-validation-mobile.png`.
+
 Local artifact:
 
 - `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`

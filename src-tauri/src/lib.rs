@@ -500,9 +500,9 @@ fn start_provider_login(
         let preflight_outcome = match headless_web_usage_response(&app, &engine, &sessions, service)
         {
             Ok(response) => {
-                let page_state = response.page_state.clone();
-                refresh_web_provider_preflight_response(&app, &engine, service, response)?;
-                login_start_preflight_outcome(Some(page_state.as_str()))
+                let preflight_outcome = login_start_preflight_outcome_from_response(&response);
+                let _ = refresh_web_provider_preflight_response(&app, &engine, service, response);
+                preflight_outcome
             }
             Err(_) => login_start_preflight_outcome(None),
         };
@@ -623,6 +623,12 @@ fn login_start_preflight_outcome(page_state: Option<&str>) -> LoginStartPrefligh
             launch_headed_browser: false,
         },
     }
+}
+
+fn login_start_preflight_outcome_from_response(
+    response: &browser_session::PlaywrightSidecarUsageResponse,
+) -> LoginStartPreflightOutcome {
+    login_start_preflight_outcome(Some(response.page_state.as_str()))
 }
 
 fn launch_playwright_sidecar_login(
@@ -2318,6 +2324,30 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn login_start_preflight_outcome_from_response_uses_page_state_before_snapshot_parse_result() {
+        let response = browser_session::PlaywrightSidecarUsageResponse {
+            remaining_percent: Some(80.0),
+            used_percent: Some(80.0),
+            visible_fields: vec!["remaining_percent".to_string(), "used_percent".to_string()],
+            ..sidecar_usage_response(Service::Codex, "usage")
+        };
+
+        assert_eq!(
+            login_start_preflight_outcome_from_response(&response),
+            LoginStartPreflightOutcome {
+                status: LOGIN_STATUS_ALREADY_AUTHENTICATED,
+                launch_headed_browser: false,
+            }
+        );
+
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect("snapshot is sanitized");
+
+        assert_eq!(snapshot.details["status"], "parse_failed");
+        assert_eq!(snapshot.details["reason"], "invalid_visible_percentage");
     }
 
     #[test]

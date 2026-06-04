@@ -4,6 +4,15 @@
 
 Branch: `forgegauge-implementation`
 
+Login preflight fail-soft decision:
+
+- Changed `Start login` so the headed/no-headed decision is derived directly from the successful headless preflight page state before the app attempts to record the preflight snapshot.
+- The preflight snapshot/event update is now best-effort for this command path; recording failures cannot turn an authenticated/no-launch or unavailable/no-launch preflight into visible browser churn.
+- Added Rust coverage proving a headless `usage` preflight with unusable visible percentages still returns `already_authenticated` with no headed launch while the snapshot path records a sanitized parse-failed state.
+- Extended `npm run smoke:preflight` with sanitized booleans for best-effort preflight snapshot recording and outcome-before-snapshot-parse regression coverage.
+- Validation: `cargo fmt --check`, `cargo test --lib login_start_preflight_outcome`, `node --check scripts/collect-smoke-preflight.mjs`, `npm run smoke:preflight`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this hardens the local command decision boundary; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Login visibility preflight evidence:
 
 - Extended `npm run smoke:preflight` with sanitized login-visibility automation booleans for headless official refreshes, `Start login` preflight, authenticated no-launch decisions, preflight snapshot updates, official-usage preview prompt hiding, stale login status clearing, web-evidence guards, and frontend regression coverage.

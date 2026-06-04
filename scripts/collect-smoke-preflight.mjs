@@ -96,6 +96,14 @@ const preflight = {
       "refresh_web_provider_preflight_response",
       "SNAPSHOTS_UPDATED_EVENT",
     ]),
+    loginPreflightSnapshotRecordingIsBestEffort: fileContainsAll(rustAppPath, [
+      "login_start_preflight_outcome_from_response",
+      "let _ = refresh_web_provider_preflight_response",
+    ]),
+    loginPreflightOutcomeBeforeSnapshotParse: fileContainsAll(rustAppPath, [
+      "login_start_preflight_outcome_from_response_uses_page_state_before_snapshot_parse_result",
+      "invalid_visible_percentage",
+    ]),
     frontendHidesStartLoginForOfficialUsage: fileContainsAll(browserPreviewValidationPath, [
       "official-usage",
       "should keep Start login hidden after opt-in",

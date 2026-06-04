@@ -70,9 +70,11 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] AppImage bundling works locally on CachyOS/Arch-like systems through `npm run build:appimage`.
 - [x] Real local usage providers work without account credentials.
 - [ ] Opt-in web providers use dedicated browser profiles and never store passwords.
+Blocked: requires approved browser automation backend plus authenticated login/profile validation before real opt-in web providers can be claimed to use dedicated profiles and never store passwords.
 - [x] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
 - [x] Merged usage values combine official web baselines with calibrated local deltas.
 - [ ] Full KDE/Wayland tray smoke test is confirmed by the user.
+Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing that cannot be proven through browser-preview tooling.
 - [x] Remote release workflow is verified after a mainline push.
 
 ## Constraints
@@ -702,6 +704,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 ### Phase 6.5 — Browser Automation Spike
 
 - [ ] Select browser automation backend.
+Blocked: requires user approval of the recommended Playwright headed Chromium sidecar path or an explicit alternative backend choice.
 - [x] Compare Playwright, WebDriver, and lightweight browser-control alternatives.
 - [x] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
 - [ ] Validate persistent isolated profile on CachyOS KDE/Wayland.
@@ -713,6 +716,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Define parser contract and partial/no-data fallback behavior.
 - [x] Document runtime/package dependencies.
 - [ ] Record chosen backend, rejected alternatives, decision matrix, and proceed/defer decision.
+Blocked: backend selection and the validation items above require approval plus manual authenticated CachyOS KDE/Wayland testing.
 - [x] Disable password manager, autofill, and save-password prompts or defer web providers.
 - [ ] Prove fail-closed handling for logged-out, MFA, CAPTCHA, and unexpected UI states.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
@@ -743,6 +747,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Wire Chromium preference initialization into managed browser profile preparation.
   - [x] Count Chromium autofill store artifacts without reading store contents.
 - [ ] Add manual login window flow.
+Blocked: requires approved browser automation backend before implementing real managed browser launch/login UI.
   - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
@@ -958,6 +963,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Sanitized profile inspection counts Chromium password and autofill store artifacts without reading store contents.
 - [ ] Managed browser launch disables password manager/autofill/save-password prompts where supported.
   - [x] Chromium managed-profile initialization writes disabled autofill/password preferences with restrictive permissions.
+Blocked: launch-time proof requires selected managed browser backend and a real browser process launch.
 - [x] Dedicated browser profiles are separate per service.
   - [x] Configured profile overrides cannot make Codex and Claude share or nest service profile paths.
 - [x] Dedicated browser profiles are app-owned and marker-guarded.
@@ -967,9 +973,11 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Clear/delete actions reject symlinked paths.
 - [x] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
 - [ ] Dedicated profiles contain no saved credentials after login validation.
-  - [x] Add sanitized credential-artifact and preference inspector for future login validation evidence.
+  - [x] Add sanitized credential/autofill-artifact and preference inspector for future login validation evidence.
+Blocked: requires authenticated login validation with the selected browser backend.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
   - [x] Profile inspection IPC returns only sanitized counts, booleans, timestamps, service values, and profile labels.
+Blocked: real authenticated refresh logging proof requires selected browser backend and web provider implementation.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.
 - [x] Disabling a web provider cancels future scheduled reads.

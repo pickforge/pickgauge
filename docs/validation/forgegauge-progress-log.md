@@ -4,6 +4,14 @@
 
 Branch: `forgegauge-implementation`
 
+Current-branch packaged KDE smoke revalidation:
+
+- Rebuilt the current branch AppImage with `npm run build:appimage` after the latest login-preflight hardening commit.
+- Reran `npm run smoke:kde-tray` against `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`.
+- Evidence from the smoke: KDE/Wayland StatusNotifier host registered, ForgeGauge tray item active, initial visible window count was `0`, `Show ForgeGauge` opened a visible window, close kept the process and tray registered, `Show ForgeGauge` reopened the window, focus loss hid the popup, utility-window hints were present, tray icon rotation observed both `Codex` and `Claude Code`, isolated packaged settings persisted after restart, and tray `Quit` exited and unregistered the item.
+- Validation: `npm run build:appimage` and `npm run smoke:kde-tray` passed.
+- Remaining caveat: this is automated D-Bus/XWayland evidence; user-visible tray placement, physical tray click behavior, and human-observed KDE confirmation remain unchecked.
+
 Login preflight fail-soft decision:
 
 - Changed `Start login` so the headed/no-headed decision is derived directly from the successful headless preflight page state before the app attempts to record the preflight snapshot.

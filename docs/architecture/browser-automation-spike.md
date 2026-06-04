@@ -92,7 +92,7 @@ Authenticated official pages must never be loaded in the main Tauri webview. The
 
 ## Proceed/Defer Decision
 
-Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the future sidecar process and emits only sanitized status metadata.
+Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the future sidecar process and emits only sanitized status metadata. Rust now serializes the matching `launchLogin` request shape so the future Tauri sidecar spawn can pass one JSON payload over stdin instead of constructing ad hoc arguments.
 
 Defer implementation of Codex and Claude web providers until these manual checks pass on CachyOS KDE/Wayland:
 

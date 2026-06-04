@@ -4,6 +4,15 @@
 
 Branch: `forgegauge-implementation`
 
+Playwright sidecar request serialization:
+
+- Rust now serializes a `PlaywrightSidecarLaunchRequest` matching the sidecar `launchLogin` protocol shape, including `protocolVersion`, backend id, service, HTTPS URL, profile label, raw `userDataDir`, headed mode, and launch args.
+- Raw `userDataDir` is serialized only for the future sidecar stdin payload; debug output and diagnostics use the profile label placeholder, hide launch args, and skip diagnostics from JSON serialization.
+- Tests cover the protocol JSON shape, redaction of raw paths and launch flags from debug output, and HTTPS-only login URL rejection without echoing rejected URLs.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`162 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- Real Tauri sidecar process spawning, `externalBin` packaging, manual login, and authenticated profile validation remain unchecked.
+
 Playwright backend approval and launch contract:
 
 - User approved the Playwright headed Chromium sidecar backend on 2026-06-04.

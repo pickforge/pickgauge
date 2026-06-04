@@ -18,6 +18,8 @@ pub const CHROMIUM_DEFAULT_PROFILE_DIR: &str = "Default";
 pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
+pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
+pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
@@ -144,6 +146,54 @@ pub struct PlaywrightLaunchDiagnostics {
     pub user_data_dir: String,
     pub headless: bool,
     pub args: Vec<String>,
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaywrightSidecarLaunchRequest {
+    pub protocol_version: u32,
+    pub action: &'static str,
+    pub backend: &'static str,
+    pub service: Service,
+    pub url: String,
+    pub profile_label: String,
+    pub user_data_dir: String,
+    pub headless: bool,
+    pub args: Vec<String>,
+    #[serde(skip)]
+    pub diagnostics: PlaywrightSidecarLaunchDiagnostics,
+}
+
+impl fmt::Debug for PlaywrightSidecarLaunchRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let user_data_dir = format!("<{}>", self.profile_label);
+
+        formatter
+            .debug_struct("PlaywrightSidecarLaunchRequest")
+            .field("protocol_version", &self.protocol_version)
+            .field("action", &self.action)
+            .field("backend", &self.backend)
+            .field("service", &self.service)
+            .field("url", &self.url)
+            .field("profile_label", &self.profile_label)
+            .field("user_data_dir", &user_data_dir)
+            .field("headless", &self.headless)
+            .field("arg_count", &self.diagnostics.arg_count)
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlaywrightSidecarLaunchDiagnostics {
+    pub protocol_version: u32,
+    pub action: &'static str,
+    pub backend: &'static str,
+    pub service: Service,
+    pub profile_label: String,
+    pub user_data_dir: String,
+    pub headless: bool,
+    pub arg_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -501,6 +551,43 @@ pub fn playwright_launch_request(plan: &BrowserLaunchPlan) -> PlaywrightLaunchRe
         args,
         diagnostics,
     }
+}
+
+#[allow(dead_code)]
+pub fn playwright_sidecar_launch_request(
+    request: &PlaywrightLaunchRequest,
+    url: impl Into<String>,
+) -> Result<PlaywrightSidecarLaunchRequest, String> {
+    let url = url.into();
+    if !url.starts_with("https://") {
+        return Err("Managed browser login URL must use HTTPS".to_string());
+    }
+
+    let user_data_dir = request.user_data_dir.to_string_lossy().to_string();
+    let redacted_user_data_dir = format!("<{}>", request.profile_label);
+    let diagnostics = PlaywrightSidecarLaunchDiagnostics {
+        protocol_version: PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION,
+        action: PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN,
+        backend: request.backend,
+        service: request.service,
+        profile_label: request.profile_label.clone(),
+        user_data_dir: redacted_user_data_dir,
+        headless: request.headless,
+        arg_count: request.args.len(),
+    };
+
+    Ok(PlaywrightSidecarLaunchRequest {
+        protocol_version: PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION,
+        action: PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN,
+        backend: request.backend,
+        service: request.service,
+        url,
+        profile_label: request.profile_label.clone(),
+        user_data_dir,
+        headless: request.headless,
+        args: request.args.clone(),
+        diagnostics,
+    })
 }
 
 fn chromium_disabled_storage_preferences() -> serde_json::Value {
@@ -1322,6 +1409,77 @@ mod tests {
         assert!(!diagnostics.contains(profile_path));
         assert!(!debug.contains(profile_path));
         assert!(!debug.contains("/home/dev"));
+    }
+
+    #[test]
+    fn playwright_sidecar_launch_request_serializes_to_protocol_shape() {
+        let profile_path = "/tmp/forgegauge/browser-profiles/codex";
+        let plan = chromium_launch_plan(Service::Codex, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_launch_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let value = serde_json::to_value(&sidecar_request).expect("sidecar request serializes");
+
+        assert_eq!(sidecar_request.protocol_version, 1);
+        assert_eq!(sidecar_request.action, "launchLogin");
+        assert_eq!(sidecar_request.backend, PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(sidecar_request.service, Service::Codex);
+        assert_eq!(sidecar_request.profile_label, "codex-profile");
+        assert_eq!(sidecar_request.user_data_dir, profile_path);
+        assert!(!sidecar_request.headless);
+        assert_eq!(value["protocolVersion"], 1);
+        assert_eq!(value["action"], "launchLogin");
+        assert_eq!(value["backend"], "playwright-headed-chromium-sidecar");
+        assert_eq!(value["service"], "codex");
+        assert_eq!(value["profileLabel"], "codex-profile");
+        assert_eq!(value["userDataDir"], profile_path);
+        assert_eq!(value["headless"], false);
+        assert!(value["args"]
+            .as_array()
+            .expect("args are an array")
+            .iter()
+            .all(|arg| !arg
+                .as_str()
+                .expect("arg is a string")
+                .starts_with("--user-data-dir=")));
+        assert!(value.get("diagnostics").is_none());
+    }
+
+    #[test]
+    fn playwright_sidecar_launch_request_debug_redacts_sensitive_launch_input() {
+        let profile_path =
+            "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+        let plan = chromium_launch_plan(Service::Claude, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request =
+            playwright_sidecar_launch_request(&launch_request, "https://claude.ai/usage")
+                .expect("sidecar request is created");
+        let diagnostics = format!("{:?}", sidecar_request.diagnostics);
+        let debug = format!("{sidecar_request:?}");
+
+        assert_eq!(
+            sidecar_request.diagnostics.user_data_dir,
+            "<claude-profile>"
+        );
+        assert_eq!(sidecar_request.diagnostics.arg_count, 4);
+        assert!(!diagnostics.contains(profile_path));
+        assert!(!debug.contains(profile_path));
+        assert!(!debug.contains("/home/dev"));
+        assert!(!debug.contains("--disable-save-password-bubble"));
+    }
+
+    #[test]
+    fn playwright_sidecar_launch_request_rejects_non_https_urls() {
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
+        let launch_request = playwright_launch_request(&plan);
+        let error = playwright_sidecar_launch_request(&launch_request, "http://example.test")
+            .expect_err("non-https urls are rejected");
+
+        assert_eq!(error, "Managed browser login URL must use HTTPS");
+        assert!(!error.contains("example.test"));
     }
 
     #[test]

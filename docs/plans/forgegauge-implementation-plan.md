@@ -44,7 +44,7 @@ Profile inspection progress, 2026-06-03: added a sanitized managed Chromium prof
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
 
-Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata. Real sidecar packaging, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
+Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus a Rust serializer for the exact sidecar `launchLogin` request shape. Real sidecar packaging, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -758,6 +758,7 @@ Blocked: requires Playwright sidecar process integration before implementing rea
   - [x] Prepare managed browser profiles and Chromium preferences before returning the fail-closed login-required boundary.
   - [x] Return sanitized Playwright backend/profile metadata from login-start IPC without raw profile paths.
   - [x] Add tested Playwright sidecar JSON launch protocol with sanitized dry-run responses.
+  - [x] Add Rust serializer for the Playwright sidecar `launchLogin` stdin request.
 - [x] Surface login-required state to UI.
 - [x] Add session reset/logout action.
 - [x] Add guarded clear/delete action for browser profile data.

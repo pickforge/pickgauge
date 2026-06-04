@@ -21,6 +21,7 @@ type ProviderStatusCode =
   | "not_configured"
   | "disabled"
   | "missing_data"
+  | "unavailable"
   | "permission_denied"
   | "parse_failed"
   | "login_required"
@@ -36,6 +37,7 @@ const providerStatusMessages: Partial<Record<ProviderStatusCode, string>> = {
   not_configured: "Provider not configured",
   disabled: "Provider disabled",
   missing_data: "No usage data found",
+  unavailable: "Provider unavailable",
   permission_denied: "Usage data is not readable",
   parse_failed: "Usage data could not be parsed",
   login_required: "Login required",

@@ -133,6 +133,9 @@ describe("frontend provider status notes", () => {
     expect(providerStatusMessage(snapshot({ details: { status: "missing_data" } }))).toBe(
       "No usage data found",
     );
+    expect(providerStatusMessage(snapshot({ details: { status: "unavailable" } }))).toBe(
+      "Provider unavailable",
+    );
     expect(providerStatusMessage(snapshot({ details: { status: "network_unavailable" } }))).toBe(
       "Network unavailable",
     );

@@ -21,6 +21,13 @@ Browser launch logging redaction:
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`151 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
 
+Frontend unavailable status note:
+
+- Frontend provider status-note mapping now recognizes the backend `unavailable` status emitted by local providers for unreadable data roots.
+- Vitest coverage confirms `unavailable` renders as `Provider unavailable` instead of being hidden as an unsupported raw status.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`151 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
+
 ## 2026-06-03 America/Sao_Paulo
 
 Branch: `forgegauge-implementation`

@@ -6,11 +6,11 @@ Branch: `forgegauge-implementation`
 
 Browser-preview state fixtures:
 
-- Added browser-preview-only query states for `missing-local-data`, `network-unavailable`, `expired-login`, `mfa-required`, `captcha-or-bot-check`, `unexpected-ui`, `timed-out`, and `parse-failed`.
-- Vitest now covers preview-state query parsing and the rendered status-note snapshots for `No usage data found`, `Network unavailable`, `Login required`, `MFA required`, `Additional verification required`, `Unexpected usage page`, `Usage refresh timed out`, and `Usage data could not be parsed`.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded the default preview plus all query states at desktop `1280x900` and mobile `390x900`. Each state rendered two usage articles, the expected service status notes, and no horizontal overflow.
-- Validation: `npm test` (`18` Vitest tests, `4` Node sidecar protocol tests, and generated sidecar dry-run passed), `npm run check`, `npm run build`, `npm run test:sidecar-launch`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed.
-- This proves the browser-preview status-note rendering for those states, but does not replace real desktop/provider smoke tests for network outages, missing local data, expired authenticated sessions, MFA, CAPTCHA/bot checks, unexpected official UI, timeouts, or parse failures.
+- Added browser-preview-only query states for `missing-local-data`, `network-unavailable`, `expired-login`, `mfa-required`, `captcha-or-bot-check`, `unexpected-ui`, `timed-out`, `parse-failed`, `stale-data`, `provider-unavailable`, `permission-denied`, `unsafe-profile-path`, and `provider-disabled`.
+- Vitest now covers preview-state query parsing, stale snapshot handling for `stale-data`, and the rendered status-note snapshots for `No usage data found`, `Network unavailable`, `Login required`, `MFA required`, `Additional verification required`, `Unexpected usage page`, `Usage refresh timed out`, `Usage data could not be parsed`, `Provider unavailable`, `Usage data is not readable`, `Profile path blocked`, and `Provider disabled`.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded the default preview plus all query states at desktop `1280x900` and mobile `390x900`. Each state rendered two usage articles, the expected service status or stale-data notes, and no horizontal overflow.
+- Validation: `npm test` (`19` Vitest tests, `4` Node sidecar protocol tests, and generated sidecar dry-run passed), `npm run check`, `npm run build`, `npm run test:sidecar-launch`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed.
+- This proves browser-preview rendering for the local, provider interruption, and graceful provider states, but does not replace real desktop/provider smoke tests for network outages, missing local data, expired authenticated sessions, MFA, CAPTCHA/bot checks, unexpected official UI, timeouts, parse failures, stale real data, unavailable providers, permission-denied local data, unsafe profile paths, or disabled real providers.
 
 Playwright sidecar runtime launch:
 

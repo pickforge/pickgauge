@@ -8,6 +8,7 @@ import {
   profilePathFromInput,
   profilePathValue,
   serviceLabels,
+  snapshotIsStale,
   sourceLabels,
   webProviderControlState,
 } from "./display";
@@ -196,6 +197,19 @@ describe("browser preview state fixtures", () => {
     expect(browserPreviewStateFromSearch("?previewState=unexpected-ui")).toBe("unexpected-ui");
     expect(browserPreviewStateFromSearch("?previewState=timed-out")).toBe("timed-out");
     expect(browserPreviewStateFromSearch("?previewState=parse-failed")).toBe("parse-failed");
+    expect(browserPreviewStateFromSearch("?previewState=stale-data")).toBe("stale-data");
+    expect(browserPreviewStateFromSearch("?previewState=provider-unavailable")).toBe(
+      "provider-unavailable",
+    );
+    expect(browserPreviewStateFromSearch("?previewState=permission-denied")).toBe(
+      "permission-denied",
+    );
+    expect(browserPreviewStateFromSearch("?previewState=unsafe-profile-path")).toBe(
+      "unsafe-profile-path",
+    );
+    expect(browserPreviewStateFromSearch("?previewState=provider-disabled")).toBe(
+      "provider-disabled",
+    );
     expect(browserPreviewStateFromSearch("?previewState=<script>")).toBe("default");
   });
 
@@ -209,9 +223,20 @@ describe("browser preview state fixtures", () => {
       ["unexpected-ui", "Unexpected usage page"],
       ["timed-out", "Usage refresh timed out"],
       ["parse-failed", "Usage data could not be parsed"],
+      ["provider-unavailable", "Provider unavailable"],
+      ["permission-denied", "Usage data is not readable"],
+      ["unsafe-profile-path", "Profile path blocked"],
+      ["provider-disabled", "Provider disabled"],
     ] as const) {
       expect(browserPreviewSnapshots(state).map(providerStatusMessage)).toEqual([note, note]);
     }
+  });
+
+  it("renders stale browser-preview snapshots without inventing provider errors", () => {
+    const snapshots = browserPreviewSnapshots("stale-data");
+
+    expect(snapshots.map(snapshotIsStale)).toEqual([true, true]);
+    expect(snapshots.map(providerStatusMessage)).toEqual([null, null]);
   });
 });
 

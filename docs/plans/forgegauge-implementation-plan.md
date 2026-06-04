@@ -36,7 +36,7 @@ Browser-preview validation progress, 2026-06-03: reran the Vite browser preview 
 
 Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for provider status notes shown on usage cards, including missing local data, unavailable local/provider state, network unavailable, timed out, login required, CAPTCHA/bot-check, unexpected UI, and hidden parsed/placeholder/unknown raw status values. Manual missing-data, network, and expired-login smoke tests remain unchecked because they require end-to-end desktop/provider state validation.
 
-Browser-preview state fixture progress, 2026-06-04: added browser-preview-only query states for missing local data, network unavailable, expired login, MFA required, CAPTCHA/bot-check, unexpected UI, timeout, and parse failure. Vitest covers the query-state mapping and rendered status-note snapshots, and Playwright browser-preview smoke checks verified those states plus the default preview at desktop `1280x900` and mobile `390x900` without horizontal overflow. Real desktop/provider smoke tests remain unchecked.
+Browser-preview state fixture progress, 2026-06-04: added browser-preview-only query states for missing local data, network unavailable, expired login, MFA required, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled provider. Vitest covers the query-state mapping and rendered status-note snapshots, and Playwright browser-preview smoke checks verified those states plus the default preview at desktop `1280x900` and mobile `390x900` without horizontal overflow. Real desktop/provider smoke tests remain unchecked.
 
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
@@ -962,7 +962,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend confidence/source labels.
 - [x] Frontend settings form behavior.
 - [x] Frontend web-provider opt-in toggles and disabled states.
-- [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, and parse-failure states.
+- [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 
 ### Manual Tests To Complete
 
@@ -980,6 +980,8 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Browser-preview fixture renders `Login required` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Provider interruption states.
   - [x] Browser-preview fixtures render `MFA required`, `Additional verification required`, `Unexpected usage page`, `Usage refresh timed out`, and `Usage data could not be parsed` notes for both services at desktop and mobile widths without horizontal overflow.
+- [ ] Provider unavailable/blocked states.
+  - [x] Browser-preview fixtures render `Stale data`, `Provider unavailable`, `Usage data is not readable`, `Profile path blocked`, and `Provider disabled` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Windows tray/install smoke test.
 - [ ] macOS tray/install smoke test.
 Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browser checks require approved backend plus authenticated provider state, and Windows/macOS checks require those platform runtimes.

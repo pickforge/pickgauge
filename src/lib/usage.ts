@@ -249,7 +249,12 @@ export type BrowserPreviewState =
   | "captcha-or-bot-check"
   | "unexpected-ui"
   | "timed-out"
-  | "parse-failed";
+  | "parse-failed"
+  | "stale-data"
+  | "provider-unavailable"
+  | "permission-denied"
+  | "unsafe-profile-path"
+  | "provider-disabled";
 
 const browserPreviewStates = new Set<BrowserPreviewState>([
   "default",
@@ -261,6 +266,11 @@ const browserPreviewStates = new Set<BrowserPreviewState>([
   "unexpected-ui",
   "timed-out",
   "parse-failed",
+  "stale-data",
+  "provider-unavailable",
+  "permission-denied",
+  "unsafe-profile-path",
+  "provider-disabled",
 ]);
 
 export function browserPreviewStateFromSearch(search: string): BrowserPreviewState {
@@ -323,6 +333,39 @@ export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapsh
         details: { status: "parsed", webStatus: "parse_failed" },
         lastUpdated: "2026-06-04T12:00:00Z",
         source: "local",
+      });
+    case "stale-data":
+      return previewSnapshots({
+        details: { stale: true, status: "parsed" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "provider-unavailable":
+      return previewSnapshots({
+        details: { status: "unavailable" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "permission-denied":
+      return previewSnapshots({
+        details: { status: "permission_denied" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "unsafe-profile-path":
+      return previewSnapshots({
+        details: { status: "unsafe_path" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "provider-disabled":
+      return previewSnapshots({
+        confidence: "unknown",
+        details: { status: "disabled" },
+        lastUpdated: "Preview provider disabled",
+        remainingPercent: null,
+        source: "local",
+        usedPercent: null,
       });
     case "default":
       return fallbackSnapshots;

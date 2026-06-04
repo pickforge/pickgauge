@@ -871,7 +871,17 @@ fn headless_web_usage_response(
         .path()
         .app_data_dir()
         .map_err(|_| "Could not resolve app data directory".to_string())?;
-    let paths = prepare_managed_browser_profiles(&config, &app_data_dir)?;
+    let sidecar_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service)?;
+
+    run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)
+}
+
+fn web_usage_refresh_sidecar_request(
+    config: &config::AppConfig,
+    app_data_dir: &Path,
+    service: Service,
+) -> Result<browser_session::PlaywrightSidecarLaunchRequest, String> {
+    let paths = prepare_managed_browser_profiles(config, app_data_dir)?;
     let Some(paths) = paths else {
         return Err("Managed browser profile is not prepared".to_string());
     };
@@ -881,12 +891,11 @@ fn headless_web_usage_response(
     };
     let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
     let launch_request = browser_session::playwright_launch_request(&launch_plan);
-    let sidecar_request = browser_session::playwright_sidecar_refresh_request(
+
+    browser_session::playwright_sidecar_refresh_request(
         &launch_request,
         official_usage_url(service),
-    )?;
-
-    run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)
+    )
 }
 
 fn run_playwright_sidecar_usage_refresh(
@@ -1891,6 +1900,35 @@ mod tests {
         assert_eq!(plan.login.profile_label, "claude-profile");
         assert!(!plan.login.profile_prepared);
         assert!(plan.sidecar_request.is_none());
+    }
+
+    #[test]
+    fn web_usage_refresh_sidecar_request_uses_headless_managed_profile() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+
+        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Claude)
+            .expect("refresh request is built");
+        let debug = format!("{request:?}");
+
+        assert_eq!(
+            request.action,
+            browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE
+        );
+        assert_eq!(request.service, Service::Claude);
+        assert_eq!(request.url, official_usage_url(Service::Claude));
+        assert_eq!(request.profile_label, "claude-profile");
+        assert!(request.headless);
+        assert!(request.user_data_dir.contains("browser-profiles/claude"));
+        assert!(request
+            .args
+            .iter()
+            .all(|arg| !arg.starts_with("--user-data-dir=")));
+        assert_eq!(request.diagnostics.action, "refreshUsage");
+        assert_eq!(request.diagnostics.user_data_dir, "<claude-profile>");
+        assert!(request.diagnostics.headless);
+        assert!(!debug.contains(dir.path.to_string_lossy().as_ref()));
     }
 
     #[test]

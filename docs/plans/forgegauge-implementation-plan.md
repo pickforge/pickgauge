@@ -66,6 +66,8 @@ Headless official refresh progress, 2026-06-04: split the Playwright sidecar int
 
 Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:auth-profile`, a manual post-login validation helper that accepts user-supplied dedicated Codex/Claude profile roots through CLI args or environment variables, requires ForgeGauge app-owned profile markers by default, performs only headless Playwright `refreshUsage` checks, inspects profile storage counts and disabled preference booleans without reading browser storage contents, and emits sanitized JSON without profile paths, official URLs, cookies, tokens, auth headers, page markup, or raw page content. Real profile runs should use `npm --silent run` or environment variables so npm does not echo CLI path arguments before the helper starts. The helper supports strict `--require-usage`, `--require-disabled-storage-preferences`, `--require-no-credential-store-files`, `--require-no-autofill-store-files`, and `--require-no-default-profile-references` modes for future authenticated validation. A temporary marker-owned blank Codex profile run validated the command path and returned sanitized `logged_out` with `visibleBrowserRequired: false`; a missing-marker profile fails with sanitized `missing_profile_marker` output; marker-owned profiles containing `Login Data`, `Web Data`, or a default-browser profile reference fail with sanitized `credential_store_detected`, `autofill_store_detected`, or `default_profile_reference_detected` output. Real authenticated profile evidence remains unchecked.
 
+Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -547,6 +549,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Normal official refresh checks use headless Playwright; visible Chromium is reserved for explicit login.
   - [x] `npm run test:official-fail-closed` validates blank profiles are checked with `headless: true` and `visibleBrowserRequired: false`.
   - [x] Scheduled due-refresh web checks use the same headless Playwright sidecar without consuming manual refresh cooldown.
+  - [x] Rust unit coverage asserts the app-side official refresh request builder uses `refreshUsage` with `headless: true` and never passes `--user-data-dir` through browser args.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
   - [x] Browser launch plan debug output redacts raw profile paths and raw `--user-data-dir` arguments.
@@ -834,6 +837,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Wire desktop `Refresh official` through headless sidecar results and the existing sanitized web parser/cache path.
   - [x] Wire scheduled due-refresh web checks through headless sidecar results without visible browser launch.
   - [x] Keep headed Chromium limited to explicit `Start login`.
+  - [x] Add app-boundary regression coverage for the headless official refresh request shape.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.
 - [x] Define exact visible fields required for each provider before parsing implementation.

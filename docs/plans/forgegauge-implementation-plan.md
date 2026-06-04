@@ -92,6 +92,8 @@ Authenticated helper dual-service progress, 2026-06-04: extended `npm run test:a
 
 Authenticated helper environment-input progress, 2026-06-04: extended `npm run test:auth-profile-helper` to validate the environment-variable form recommended for real profile paths. Disposable Codex and Claude marker-owned profile roots plus the app log path are supplied through `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `FORGEGAUGE_AUTH_LOG_PATH`, while strict sanitized-log and storage-preference checks remain enabled and output is verified not to expose those paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
 
+Authenticated helper shared-root input progress, 2026-06-04: `npm run smoke:auth-profile` now accepts `--profile-root` and `FORGEGAUGE_AUTH_PROFILE_ROOT` to derive `codex` and `claude` profile roots from one browser-profile root. `npm run test:auth-profile-helper` validates the shared-root form with disposable marker-owned profiles, rejects relative shared roots with sanitized `invalid_profile_root`, and verifies output still omits the shared root, derived profile paths, log path, official URLs, and home directory. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`). Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default, network-unavailable, and unexpected-UI preview cards do not expose `Start login` while expired-login, MFA, and CAPTCHA states do after experimental web providers are enabled.
@@ -850,6 +852,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] `npm run smoke:auth-profile` self-checks its emitted JSON report for raw profile paths, official URLs, home-directory paths, launch flags, auth material, and page markup.
   - [x] `npm run test:auth-profile-helper` validates sanitized safe-log inspection and sensitive-log rejection without exposing temporary profile or log paths.
   - [x] `npm run test:auth-profile-helper` validates environment-variable profile/log inputs without exposing temporary profile or log paths.
+  - [x] `npm run test:auth-profile-helper` validates shared profile-root input without exposing the root, derived profile paths, or log path.
   - [x] `npm run test:official-fail-closed` self-checks its emitted JSON report for raw profile roots, official URLs, launch flags, home-directory paths, auth material, and page markup.
   - [x] `npm run test:synthetic-fail-closed` self-checks its emitted JSON report for raw profile roots, local HTTPS URLs, launch flags, synthetic cookie names, home-directory paths, auth material, and page markup.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
@@ -1065,7 +1068,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
 | Synthetic web fail-closed smoke | `npm run test:synthetic-fail-closed` |
-| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
+| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --profile-root <browser-profiles-root> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
 | Authenticated helper validation | `npm run test:auth-profile-helper` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
@@ -1091,6 +1094,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Add `npm run test:auth-profile-helper` to validate strict helper behavior and sanitized failure output for disposable profiles/logs.
   - [x] `npm run test:auth-profile-helper` validates Codex and Claude disposable profile results plus service-marker mismatch rejection without raw path output.
   - [x] `npm run test:auth-profile-helper` validates the environment-variable profile/log input form recommended for real profile paths.
+  - [x] `npm run test:auth-profile-helper` validates the shared browser-profile-root input form recommended for default app-owned profiles.
   - [x] `npm run test:official-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
   - [x] `npm run test:synthetic-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
   - [x] `npm run smoke:preflight` validates its own JSON preflight artifact remains sanitized before printing.

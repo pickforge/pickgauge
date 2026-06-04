@@ -28,6 +28,8 @@ const failClosedStates = new Set([
 try {
   validateHelpOutput();
   validateStrictBlankProfileRefresh();
+  validateSharedProfileRootInput();
+  validateRelativeSharedProfileRootFailure();
   validateEnvironmentProfileInputs();
   validatePreflightFailure({
     code: "credential_store_detected",
@@ -126,6 +128,44 @@ function validateEnvironmentProfileInputs() {
   assertServiceResult(services.get("codex"), "codex");
   assertServiceResult(services.get("claude"), "claude");
   assertSanitized(result, [codexProfileRoot, claudeProfileRoot, logPath]);
+}
+
+function validateSharedProfileRootInput() {
+  const profileRoot = resolve(validationRoot, "shared-root");
+  const codexProfileRoot = createProfile("codex", "shared-root/codex");
+  const claudeProfileRoot = createProfile("claude", "shared-root/claude");
+  const logPath = resolve(validationRoot, "shared-root.log");
+
+  writeFileSync(logPath, "ForgeGauge shared root smoke completed\n", { mode: 0o600 });
+
+  const result = runHelper([
+    "--profile-root",
+    profileRoot,
+    "--log-file",
+    logPath,
+    "--require-sanitized-log-file",
+    "--require-disabled-storage-preferences",
+    "--require-no-credential-store-files",
+    "--require-no-autofill-store-files",
+    "--require-no-default-profile-references",
+  ]);
+  const output = JSON.parse(result.stdout);
+  const services = new Map(output.services.map((service) => [service.service, service]));
+
+  assert.equal(result.status, 0);
+  assert.equal(output.logInspection.inspected, true);
+  assert.equal(output.logInspection.sensitiveContentAbsent, true);
+  assert.equal(output.services.length, 2);
+  assertServiceResult(services.get("codex"), "codex");
+  assertServiceResult(services.get("claude"), "claude");
+  assertSanitized(result, [profileRoot, codexProfileRoot, claudeProfileRoot, logPath]);
+}
+
+function validateRelativeSharedProfileRootFailure() {
+  const result = runHelper(["--profile-root", "relative-browser-profiles"]);
+
+  assertFailureCode(result, "invalid_profile_root");
+  assertSanitized(result, ["relative-browser-profiles"]);
 }
 
 function assertServiceResult(service, serviceName) {

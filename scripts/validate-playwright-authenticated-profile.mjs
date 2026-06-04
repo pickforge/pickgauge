@@ -84,13 +84,13 @@ async function main() {
   const requests = serviceDefinitions
     .map((definition) => ({
       ...definition,
-      profileRoot: options.profileRoots.get(definition.service) ?? process.env[definition.envName],
+      profileRoot: profileRootForService(definition, options),
     }))
     .filter((request) => request.profileRoot);
 
   if (requests.length === 0) {
     throw new Error(
-      "Provide at least one authenticated profile root with --codex-profile, --claude-profile, FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT, or FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
+      "Provide at least one authenticated profile root with --profile-root, --codex-profile, --claude-profile, FORGEGAUGE_AUTH_PROFILE_ROOT, FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT, or FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
     );
   }
 
@@ -241,6 +241,7 @@ function parseOptions(args) {
   const profileRoots = new Map();
   const options = {
     help: false,
+    profileRoot: process.env.FORGEGAUGE_AUTH_PROFILE_ROOT || null,
     profileRoots,
     requireDisabledPreferences: false,
     requireNoAutofillStoreFiles: false,
@@ -301,6 +302,22 @@ function parseOptions(args) {
       continue;
     }
 
+    if (arg === "--profile-root") {
+      const value = args[index + 1];
+
+      if (!value || value.startsWith("--")) {
+        throw new Error("--profile-root requires an absolute browser profile root path");
+      }
+
+      if (!isAbsolute(value)) {
+        throw new Error("--profile-root requires an absolute browser profile root path");
+      }
+
+      options.profileRoot = value;
+      index += 1;
+      continue;
+    }
+
     if (arg === "--log-file") {
       const value = args[index + 1];
 
@@ -332,11 +349,25 @@ function parseOptions(args) {
   return options;
 }
 
+function profileRootForService(definition, options) {
+  if (options.profileRoot && !isAbsolute(options.profileRoot)) {
+    throw new Error("FORGEGAUGE_AUTH_PROFILE_ROOT must be an absolute browser profile root path");
+  }
+
+  return (
+    options.profileRoots.get(definition.service) ??
+    process.env[definition.envName] ??
+    (options.profileRoot ? resolve(options.profileRoot, definition.service) : null)
+  );
+}
+
 function printHelp() {
   console.log(`Usage:
+  npm --silent run smoke:auth-profile -- --profile-root /absolute/browser-profiles --log-file /absolute/forgegauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
   npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --log-file /absolute/forgegauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
 
 Environment:
+  FORGEGAUGE_AUTH_PROFILE_ROOT=/absolute/browser-profiles
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
   FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT=/absolute/profile
   FORGEGAUGE_AUTH_LOG_PATH=/absolute/forgegauge.log

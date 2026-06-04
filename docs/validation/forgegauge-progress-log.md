@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated helper shared-root input:
+
+- Added `--profile-root` and `FORGEGAUGE_AUTH_PROFILE_ROOT` to `npm run smoke:auth-profile`, deriving `codex` and `claude` child profile paths from one browser-profile root.
+- Extended `npm run test:auth-profile-helper` to validate shared-root input with disposable marker-owned profiles, sanitized output, and relative-root rejection with `invalid_profile_root`.
+- Validation: `node --check scripts/validate-playwright-authenticated-profile.mjs`, `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run test:auth-profile-helper`, `npm run check`, `npm test`, `npm run build`, and `npm run test:browser-preview` passed.
+- Remaining caveat: this improves the future manual authenticated smoke command; real authenticated profile persistence and log cleanliness still require logged-in app-owned profiles.
+
 Login preflight decision regression:
 
 - Factored the desktop `Start login` headless preflight result into an explicit backend decision helper: already authenticated, launch browser, or unavailable.

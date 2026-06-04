@@ -4,6 +4,14 @@
 
 Branch: `forgegauge-implementation`
 
+Playwright sidecar runtime launch:
+
+- Added the Playwright npm package as the local runtime dependency for the Node sidecar.
+- Added `npm run test:sidecar-launch`, which launches the generated sidecar against the Codex and Claude official URLs with `headless: false`, temporary isolated profiles under `/tmp`, and sanitized stdout-only response checks.
+- Validation: `npm test`, `npm run test:sidecar-launch`, `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed. `npm run test:sidecar-launch` passed for both services, removed the temporary profile directories afterward, and left no ForgeGauge sidecar processes running.
+- Packaging evidence: `npm run build:appimage` produced `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage` (`106M`) with `ForgeGauge.AppDir/usr/bin/forgegauge-playwright-sidecar` still present.
+- This proves the local sidecar can start headed Playwright sessions for both official URLs, but it does not prove authenticated login, session persistence, saved-credential absence, parseable authenticated fields, or AppImage runtime behavior outside the source workspace.
+
 Playwright Linux sidecar packaging:
 
 - Added a Linux-only Tauri config that registers `binaries/forgegauge-playwright-sidecar` as an `externalBin`.

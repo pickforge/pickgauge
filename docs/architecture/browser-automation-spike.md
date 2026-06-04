@@ -29,6 +29,7 @@ Playwright:
 
 - Browser binaries live in OS cache locations by default, including `~/.cache/ms-playwright` on Linux.
 - `PLAYWRIGHT_BROWSERS_PATH` can redirect the browser-binary cache for packaging or test runs.
+- The workspace now depends on the Playwright npm package for local sidecar runtime validation. Local Chromium installation can be checked with `npx playwright install --dry-run chromium` and installed with `npx playwright install chromium`.
 - The Linux AppImage build now includes a target-triple sidecar executable generated from the checked-in Node source and registered through `tauri.linux.conf.json` `externalBin`.
 - The generated sidecar is Node-based and still depends on an available Node/Playwright runtime and browser installation for real headed launches; dry-run packaging validation does not prove authenticated login.
 - Rust attempts a backend-owned sidecar launch through `tauri-plugin-shell`, writes one JSON `launchLogin` payload to stdin, validates one sanitized stdout response, and tracks the child through the existing browser session manager.
@@ -93,7 +94,7 @@ Authenticated official pages must never be loaded in the main Tauri webview. The
 
 ## Proceed/Defer Decision
 
-Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the sidecar process and emits only sanitized status metadata. Rust now serializes the matching `launchLogin` request shape, spawns the sidecar through the Tauri shell plugin when available, validates the sanitized launch response, and fails closed with `login_required` when the sidecar is unavailable. Linux `externalBin` AppImage packaging is verified for the generated Node sidecar; real login still requires manual CachyOS KDE/Wayland validation with the Playwright runtime available.
+Proceed with the Playwright headed Chromium sidecar spike. The first implementation boundary is an internal launch request contract based on Playwright's `chromium.launchPersistentContext(userDataDir, { headless: false, args })` shape, with raw profile paths kept out of diagnostics. The second boundary is a tested sidecar JSON protocol that accepts raw `userDataDir` only on stdin for the sidecar process and emits only sanitized status metadata. Rust now serializes the matching `launchLogin` request shape, spawns the sidecar through the Tauri shell plugin when available, validates the sanitized launch response, and fails closed with `login_required` when the sidecar is unavailable. Linux `externalBin` AppImage packaging is verified for the generated Node sidecar, and local headed sidecar launch has been validated against both official URLs with temporary isolated profiles. Real authenticated login, persistence, and profile-content validation still require manual CachyOS KDE/Wayland validation.
 
 Defer implementation of Codex and Claude web providers until these manual checks pass on CachyOS KDE/Wayland:
 

@@ -117,6 +117,13 @@ npm run build:appimage
 
 The AppImage script also prepares the Linux Playwright sidecar executable under `src-tauri/binaries/` before invoking Tauri. Real headed web-provider login still requires a working local Node/Playwright runtime.
 
+For local sidecar launch validation:
+
+```bash
+npx playwright install chromium
+npm run test:sidecar-launch
+```
+
 ## Roadmap
 
 1. Bootstrap the Tauri + Svelte app shell.

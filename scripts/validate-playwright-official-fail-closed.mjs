@@ -45,6 +45,7 @@ const validFailClosedStates = new Set([
   "timed_out",
   "unexpected_ui",
 ]);
+let validationRootCleanupFailed = false;
 
 try {
   const results = [];
@@ -100,10 +101,11 @@ try {
   );
 } finally {
   rmSync(validationRoot, { force: true, recursive: true });
+  validationRootCleanupFailed = existsSync(validationRoot);
+}
 
-  if (existsSync(validationRoot)) {
-    throw new Error("Temporary official fail-closed validation root must be removed");
-  }
+if (validationRootCleanupFailed) {
+  throw new Error("Temporary official fail-closed validation root must be removed");
 }
 
 async function validateHeadlessRefresh({

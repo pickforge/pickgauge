@@ -1002,8 +1002,7 @@ Run the relevant subset before completing implementation work:
 - [x] `cargo clippy -- -D warnings`
 - [x] `cargo test`
 - [x] `npm run build:appimage`
-- [ ] Add `npm run lint` if linting is configured later.
-Blocked: no lint script or lint configuration exists in the project yet.
+- [x] Add `npm run lint` if linting is configured later.
 
 ### Validation Command Matrix
 
@@ -1012,7 +1011,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Change type | Commands |
 | --- | --- |
 | Documentation only | `git diff --check`, `npm run check` |
-| Frontend/Svelte | `npm run check`, `npm run build` |
+| Frontend/Svelte | `npm run lint`, `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
 | Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |

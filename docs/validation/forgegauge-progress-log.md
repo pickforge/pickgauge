@@ -4,6 +4,12 @@
 
 Branch: `forgegauge-implementation`
 
+Lint baseline:
+
+- Added `npm run lint` with ESLint flat config for Svelte, TypeScript, browser code, Node scripts, sidecar code, and Vite config while ignoring generated/build outputs.
+- The lint pass keys the usage-card Svelte each block and keeps cleanup validation scripts from throwing inside `finally` blocks so cleanup failures do not mask earlier validation failures.
+- Validation: `npm run lint`, `npm run check`, `npm test`, `npm run test:official-fail-closed`, `npm run test:browser-preview`, `npm run test:sidecar-launch`, and `git diff --check` passed.
+
 Login prompt and headed-launch preflight:
 
 - `Refresh official` remains the silent/headless check after web-provider opt-in. The frontend renders `Start login` only when the current web snapshot, or a local fallback carrying `webStatus`, reports `login_required`.

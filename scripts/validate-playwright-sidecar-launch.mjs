@@ -59,6 +59,7 @@ const sensitiveOutputPatterns = [
   },
 ];
 const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profiles-"));
+let validationRootCleanupFailed = false;
 
 try {
   const profileRoots = new Map();
@@ -122,10 +123,11 @@ try {
   );
 } finally {
   rmSync(validationRoot, { force: true, recursive: true });
+  validationRootCleanupFailed = existsSync(validationRoot);
+}
 
-  if (existsSync(validationRoot)) {
-    throw new Error("Temporary sidecar validation root must be removed");
-  }
+if (validationRootCleanupFailed) {
+  throw new Error("Temporary sidecar validation root must be removed");
 }
 
 async function validateLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures }) {

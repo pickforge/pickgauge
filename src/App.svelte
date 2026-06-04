@@ -475,7 +475,7 @@
       </article>
     {/if}
 
-    {#each snapshots as snapshot}
+    {#each snapshots as snapshot (snapshot.service)}
       <article class={`usage-card ${serviceTone[snapshot.service]}`}>
         <div class="usage-header">
           <div class="service-title">

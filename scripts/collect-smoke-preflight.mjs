@@ -49,6 +49,59 @@ const preflight = {
     recordObservedKdeTrayBehavior: true,
     recordAuthenticatedLoginOutcomeSeparately: true,
     recordWindowsMacosSmokeSeparately: true,
+    templates: {
+      kdeTray: manualEvidenceTemplate(
+        [
+          "date",
+          "desktopSession",
+          "osSessionType",
+          "artifactUsed",
+          "trayVisible",
+          "trayClickOpensPopup",
+          "popupCloseOrFallback",
+          "settingsPersistAfterRestart",
+          "quitExitsApp",
+        ],
+        [
+          "pending_user_visible_tray_observation",
+          "pending_user_visible_popup_observation",
+          "pending_user_visible_settings_observation",
+        ],
+      ),
+      authenticatedWeb: manualEvidenceTemplate(
+        [
+          "date",
+          "service",
+          "profileLabel",
+          "loginPromptShownOnlyWhenNeeded",
+          "headlessRefreshReachedUsage",
+          "visibleFieldsObserved",
+          "savedCredentialArtifactsAbsent",
+          "sensitiveLogsAbsent",
+        ],
+        [
+          "pending_authenticated_codex_profile",
+          "pending_authenticated_claude_profile",
+          "pending_saved_credential_absence_check",
+        ],
+      ),
+      platformSmoke: manualEvidenceTemplate(
+        [
+          "date",
+          "platform",
+          "artifactUsed",
+          "installedOrLaunched",
+          "trayOrMenuVisible",
+          "settingsPersistAfterRestart",
+          "quitExitsApp",
+        ],
+        [
+          "pending_windows_runtime",
+          "pending_macos_intel_runtime",
+          "pending_macos_apple_silicon_runtime",
+        ],
+      ),
+    },
     excludedFromThisPreflight: [
       "cookies",
       "tokens",
@@ -108,6 +161,15 @@ function fileMetadata(path) {
     executable: process.platform === "win32" || (stats.mode & 0o111) !== 0,
     path: repoRelative(path),
     sizeBytes: stats.size,
+  };
+}
+
+function manualEvidenceTemplate(requiredFields, pendingObservations) {
+  return {
+    status: "pending_manual_observation",
+    requiredFields,
+    pendingObservations,
+    keepOnlySanitizedNotes: true,
   };
 }
 

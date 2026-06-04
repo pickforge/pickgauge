@@ -4,6 +4,22 @@
 
 Branch: `forgegauge-implementation`
 
+Login prompt and headed-launch preflight:
+
+- `Refresh official` remains the silent/headless check after web-provider opt-in. The frontend renders `Start login` only when the current web snapshot, or a local fallback carrying `webStatus`, reports `login_required`.
+- The desktop `start_provider_login` command now performs a headless Playwright usage preflight before launching headed Chromium. If the app-owned profile already reaches the usage state, the command returns sanitized `already_authenticated` status without opening a visible browser.
+- Evidence: Vitest covers login-prompt visibility for direct web `login_required`, fallback `webStatus = login_required`, parsed states, MFA, and network-unavailable states. Rust tests cover the preflight decision boundary and the sanitized `already_authenticated` IPC status shape.
+- Validation: `cargo fmt --check`, `cargo test --lib`, `cargo clippy -- -D warnings`, `npm run check`, `npm test`, `npm run test:browser-preview`, `npm run test:official-fail-closed`, `npm run build`, and `git diff --check` passed.
+- Remaining caveat: real post-login preflight evidence still requires authenticated app-owned Codex and Claude profiles.
+
+Manual evidence template:
+
+- `npm run smoke:preflight` now includes sanitized pending-observation templates for KDE tray behavior, authenticated web/session checks, and Windows/macOS platform smoke.
+- The templates list required manual fields such as date/session, OS/session type, artifact used, observed KDE behavior, authenticated refresh outcome, visible fields, saved-credential artifact absence, sanitized-log absence, and platform launch/tray/settings/quit behavior.
+- The preflight output still excludes cookies, tokens, auth headers, browser profile contents, account identifiers, authenticated page content, and full local paths.
+- Validation: `node --check scripts/collect-smoke-preflight.mjs`, `npm run smoke:preflight`, `npm run check`, and `git diff --check` passed.
+- Remaining caveat: template output is not a substitute for the actual user-observed KDE, authenticated web, or Windows/macOS smoke results.
+
 Headless official refresh and visible-browser suppression:
 
 - Normal official refresh checks now use the Playwright sidecar `refreshUsage` action in headless mode with the app-owned persistent profile. Visible Chromium remains reserved for explicit `Start login` requests.

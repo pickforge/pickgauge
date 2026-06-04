@@ -40,7 +40,10 @@ try {
   validateServiceProfileOverridePrecedence();
   validateRelativeSharedProfileRootFailure();
   validateRelativeEnvironmentSharedProfileRootFailure();
+  validateMissingSharedProfileRootFailure();
+  validateFileSharedProfileRootFailure();
   validateSymlinkSharedProfileRootFailure();
+  validateDefaultBrowserSharedProfileRootFailure();
   validateEnvironmentProfileInputs();
   validatePreflightFailure({
     code: "credential_store_detected",
@@ -275,6 +278,39 @@ function validateSymlinkSharedProfileRootFailure() {
 
   assertFailureCode(result, "invalid_profile_root");
   assertSanitized(result, [realProfileRoot, symlinkProfileRoot]);
+}
+
+function validateMissingSharedProfileRootFailure() {
+  const profileRoot = resolve(validationRoot, "missing-shared-root");
+  const result = runHelper(["--profile-root", profileRoot]);
+
+  assertFailureCode(result, "invalid_profile_root");
+  assertSanitized(result, [profileRoot]);
+}
+
+function validateFileSharedProfileRootFailure() {
+  const profileRoot = resolve(validationRoot, "file-shared-root");
+
+  writeFileSync(profileRoot, "not a directory\n", { mode: 0o600 });
+
+  const result = runHelper(["--profile-root", profileRoot]);
+
+  assertFailureCode(result, "invalid_profile_root");
+  assertSanitized(result, [profileRoot]);
+}
+
+function validateDefaultBrowserSharedProfileRootFailure() {
+  const xdgConfigHome = resolve(validationRoot, "xdg-config-home");
+  const profileRoot = resolve(xdgConfigHome, "chromium");
+
+  mkdirSync(profileRoot, { recursive: true, mode: 0o700 });
+
+  const result = runHelper(["--profile-root", profileRoot], {
+    XDG_CONFIG_HOME: xdgConfigHome,
+  });
+
+  assertFailureCode(result, "default_browser_profile");
+  assertSanitized(result, [xdgConfigHome, profileRoot]);
 }
 
 function assertServiceResult(service, serviceName) {

@@ -1,0 +1,8 @@
+{
+  "service": "claude",
+  "pageState": "mfa_required",
+  "remainingPercent": null,
+  "usedPercent": null,
+  "resetAt": null,
+  "visibleFields": []
+}

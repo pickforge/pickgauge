@@ -1,0 +1,8 @@
+{
+  "service": "codex",
+  "pageState": "usage",
+  "remainingPercent": 82,
+  "usedPercent": 18,
+  "resetAt": "2026-06-04T12:00:00Z",
+  "visibleFields": ["remaining_percent", "used_percent", "reset_at", "quota_window"]
+}

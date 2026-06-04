@@ -1,0 +1,8 @@
+{
+  "service": "claude",
+  "pageState": "unexpected_ui",
+  "remainingPercent": null,
+  "usedPercent": null,
+  "resetAt": null,
+  "visibleFields": ["plan_label"]
+}

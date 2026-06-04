@@ -2,6 +2,7 @@ mod browser_profile;
 mod config;
 pub mod local_provider;
 pub mod usage;
+pub mod web_provider;
 
 use std::{fs, path::Path, sync::Mutex};
 use tauri::{

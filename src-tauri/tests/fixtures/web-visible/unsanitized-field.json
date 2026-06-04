@@ -1,0 +1,8 @@
+{
+  "service": "claude",
+  "pageState": "usage",
+  "remainingPercent": 70,
+  "usedPercent": 30,
+  "resetAt": "2026-06-04T12:00:00Z",
+  "visibleFields": ["remaining_percent", "unsupported_field"]
+}

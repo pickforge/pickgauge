@@ -491,9 +491,9 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] The chosen backend can disable or avoid password saving/autofill prompts.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
 - [ ] Browser launch arguments and profile paths are logged only in sanitized form.
-- [ ] Parser input is sanitized visible text or structured state, not raw authenticated HTML.
-- [ ] Fixture regeneration requires explicit user-consented capture.
-- [ ] Fixtures are sanitized before writing.
+- [x] Parser input is sanitized visible text or structured state, not raw authenticated HTML.
+- [x] Fixture regeneration requires explicit user-consented capture.
+- [x] Fixtures are sanitized before writing.
 - [ ] Web providers fail closed on login, MFA, CAPTCHA, bot checks, unexpected UI, or parse failure.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
@@ -723,26 +723,26 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 - [ ] Add Codex web provider for the Codex analytics URL.
 - [ ] Add Claude web provider for the Claude usage URL.
-- [ ] Parse visible usage fields only.
-- [ ] Define exact visible fields required for each provider before parsing implementation.
-- [ ] Define fallback behavior when only partial visible data exists.
-- [ ] Define parser input format as sanitized visible text/structured accessibility snapshot, not raw authenticated HTML.
-- [ ] Implement documented visible-data parser contract for each provider.
-- [ ] Return `unknown` or lower-confidence snapshot for partial/no visible usage data.
-- [ ] Avoid inventing precision on parse failures.
+- [x] Parse visible usage fields only.
+- [x] Define exact visible fields required for each provider before parsing implementation.
+- [x] Define fallback behavior when only partial visible data exists.
+- [x] Define parser input format as sanitized visible text/structured accessibility snapshot, not raw authenticated HTML.
+- [x] Implement documented visible-data parser contract for each provider.
+- [x] Return `unknown` or lower-confidence snapshot for partial/no visible usage data.
+- [x] Avoid inventing precision on parse failures.
 - [x] Surface parse failures in UI without crashing.
 - [x] Add manual "Refresh official usage" action.
-- [ ] Add sanitized parser fixtures for every implemented web provider.
-- [ ] Add fixture update workflow based on explicit user-consented manual captures.
-- [ ] Reject raw page HTML, account identifiers, cookies, tokens, auth headers, and unsanitized browser errors from fixtures.
+- [x] Add sanitized parser fixtures for every implemented web provider.
+- [x] Add fixture update workflow based on explicit user-consented manual captures.
+- [x] Reject raw page HTML, account identifiers, cookies, tokens, auth headers, and unsanitized browser errors from fixtures.
 - [ ] Add manual authenticated refresh smoke test for each service.
-- [ ] Add parser tests for successful usage read.
-- [ ] Add parser tests for partial visible data.
-- [ ] Add parser tests for logged-out page.
-- [ ] Add parser tests for MFA/CAPTCHA/interruption page.
-- [ ] Add parser tests for unexpected UI.
-- [ ] Add parser tests for parse failure.
-- [ ] Add fixture sanitization tests or review checks.
+- [x] Add parser tests for successful usage read.
+- [x] Add parser tests for partial visible data.
+- [x] Add parser tests for logged-out page.
+- [x] Add parser tests for MFA/CAPTCHA/interruption page.
+- [x] Add parser tests for unexpected UI.
+- [x] Add parser tests for parse failure.
+- [x] Add fixture sanitization tests or review checks.
 - [ ] Add provider-level tests proving web providers do not run unless explicitly enabled.
 
 ### Phase 9 — Merge Engine
@@ -881,7 +881,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Refresh interval validation/clamping.
 - [x] Manual web-refresh cooldown enforcement.
 - [x] Provider enable/disable scheduler behavior.
-- [ ] Provider parsing.
+- [x] Provider parsing.
 - [x] Local quota/window calibration.
 - [x] Merge logic.
 - [x] Merge fallback when local providers cannot produce a percentage delta.
@@ -932,7 +932,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Local app data uses restrictive file permissions where supported.
 - [x] `details` metadata is sanitized and never contains raw page content or secrets.
 - [x] Test fixtures are sanitized before being committed or shared.
-- [ ] Fixture regeneration requires explicit user-consented captures.
+- [x] Fixture regeneration requires explicit user-consented captures.
 - [x] Provider errors are sanitized before display/logging.
 
 ## Known Risks and Mitigations

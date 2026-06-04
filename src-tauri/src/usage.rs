@@ -217,7 +217,7 @@ impl UsageSource {
 }
 
 impl UsageProviderError {
-    fn code(self) -> &'static str {
+    pub fn code(self) -> &'static str {
         match self {
             Self::NotConfigured => "not_configured",
             Self::Disabled => "disabled",

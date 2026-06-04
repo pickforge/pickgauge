@@ -173,13 +173,48 @@ async function runRefreshUsageRequest(request) {
       usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
       visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
     };
-  } catch {
+  } catch (error) {
+    if (context) {
+      return sanitizedCheckedResponse(request, refreshFailurePageState(error));
+    }
+
     return sanitizedRejectedResponse("sidecar_refresh_failed");
   } finally {
     if (context) {
       await context.close().catch(() => {});
     }
   }
+}
+
+function sanitizedCheckedResponse(request, pageState, visibleUsage = emptyVisibleUsage()) {
+  return {
+    ...sanitizedAcceptedResponse(request),
+    status: "checked",
+    pageState,
+    remainingPercent: pageState === "usage" ? visibleUsage.remainingPercent : null,
+    resetAt: pageState === "usage" ? visibleUsage.resetAt : null,
+    usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
+    visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
+  };
+}
+
+function emptyVisibleUsage() {
+  return {
+    remainingPercent: null,
+    resetAt: null,
+    usedPercent: null,
+    visibleFields: [],
+  };
+}
+
+function refreshFailurePageState(error) {
+  const message = typeof error?.message === "string" ? error.message : "";
+
+  if (error?.name === "TimeoutError" || /\btimeout\b/iu.test(message)) {
+    return "timed_out";
+  }
+
+  return "network_unavailable";
 }
 
 async function detectPageState(page, visibleUsage, cookieCount) {

@@ -41,6 +41,8 @@ const validFailClosedStates = new Set([
   "logged_out",
   "mfa_required",
   "captcha_or_bot_check",
+  "network_unavailable",
+  "timed_out",
   "unexpected_ui",
 ]);
 
@@ -64,6 +66,20 @@ try {
     prepareDisabledStoragePreferences(request.profileRoot);
     results.push(await validateHeadlessRefresh(request));
   }
+
+  const networkFailureProfileRoot = resolve(validationRoot, "codex-network-unavailable");
+  prepareDisabledStoragePreferences(networkFailureProfileRoot);
+  results.push(
+    await validateHeadlessRefresh({
+      args: [...launchArgs, "--proxy-server=http://127.0.0.1:9"],
+      expectedPageState: "network_unavailable",
+      profileLabel: "codex-profile",
+      profileRoot: networkFailureProfileRoot,
+      scenario: "network_unavailable",
+      service: "codex",
+      url: "https://chatgpt.com/codex/cloud/settings/analytics",
+    }),
+  );
 
   console.log(
     JSON.stringify(
@@ -90,8 +106,16 @@ try {
   }
 }
 
-async function validateHeadlessRefresh({ service, url, profileLabel, profileRoot }) {
-  const response = await runSidecarRefresh({ service, url, profileLabel, profileRoot });
+async function validateHeadlessRefresh({
+  args = launchArgs,
+  expectedPageState = null,
+  profileLabel,
+  profileRoot,
+  scenario = "blank_profile",
+  service,
+  url,
+}) {
+  const response = await runSidecarRefresh({ args, service, url, profileLabel, profileRoot });
 
   if (
     response.ok !== true ||
@@ -100,7 +124,7 @@ async function validateHeadlessRefresh({ service, url, profileLabel, profileRoot
     response.service !== service ||
     response.profileLabel !== profileLabel ||
     response.headless !== true ||
-    response.argCount !== launchArgs.length
+    response.argCount !== args.length
   ) {
     throw new Error(`Unexpected ${service} headless refresh response`);
   }
@@ -113,17 +137,22 @@ async function validateHeadlessRefresh({ service, url, profileLabel, profileRoot
     throw new Error(`${service} blank profile unexpectedly reached authenticated usage state`);
   }
 
+  if (expectedPageState && response.pageState !== expectedPageState) {
+    throw new Error(`${service} ${scenario} returned ${response.pageState}`);
+  }
+
   return {
     failClosedState: response.pageState,
     headlessRefresh: true,
     profileLabel,
     sanitizedOutput: true,
+    scenario,
     service,
     visibleBrowserRequired: false,
   };
 }
 
-async function runSidecarRefresh({ service, url, profileLabel, profileRoot }) {
+async function runSidecarRefresh({ args, service, url, profileLabel, profileRoot }) {
   const child = spawn(sidecarPath, [], {
     detached: true,
     env: sidecarLaunchEnvironment(),
@@ -155,13 +184,13 @@ async function runSidecarRefresh({ service, url, profileLabel, profileRoot }) {
         profileLabel,
         userDataDir: profileRoot,
         headless: true,
-        args: launchArgs,
+        args,
       })}\n`,
     );
     child.stdin.end();
 
     const response = await waitForSidecarResponse(() => stdout);
-    verifySanitizedOutput({ profileRoot, service, stderr, stdout, url });
+    verifySanitizedOutput({ args, profileRoot, service, stderr, stdout, url });
 
     return response;
   } finally {
@@ -251,10 +280,10 @@ function sidecarLaunchEnvironment() {
   return env;
 }
 
-function verifySanitizedOutput({ profileRoot, service, stderr, stdout, url }) {
+function verifySanitizedOutput({ args, profileRoot, service, stderr, stdout, url }) {
   const output = `${stdout}\n${stderr}`;
 
-  for (const fragment of [profileRoot, url, ...launchArgs].filter(Boolean)) {
+  for (const fragment of [profileRoot, url, ...args].filter(Boolean)) {
     if (output.includes(fragment)) {
       throw new Error(`${service} headless refresh output leaked sensitive launch data`);
     }

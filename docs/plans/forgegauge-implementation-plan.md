@@ -60,7 +60,7 @@ Playwright backend decision progress, 2026-06-04: user approved the Playwright h
 
 Profile storage artifact progress, 2026-06-04: extended sanitized managed-profile inspection to report cookie-store and site-storage artifact counts in addition to credential/autofill counts, symlink counts, disabled preference booleans, inspected entry counts, and limit status. IPC and maintenance UI summaries expose only counts/booleans/labels/timestamps. `npm run test:sidecar-launch` now records sanitized headed Playwright evidence that both temporary Codex and Claude persistent profiles produced cookie-store artifacts under distinct service profiles without symlinks, default-profile import, raw profile paths, cookies, auth-looking material, or page markup in sidecar output. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
 
-Headless official refresh progress, 2026-06-04: split the Playwright sidecar into headed `launchLogin` for explicit user login and headless `refreshUsage` for normal official usage refresh checks. The desktop `Refresh usage`, `Refresh official`, and scheduled due-refresh paths now use the headless sidecar with the existing app-owned persistent profile, convert sanitized sidecar page state/visible fields through the web parser, update the normal provider cache/merge path, and report login-required states without flashing a visible browser. Scheduled headless web refreshes do not consume the manual web-refresh cooldown. `npm run test:official-fail-closed` validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states with `headless: true` and `visibleBrowserRequired: false` on CachyOS KDE/Wayland. Authenticated official parsing, post-login session persistence, and saved-credential validation remain unchecked.
+Headless official refresh progress, 2026-06-04: split the Playwright sidecar into headed `launchLogin` for explicit user login and headless `refreshUsage` for normal official usage refresh checks. The desktop `Refresh usage`, `Refresh official`, and scheduled due-refresh paths now use the headless sidecar with the existing app-owned persistent profile, convert sanitized sidecar page state/visible fields through the web parser, update the normal provider cache/merge path, and report login-required states without flashing a visible browser. Scheduled headless web refreshes do not consume the manual web-refresh cooldown. `npm run test:official-fail-closed` validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states and a forced dead-proxy Codex refresh returns sanitized `network_unavailable`, all with `headless: true` and `visibleBrowserRequired: false` on CachyOS KDE/Wayland. Authenticated official parsing, post-login session persistence, and saved-credential validation remain unchecked.
 
 Supersedes:
 
@@ -553,6 +553,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Parser contract returns unknown snapshots for logged-out, MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, missing visible data, and parse failures.
   - [x] Display merge keeps local data visible and carries sanitized `webStatus`/`webReason` metadata for fail-closed web states.
   - [x] Real headless Playwright official refresh smoke validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states without opening a visible browser.
+  - [x] Real headless Playwright official refresh smoke validates a forced network failure returns sanitized `network_unavailable` without opening a visible browser.
 Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
@@ -762,6 +763,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Parser fixtures and tests cover logged-out, MFA, CAPTCHA/bot-check, unexpected UI, network unavailable, timeout, missing visible data, and parse-failure states.
   - [x] Display merge and browser-preview fixtures keep local data visible and surface sanitized fail-closed web status notes without horizontal overflow.
   - [x] `npm run test:official-fail-closed` validates real headless Playwright official refreshes for blank Codex/Claude profiles return sanitized `logged_out` states without opening a visible browser.
+  - [x] `npm run test:official-fail-closed` validates a real headless Playwright official refresh with a forced dead proxy returns sanitized `network_unavailable` without opening a visible browser.
 Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
 - [ ] Confirm no sensitive page content is written to normal logs.
@@ -1018,6 +1020,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Official Codex page refresh.
 - [ ] Official Claude usage page refresh.
 - [ ] Network unavailable state.
+  - [x] Headless official smoke validates a forced network-unavailable Codex refresh without visible browser launch.
   - [x] Browser-preview fixture renders `Network unavailable` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Missing local data state.
   - [x] Browser-preview fixture renders `No usage data found` notes for both services at desktop and mobile widths without horizontal overflow.

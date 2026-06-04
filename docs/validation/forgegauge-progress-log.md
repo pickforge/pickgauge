@@ -13,6 +13,15 @@ Headless official refresh and visible-browser suppression:
 - Validation: `npm test`, `npm run test:official-fail-closed`, `npm run check`, `npm run build`, `npm run test:browser-preview`, `git diff --check`, and cleanup checks for leftover sidecar processes and temporary official-fail-closed profile roots passed for the implementation slice.
 - Remaining caveat: authenticated official parsing, post-login session persistence, real MFA/CAPTCHA/unexpected-UI browser states, and saved-credential absence after login still require manual authenticated validation.
 
+Authenticated profile smoke helper:
+
+- Added `npm run smoke:auth-profile`, a manual post-login helper for future authenticated validation of app-owned Codex and Claude Playwright profiles.
+- The helper accepts `--codex-profile`, `--claude-profile`, `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, or `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, then performs headless `refreshUsage` checks against those existing profile roots. It never launches a visible browser.
+- It emits sanitized JSON with stable service/profile labels, visible field names if `usage` is reached, fail-closed page state when not authenticated, profile storage artifact counts, symlink counts, disabled preference booleans, desktop/session metadata, and `visibleBrowserRequired = false`.
+- It verifies its own stdout/stderr/output do not include raw profile paths, official URLs, launch args, cookies, tokens, auth headers, browser storage contents, page markup, or raw page content. Strict `--require-usage` and `--require-disabled-storage-preferences` flags are available for real post-login checks.
+- Evidence: `npm run smoke:auth-profile -- --help` passed without launching a browser. A temporary blank Codex profile run passed and returned sanitized `logged_out`, `headlessRefresh = true`, `visibleBrowserRequired = false`, profile storage counts, and no raw profile path or official URL in output.
+- Remaining caveat: this adds the repeatable authenticated smoke workflow but does not prove real authenticated profile persistence, parseable official usage fields, saved-credential absence after login, or authenticated refresh logging until run against real logged-in dedicated profiles.
+
 Packaged settings persistence smoke:
 
 - `npm run smoke:kde-tray` now validates packaged config persistence in addition to KDE StatusNotifier registration, DBusMenu show/quit, and XWayland close/reopen behavior.

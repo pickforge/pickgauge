@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   BACKEND_ID,
   PROTOCOL_VERSION,
+  detectPageState,
+  extractVisibleUsage,
   runLaunchRequest,
   sanitizedAcceptedResponse,
   validateLaunchRequest,
@@ -130,3 +132,91 @@ test("rejects invalid requests without echoing sensitive input", async () => {
   assert.equal(serialized.includes(rawPath), false);
   assert.equal(serialized.includes("/home/dev"), false);
 });
+
+test("extracts sanitized visible usage fields from page text", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({
+      bodyText:
+        "Team plan monthly window. 42.5% remaining. 57.5% used. Resets 2026-06-04T18:30.",
+    }),
+    "codex",
+  );
+
+  assert.deepEqual(usage, {
+    remainingPercent: 42.5,
+    resetAt: "2026-06-04T18:30:00Z",
+    service: "codex",
+    usedPercent: 57.5,
+    visibleFields: [
+      "remaining_percent",
+      "used_percent",
+      "reset_at",
+      "plan_label",
+      "quota_window",
+    ],
+  });
+});
+
+test("classifies synthetic visible page states without authenticated page content", async () => {
+  assert.equal(
+    await detectPageState(
+      fakePage({ url: "https://auth.example.com/login" }),
+      emptyVisibleUsage(),
+      2,
+    ),
+    "logged_out",
+  );
+  assert.equal(
+    await detectPageState(fakePage({ visibleTexts: ["Verify you are human"] }), emptyVisibleUsage(), 2),
+    "captcha_or_bot_check",
+  );
+  assert.equal(
+    await detectPageState(fakePage({ visibleTexts: ["Enter your verification code"] }), emptyVisibleUsage(), 2),
+    "mfa_required",
+  );
+  assert.equal(
+    await detectPageState(fakePage({ visibleTexts: ["Continue with email"] }), emptyVisibleUsage(), 2),
+    "logged_out",
+  );
+  assert.equal(
+    await detectPageState(
+      fakePage(),
+      { ...emptyVisibleUsage(), visibleFields: ["remaining_percent"] },
+      2,
+    ),
+    "usage",
+  );
+  assert.equal(await detectPageState(fakePage(), emptyVisibleUsage(), 0), "logged_out");
+  assert.equal(await detectPageState(fakePage(), emptyVisibleUsage(), 2), "unexpected_ui");
+});
+
+function emptyVisibleUsage() {
+  return {
+    remainingPercent: null,
+    resetAt: null,
+    usedPercent: null,
+    visibleFields: [],
+  };
+}
+
+function fakePage({ bodyText = "", url = "https://example.com/usage", visibleTexts = [] } = {}) {
+  const locatorForText = (pattern) => fakeLocator(visibleTexts.some((text) => pattern.test(text)));
+
+  return {
+    getByRole: (_role, options = {}) => locatorForText(options.name ?? /$a/u),
+    getByText: (pattern) => locatorForText(pattern),
+    locator: (selector) => ({
+      innerText: async () => (selector === "body" ? bodyText : ""),
+    }),
+    url: () => url,
+  };
+}
+
+function fakeLocator(visible) {
+  return {
+    count: async () => (visible ? 1 : 0),
+    nth: () => ({
+      isVisible: async () => visible,
+    }),
+  };
+}

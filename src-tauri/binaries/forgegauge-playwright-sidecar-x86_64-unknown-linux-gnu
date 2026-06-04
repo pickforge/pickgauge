@@ -217,7 +217,7 @@ function refreshFailurePageState(error) {
   return "network_unavailable";
 }
 
-async function detectPageState(page, visibleUsage, cookieCount) {
+export async function detectPageState(page, visibleUsage, cookieCount) {
   if (await urlLooksLoggedOut(page)) {
     return "logged_out";
   }
@@ -305,7 +305,7 @@ async function hasAnyVisibleLocator(locators) {
   return false;
 }
 
-async function extractVisibleUsage(page, service) {
+export async function extractVisibleUsage(page, service) {
   const text = await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
   const percentages = visiblePercentages(text);
   const resetAt = visibleResetAt(text);
@@ -354,18 +354,40 @@ function visiblePercentages(text) {
 function percentNearLabel(text, labelPattern) {
   const normalized = text.replace(/\s+/gu, " ");
   const matches = normalized.matchAll(/([0-9]{1,3}(?:\.[0-9]{1,2})?)\s*%/gu);
+  let bestMatch = null;
 
   for (const match of matches) {
     const value = Number.parseFloat(match[1]);
     const start = Math.max(0, match.index - 80);
     const end = Math.min(normalized.length, match.index + match[0].length + 80);
+    const distance = closestLabelDistance(normalized.slice(start, end), labelPattern, match.index - start);
 
-    if (validPercent(value) && labelPattern.test(normalized.slice(start, end))) {
-      return value;
+    if (
+      validPercent(value) &&
+      distance !== null &&
+      (bestMatch === null || distance < bestMatch.distance)
+    ) {
+      bestMatch = { distance, value };
     }
   }
 
-  return null;
+  return bestMatch?.value ?? null;
+}
+
+function closestLabelDistance(context, labelPattern, percentIndex) {
+  const flags = labelPattern.flags.includes("g") ? labelPattern.flags : `${labelPattern.flags}g`;
+  const pattern = new RegExp(labelPattern.source, flags);
+  let shortest = null;
+
+  for (const match of context.matchAll(pattern)) {
+    const distance = Math.abs(match.index - percentIndex);
+
+    if (shortest === null || distance < shortest) {
+      shortest = distance;
+    }
+  }
+
+  return shortest;
 }
 
 function firstPercentValue(text) {

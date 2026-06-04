@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Sidecar visible-state classifier coverage:
+
+- Added Node unit tests for Playwright sidecar visible usage extraction and synthetic page-state classification without real authenticated page content.
+- The tests cover remaining/used percentage extraction, reset timestamp normalization, plan/window field detection, closest-label matching so `used` does not attach to the wrong percentage, and logged-out/CAPTCHA/MFA/auth-gate/usage/no-cookie/unexpected-UI classifier states.
+- Validation: `node --test sidecars/playwright/*.node-test.mjs`, `npm run prepare:sidecar`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:official-fail-closed`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves sidecar classifier behavior against synthetic pages; real official authenticated page fields still require logged-in app-owned profile smoke.
+
 Visible login launch guard:
 
 - `Start login` still performs a headless usage preflight before any headed Playwright launch.

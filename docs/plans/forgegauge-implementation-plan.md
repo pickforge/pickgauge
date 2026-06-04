@@ -86,6 +86,8 @@ Login preflight progress, 2026-06-04: the desktop `Start login` command now perf
 
 Visible login launch guard progress, 2026-06-04: the `Start login` command now opens headed Chromium only when the headless preflight reports a user-action state (`logged_out`, `mfa_required`, or `captcha_or_bot_check`). Authenticated `usage` returns `already_authenticated`, while network, timeout, unexpected-UI, or failed preflight checks return a sanitized non-launching `preflight_unavailable` status so stale login prompts do not flash a visible browser.
 
+Sidecar visible-state coverage progress, 2026-06-04: added direct Node unit coverage for the Playwright sidecar's visible usage extraction and page-state classifier with synthetic page objects. The tests cover percent/reset/plan/window field extraction, closest-label pairing for remaining versus used percentages, and fail-closed classification for logged-out, CAPTCHA/bot-check, MFA, auth-gate, no-cookie logged-out, usage, and unexpected-UI states without real authenticated page content.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -578,6 +580,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
   - [x] Browser launch plan debug output redacts raw profile paths and raw `--user-data-dir` arguments.
 - [x] Parser input is sanitized visible text or structured state, not raw authenticated HTML.
+  - [x] Playwright sidecar unit tests cover sanitized visible-text extraction and synthetic page-state classification without raw page content.
 - [x] Fixture regeneration requires explicit user-consented capture.
 - [x] Fixtures are sanitized before writing.
 - [ ] Web providers fail closed on login, MFA, CAPTCHA, bot checks, unexpected UI, or parse failure.
@@ -888,9 +891,11 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 - [ ] Add manual authenticated refresh smoke test for each service.
   - [x] Add `npm run smoke:auth-profile` as a repeatable sanitized manual post-login refresh/profile smoke helper.
 - [x] Add parser tests for successful usage read.
+  - [x] Add Playwright sidecar visible-field extraction tests for remaining/used percentage, reset timestamp, plan label, and quota window text.
 - [x] Add parser tests for partial visible data.
 - [x] Add parser tests for logged-out page.
 - [x] Add parser tests for MFA/CAPTCHA/interruption page.
+  - [x] Add Playwright sidecar page-state classifier tests for logged-out URL, auth gate, MFA, CAPTCHA/bot-check, usage, no-cookie logged-out, and unexpected UI.
 - [x] Add parser tests for network-unavailable and timeout states.
 - [x] Add parser tests for unexpected UI.
 - [x] Add parser tests for parse failure.
@@ -1060,6 +1065,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend web-provider opt-in toggles and disabled states.
 - [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
+- [x] Playwright sidecar visible usage extraction and page-state classifier tests.
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
 - [x] KDE StatusNotifier tray registration, DBusMenu quit, XWayland show/close/reopen, and isolated packaged-restart config-persistence smoke command for AppImage launch validation.
 - [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and marker-owned dedicated-profile evidence.

@@ -1488,6 +1488,80 @@ mod tests {
         }
     }
 
+    fn assert_sanitized_details(label: &str, details: &serde_json::Value) {
+        let forbidden_keys = [
+            "account",
+            "auth",
+            "content",
+            "cookie",
+            "cwd",
+            "email",
+            "gitBranch",
+            "html",
+            "path",
+            "preview",
+            "raw",
+            "requestId",
+            "sessionId",
+            "title",
+            "token",
+            "uuid",
+        ];
+        let forbidden_text = [
+            "bearer ",
+            "cookie=",
+            "set-cookie",
+            "auth.json",
+            "access_token",
+            "refresh_token",
+            "sk-",
+            "/home/",
+            "/users/",
+            "c:\\users\\",
+            "<html",
+            "<!doctype",
+        ];
+
+        fn visit(
+            label: &str,
+            value: &serde_json::Value,
+            forbidden_keys: &[&str],
+            forbidden_text: &[&str],
+        ) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    for (key, value) in object {
+                        let lower_key = key.to_ascii_lowercase();
+                        assert!(
+                            !forbidden_keys
+                                .iter()
+                                .any(|forbidden| lower_key == forbidden.to_ascii_lowercase()),
+                            "{label} contains forbidden details key {key}"
+                        );
+                        visit(label, value, forbidden_keys, forbidden_text);
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for value in values {
+                        visit(label, value, forbidden_keys, forbidden_text);
+                    }
+                }
+                serde_json::Value::String(text) => {
+                    let lower_text = text.to_ascii_lowercase();
+                    assert!(
+                        !forbidden_text
+                            .iter()
+                            .any(|forbidden| lower_text.contains(forbidden)),
+                        "{label} contains sensitive-looking details text"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        visit(label, details, &forbidden_keys, &forbidden_text);
+    }
+
     #[test]
     fn fake_provider_refreshes_enabled_services() {
         let engine = UsageEngine::new(config_with_services(true, true));
@@ -2178,6 +2252,78 @@ mod tests {
         assert_eq!(value["emittedAt"], "2026-06-03T23:20:00Z");
         assert!(value.get("raw").is_none());
         assert!(value.get("path").is_none());
+    }
+
+    #[test]
+    fn display_and_error_snapshot_details_are_sanitized() {
+        let dir = TestDir::new();
+        create_codex_state_db(&dir.path);
+        let local_state = UsageEngine::with_clock_and_local_roots(
+            local_codex_config(),
+            Box::new(FixedClock {
+                now: "2026-06-03T23:00:00Z".to_string(),
+            }),
+            LocalProviderRoots {
+                codex: Some(dir.path.clone()),
+                claude: None,
+            },
+        )
+        .refresh_all()
+        .expect("local refresh succeeds");
+        let merge_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                (
+                    "codex.web",
+                    web_snapshot(Service::Codex, 80.0, "2026-06-03T23:00:00Z"),
+                ),
+                (
+                    "codex.local",
+                    local_delta_snapshot(
+                        Service::Codex,
+                        10.0,
+                        "2026-06-03T23:00:00Z",
+                        "2026-06-03T23:05:00Z",
+                    ),
+                ),
+            ],
+            "2026-06-03T23:05:00Z",
+        );
+        let provider = ProviderDescriptor {
+            provider_key: "codex.web".to_string(),
+            provider_id: UsageProviderId::CodexWeb,
+            service: Service::Codex,
+            source: UsageSource::Web,
+            local_data_root: None,
+            local_calibration: None,
+        };
+
+        for snapshot in local_state
+            .snapshots
+            .iter()
+            .chain(merge_state.snapshots.iter())
+        {
+            assert_sanitized_details("display snapshot", &snapshot.details);
+        }
+
+        for error in [
+            UsageProviderError::NotConfigured,
+            UsageProviderError::Disabled,
+            UsageProviderError::MissingData,
+            UsageProviderError::PermissionDenied,
+            UsageProviderError::ParseFailed,
+            UsageProviderError::LoginRequired,
+            UsageProviderError::MfaRequired,
+            UsageProviderError::CaptchaOrBotCheck,
+            UsageProviderError::NetworkUnavailable,
+            UsageProviderError::TimedOut,
+            UsageProviderError::UnexpectedUi,
+            UsageProviderError::UnsafePath,
+            UsageProviderError::Internal,
+        ] {
+            let snapshot = error_snapshot(&provider, error, "2026-06-03T23:00:00Z");
+            assert_sanitized_details("provider error snapshot", &snapshot.details);
+        }
     }
 
     #[test]

@@ -930,10 +930,10 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Clear UI label for experimental web provider.
 - [x] User can reset/delete provider session data and cached snapshots.
 - [x] Local app data uses restrictive file permissions where supported.
-- [ ] `details` metadata is sanitized and never contains raw page content or secrets.
+- [x] `details` metadata is sanitized and never contains raw page content or secrets.
 - [x] Test fixtures are sanitized before being committed or shared.
 - [ ] Fixture regeneration requires explicit user-consented captures.
-- [ ] Provider errors are sanitized before display/logging.
+- [x] Provider errors are sanitized before display/logging.
 
 ## Known Risks and Mitigations
 

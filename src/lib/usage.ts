@@ -240,13 +240,27 @@ export const fallbackSnapshots: UsageSnapshot[] = [
   },
 ];
 
-export type BrowserPreviewState = "default" | "missing-local-data" | "network-unavailable" | "expired-login";
+export type BrowserPreviewState =
+  | "default"
+  | "missing-local-data"
+  | "network-unavailable"
+  | "expired-login"
+  | "mfa-required"
+  | "captcha-or-bot-check"
+  | "unexpected-ui"
+  | "timed-out"
+  | "parse-failed";
 
 const browserPreviewStates = new Set<BrowserPreviewState>([
   "default",
   "missing-local-data",
   "network-unavailable",
   "expired-login",
+  "mfa-required",
+  "captcha-or-bot-check",
+  "unexpected-ui",
+  "timed-out",
+  "parse-failed",
 ]);
 
 export function browserPreviewStateFromSearch(search: string): BrowserPreviewState {
@@ -277,6 +291,36 @@ export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapsh
     case "expired-login":
       return previewSnapshots({
         details: { status: "parsed", webStatus: "login_required" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "mfa-required":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "mfa_required" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "captcha-or-bot-check":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "captcha_or_bot_check" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "unexpected-ui":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "unexpected_ui" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "timed-out":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "timed_out" },
+        lastUpdated: "2026-06-04T12:00:00Z",
+        source: "local",
+      });
+    case "parse-failed":
+      return previewSnapshots({
+        details: { status: "parsed", webStatus: "parse_failed" },
         lastUpdated: "2026-06-04T12:00:00Z",
         source: "local",
       });

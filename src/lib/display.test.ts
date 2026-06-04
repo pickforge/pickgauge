@@ -189,22 +189,29 @@ describe("browser preview state fixtures", () => {
       "network-unavailable",
     );
     expect(browserPreviewStateFromSearch("?previewState=expired-login")).toBe("expired-login");
+    expect(browserPreviewStateFromSearch("?previewState=mfa-required")).toBe("mfa-required");
+    expect(browserPreviewStateFromSearch("?previewState=captcha-or-bot-check")).toBe(
+      "captcha-or-bot-check",
+    );
+    expect(browserPreviewStateFromSearch("?previewState=unexpected-ui")).toBe("unexpected-ui");
+    expect(browserPreviewStateFromSearch("?previewState=timed-out")).toBe("timed-out");
+    expect(browserPreviewStateFromSearch("?previewState=parse-failed")).toBe("parse-failed");
     expect(browserPreviewStateFromSearch("?previewState=<script>")).toBe("default");
   });
 
   it("renders status-note snapshots for browser-preview smoke states", () => {
-    expect(browserPreviewSnapshots("missing-local-data").map(providerStatusMessage)).toEqual([
-      "No usage data found",
-      "No usage data found",
-    ]);
-    expect(browserPreviewSnapshots("network-unavailable").map(providerStatusMessage)).toEqual([
-      "Network unavailable",
-      "Network unavailable",
-    ]);
-    expect(browserPreviewSnapshots("expired-login").map(providerStatusMessage)).toEqual([
-      "Login required",
-      "Login required",
-    ]);
+    for (const [state, note] of [
+      ["missing-local-data", "No usage data found"],
+      ["network-unavailable", "Network unavailable"],
+      ["expired-login", "Login required"],
+      ["mfa-required", "MFA required"],
+      ["captcha-or-bot-check", "Additional verification required"],
+      ["unexpected-ui", "Unexpected usage page"],
+      ["timed-out", "Usage refresh timed out"],
+      ["parse-failed", "Usage data could not be parsed"],
+    ] as const) {
+      expect(browserPreviewSnapshots(state).map(providerStatusMessage)).toEqual([note, note]);
+    }
   });
 });
 

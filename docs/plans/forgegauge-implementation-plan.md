@@ -812,7 +812,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Shows confidence.
 - [x] Shows last update text.
 - [x] Shows settings controls.
-- [ ] Shows last official check when web provider exists.
+- [x] Shows last official check when web provider exists.
 - [x] Shows stale data messaging.
 - [x] Shows login-required state.
 - [x] Adds "Refresh now" action.

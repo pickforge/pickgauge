@@ -60,6 +60,11 @@
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
+  function detailString(snapshot: UsageSnapshot, key: string) {
+    const value = snapshot.details[key];
+    return typeof value === "string" && value.length > 0 ? value : null;
+  }
+
   function plural(value: number, singular: string, pluralValue = `${singular}s`) {
     return value === 1 ? singular : pluralValue;
   }
@@ -144,6 +149,11 @@
 
   function snapshotIsStale(snapshot: UsageSnapshot) {
     return snapshot.details.stale === true;
+  }
+
+  function lastOfficialCheck(snapshot: UsageSnapshot) {
+    const checkedAt = detailString(snapshot, "lastOfficialCheckAt");
+    return checkedAt === null ? null : formatTimestamp(checkedAt);
   }
 
   function profilePathValue(value: string | null) {
@@ -354,6 +364,12 @@
               <dt>Updated</dt>
               <dd>{formatTimestamp(snapshot.lastUpdated)}</dd>
             </div>
+            {#if lastOfficialCheck(snapshot)}
+              <div>
+                <dt>Official</dt>
+                <dd>{lastOfficialCheck(snapshot)}</dd>
+              </div>
+            {/if}
           </dl>
         </div>
 

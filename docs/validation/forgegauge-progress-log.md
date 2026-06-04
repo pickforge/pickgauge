@@ -6,19 +6,19 @@ Branch: `forgegauge-implementation`
 
 Recent evidence commits:
 
+- `d7671a5 feat: detect managed browser orphans`
+- `c51b062 feat: add managed browser session stop guard`
 - `743087e test: cover frontend display helpers`
 - `06dc454 docs: record validation evidence`
 - `2a8c2e5 feat: add provider login ipc boundary`
 - `ddce3e6 docs: note claude local cost blocker`
 - `6131d0c fix: guard browser preview desktop APIs`
-- `ec9853f fix: sanitize startup diagnostics`
-- `194d60c test: cover disabled web provider registration`
 
 Automated validation passed:
 
 - `cargo fmt --check`
 - `cargo check`
-- `cargo test` (`123 passed`)
+- `cargo test` (`124 passed`)
 - `cargo clippy -- -D warnings`
 - `npm test` (`11 passed`)
 - `npm run check`
@@ -32,13 +32,14 @@ Browser-preview validation passed with Playwright against `http://127.0.0.1:1420
 - Mobile layout loaded without overlapping usage cards or settings controls.
 - Experimental web-provider toggle enabled web refresh, profile path, and start-login controls.
 - Desktop-only Start login action returned a browser-preview fallback message instead of throwing.
+- Hide-to-tray button rendered without overlapping the brand lockup and returned the browser-preview fallback status.
 - Mobile DOM overflow check passed at `390px` width after web-provider controls were enabled.
 
 Local artifact:
 
 - `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`
 - Size: `105M`
-- Local timestamp: `Jun 3 23:09`
+- Local timestamp: `Jun 3 23:16`
 
 Runtime and packaging prerequisites observed:
 

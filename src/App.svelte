@@ -49,6 +49,7 @@
   let locatingLogs = $state(false);
   let openingService = $state<Service | null>(null);
   let startingLogin = $state<Service | null>(null);
+  let hidingWindow = $state(false);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
   const webControls = $derived(webProviderControlState(config));
@@ -209,6 +210,28 @@
       error = formatError(caught, "Settings are only persisted in the app");
     } finally {
       saving = false;
+    }
+  }
+
+  async function hidePopup() {
+    statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      error = null;
+      statusMessage = "Popup hides to tray in the desktop app";
+      return;
+    }
+
+    hidingWindow = true;
+
+    try {
+      await invoke("hide_main_window");
+      error = null;
+      statusMessage = null;
+    } catch (caught) {
+      error = formatError(caught, "Could not hide popup");
+    } finally {
+      hidingWindow = false;
     }
   }
 
@@ -382,9 +405,21 @@
 
 <main class="shell" style={`--brand-pattern: url(${patternUrl});`}>
   <section class="hero">
-    <div class="brand-row">
-      <img class="brand-mark" src={logoUrl} alt="ForgeGauge logo mark" />
-      <img class="brand-lockup" src={lockupUrl} alt="ForgeGauge, Pickforge AI Usage Tray" />
+    <div class="hero-top">
+      <div class="brand-row">
+        <img class="brand-mark" src={logoUrl} alt="ForgeGauge logo mark" />
+        <img class="brand-lockup" src={lockupUrl} alt="ForgeGauge, Pickforge AI Usage Tray" />
+      </div>
+      <button
+        class="window-action"
+        type="button"
+        disabled={hidingWindow}
+        aria-label="Hide popup to tray"
+        title="Hide popup to tray"
+        onclick={hidePopup}
+      >
+        ×
+      </button>
     </div>
     <p class="summary">Track Codex and Claude Code usage from a privacy-conscious desktop tray.</p>
     <img class="hero-art" src={heroArtUrl} alt="Abstract ForgeGauge usage gauge artwork" />

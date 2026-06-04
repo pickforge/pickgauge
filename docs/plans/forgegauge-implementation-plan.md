@@ -406,6 +406,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `refresh_provider`
 - [x] `open_official_usage_page`
 - [x] `start_provider_login`
+- [x] `hide_main_window`
 - [x] `reset_provider_session`
 - [x] `clear_cached_snapshots`
 - [x] `clear_provider_profile`
@@ -545,7 +546,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
 - [x] Implement close-to-tray behavior if the app should persist after window close.
 - [x] Add explicit quit path that fully exits background tray process.
-- [ ] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
+- [x] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
 
 ### Phase 2 — Branded Tray State Icons
 
@@ -1005,7 +1006,7 @@ The Phase 4 core data plumbing milestone is complete for the fake-provider path.
 - [x] Decide whether the Tauri `main` window starts hidden, starts minimized, or remains visible during development only.
 - [x] Implement close-to-tray behavior if the app should persist after window close.
 - [x] Add explicit quit path that fully exits background tray process.
-- [ ] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
+- [x] Add explicit popup close/click-outside fallback if KDE/Wayland smoke test requires it.
 - [ ] Complete KDE/Wayland smoke checks for tray visibility, popup open/close, settings persistence after restart, and quit behavior.
 - [x] Record runtime packages and packaging prerequisites discovered during testing.
 

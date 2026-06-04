@@ -100,6 +100,13 @@ struct LogLocation {
     updated_at: String,
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowVisibility {
+    status: String,
+    updated_at: String,
+}
+
 type CommandResult<T> = Result<T, CommandError>;
 
 impl CommandError {
@@ -197,6 +204,10 @@ fn map_open_usage_page_error() -> CommandError {
         "open_usage_page_failed",
         "Could not open official usage page",
     )
+}
+
+fn map_window_visibility_error() -> CommandError {
+    command_error("window_visibility_failed", "Could not update app window")
 }
 
 fn map_autostart_error() -> CommandError {
@@ -740,6 +751,19 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn hide_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(map_window_visibility_error)?;
+    window.hide().map_err(|_| map_window_visibility_error())?;
+
+    Ok(WindowVisibility {
+        status: "hidden".to_string(),
+        updated_at: usage::now_rfc3339(),
+    })
+}
+
 fn setup_window_lifecycle(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let window_on_close = window.clone();
@@ -809,6 +833,7 @@ pub fn run() {
             get_display_state,
             get_log_location,
             get_usage_snapshots,
+            hide_main_window,
             open_official_usage_page,
             refresh_provider,
             refresh_usage,
@@ -1060,6 +1085,23 @@ mod tests {
                 "path": "/tmp/forgegauge.log",
                 "exists": false,
                 "redactionPolicy": "docs/security/log-redaction-policy.md",
+                "updatedAt": "2026-06-03T00:00:00Z"
+            })
+        );
+    }
+
+    #[test]
+    fn window_visibility_serializes_to_ipc_shape() {
+        let visibility = WindowVisibility {
+            status: "hidden".to_string(),
+            updated_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        let value = serde_json::to_value(visibility).expect("window visibility serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "status": "hidden",
                 "updatedAt": "2026-06-03T00:00:00Z"
             })
         );

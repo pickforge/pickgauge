@@ -14,6 +14,7 @@ Command return models:
 | `refresh_provider` | `UsageDisplayState` | Raw provider errors, raw local logs, raw page HTML/text |
 | `open_official_usage_page` | `OfficialUsagePage` | Authenticated page content and browser profile data |
 | `start_provider_login` | `ProviderLoginStart` | Authenticated page content, browser profile data, cookies, tokens, and account identifiers |
+| `hide_main_window` | `WindowVisibility` | Usage data, browser profile data, cookies, tokens, and account identifiers |
 | `clear_cached_snapshots` | `UsageDisplayState` | Raw local logs, raw page HTML/text, account identifiers |
 | `clear_provider_profile` | `ClearedProviderProfile` | Browser profile paths and contents |
 | `reset_provider_session` | `ClearedProviderProfile` | Browser profile paths and contents |

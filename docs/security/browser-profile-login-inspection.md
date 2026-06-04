@@ -25,7 +25,7 @@ Use this checklist after a future managed browser login test. Record only saniti
 
 Inspect only file names, directory names, metadata, and browser preference keys needed to prove password saving is not present. Do not open, print, or copy cookie/session databases, local storage, IndexedDB values, token stores, account IDs, or authenticated page content.
 
-- [ ] Run `npm --silent run smoke:auth-profile -- --codex-profile <codex-profile> --claude-profile <claude-profile> --require-usage --require-disabled-storage-preferences --require-no-credential-store-files` or the equivalent environment-variable form, and record only the sanitized JSON result.
+- [ ] Run `npm --silent run smoke:auth-profile -- --codex-profile <codex-profile> --claude-profile <claude-profile> --require-usage --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files` or the equivalent environment-variable form, and record only the sanitized JSON result.
 - [ ] Codex profile contains no password-store database such as `Login Data`.
 - [ ] Codex profile contains no password-store journal or sidecar file.
 - [ ] Codex profile contains no autofill-store database such as `Web Data`.

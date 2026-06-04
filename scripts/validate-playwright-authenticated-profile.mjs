@@ -152,11 +152,16 @@ async function validateAuthenticatedProfile(request, options) {
     throw new Error(`${request.service} profile contains credential store files`);
   }
 
+  if (options.requireNoAutofillStoreFiles && profileStorage.autofillStoreFiles > 0) {
+    throw new Error(`${request.service} profile contains autofill store files`);
+  }
+
   if (options.requireDisabledPreferences && !disabledStoragePreferences.allDisabled) {
     throw new Error(`${request.service} profile does not preserve disabled storage preferences`);
   }
 
   return {
+    autofillStoreFilesAbsent: profileStorage.autofillStoreFiles === 0,
     credentialStoreFilesAbsent: profileStorage.credentialStoreFiles === 0,
     failClosedState: response.pageState === "usage" ? null : response.pageState,
     headlessRefresh: true,
@@ -178,6 +183,7 @@ function parseOptions(args) {
     help: false,
     profileRoots,
     requireDisabledPreferences: false,
+    requireNoAutofillStoreFiles: false,
     requireNoCredentialStoreFiles: false,
     requireUsage: false,
     allowUnmarkedTestProfile: false,
@@ -203,6 +209,11 @@ function parseOptions(args) {
 
     if (arg === "--require-no-credential-store-files") {
       options.requireNoCredentialStoreFiles = true;
+      continue;
+    }
+
+    if (arg === "--require-no-autofill-store-files") {
+      options.requireNoAutofillStoreFiles = true;
       continue;
     }
 
@@ -232,7 +243,7 @@ function parseOptions(args) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences --require-no-credential-store-files
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files
 
 Environment:
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
@@ -579,6 +590,7 @@ function printSanitizedFailure(error) {
       ["usage_not_reached", /did not reach usage state/u],
       ["storage_preferences_not_disabled", /disabled storage preferences/u],
       ["credential_store_detected", /credential store files/u],
+      ["autofill_store_detected", /autofill store files/u],
       ["profile_inspection_failed", /profile inspection/u],
       ["unsupported_page_state", /unsupported page state/u],
       ["sidecar_timeout", /Timed out/u],

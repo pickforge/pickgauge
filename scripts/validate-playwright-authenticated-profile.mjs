@@ -126,6 +126,17 @@ async function main() {
 async function validateAuthenticatedProfile(request, options) {
   validateProfileRoot(request);
   const profileMarker = inspectProfileMarker(request, options);
+  const preflightProfileStorage = inspectChromiumProfileStorage(request.profileRoot);
+  const preflightDisabledStoragePreferences = inspectDisabledStoragePreferences(request.profileRoot);
+  const preflightDefaultProfileReferences = inspectDefaultProfileReferences(request.profileRoot);
+
+  assertProfileStorageSafety(
+    request,
+    options,
+    preflightProfileStorage,
+    preflightDisabledStoragePreferences,
+    preflightDefaultProfileReferences,
+  );
 
   const response = await runSidecarRefresh(request);
 
@@ -152,29 +163,13 @@ async function validateAuthenticatedProfile(request, options) {
   const disabledStoragePreferences = inspectDisabledStoragePreferences(request.profileRoot);
   const defaultProfileReferences = inspectDefaultProfileReferences(request.profileRoot);
 
-  if (profileStorage.symlinkEntries > 0) {
-    throw new Error(`${request.service} authenticated profile contains symlink entries`);
-  }
-
-  if (profileStorage.entryLimitReached) {
-    throw new Error(`${request.service} authenticated profile inspection reached the entry limit`);
-  }
-
-  if (options.requireNoCredentialStoreFiles && profileStorage.credentialStoreFiles > 0) {
-    throw new Error(`${request.service} profile contains credential store files`);
-  }
-
-  if (options.requireNoAutofillStoreFiles && profileStorage.autofillStoreFiles > 0) {
-    throw new Error(`${request.service} profile contains autofill store files`);
-  }
-
-  if (options.requireDisabledPreferences && !disabledStoragePreferences.allDisabled) {
-    throw new Error(`${request.service} profile does not preserve disabled storage preferences`);
-  }
-
-  if (options.requireNoDefaultProfileReferences && !defaultProfileReferences.absent) {
-    throw new Error(`${request.service} profile preferences reference a default browser profile`);
-  }
+  assertProfileStorageSafety(
+    request,
+    options,
+    profileStorage,
+    disabledStoragePreferences,
+    defaultProfileReferences,
+  );
 
   const sessionStorageArtifactsPresent =
     profileStorage.cookieStoreFiles > 0 || profileStorage.siteStorageEntries > 0;
@@ -208,6 +203,38 @@ async function validateAuthenticatedProfile(request, options) {
     visibleBrowserRequired: false,
     disabledStoragePreferences,
   };
+}
+
+function assertProfileStorageSafety(
+  request,
+  options,
+  profileStorage,
+  disabledStoragePreferences,
+  defaultProfileReferences,
+) {
+  if (profileStorage.symlinkEntries > 0) {
+    throw new Error(`${request.service} authenticated profile contains symlink entries`);
+  }
+
+  if (profileStorage.entryLimitReached) {
+    throw new Error(`${request.service} authenticated profile inspection reached the entry limit`);
+  }
+
+  if (options.requireNoCredentialStoreFiles && profileStorage.credentialStoreFiles > 0) {
+    throw new Error(`${request.service} profile contains credential store files`);
+  }
+
+  if (options.requireNoAutofillStoreFiles && profileStorage.autofillStoreFiles > 0) {
+    throw new Error(`${request.service} profile contains autofill store files`);
+  }
+
+  if (options.requireDisabledPreferences && !disabledStoragePreferences.allDisabled) {
+    throw new Error(`${request.service} profile does not preserve disabled storage preferences`);
+  }
+
+  if (options.requireNoDefaultProfileReferences && !defaultProfileReferences.absent) {
+    throw new Error(`${request.service} profile preferences reference a default browser profile`);
+  }
 }
 
 function parseOptions(args) {

@@ -16,6 +16,7 @@
     "prepare:sidecar": "node scripts/prepare-playwright-sidecar.mjs",
     "test": "vitest run && node --test sidecars/playwright/*.node-test.mjs && node scripts/prepare-playwright-sidecar.mjs --check && node scripts/validate-playwright-sidecar-package.mjs",
     "test:browser-preview": "node scripts/validate-browser-preview.mjs",
+    "test:auth-profile-helper": "node scripts/validate-playwright-auth-profile-helper.mjs",
     "test:official-fail-closed": "node scripts/validate-playwright-official-fail-closed.mjs",
     "test:synthetic-fail-closed": "node scripts/validate-playwright-synthetic-fail-closed.mjs",
     "test:sidecar-launch": "node scripts/validate-playwright-sidecar-launch.mjs",

@@ -78,6 +78,8 @@ Authenticated session-artifact smoke progress, 2026-06-04: extended `npm run smo
 
 Authenticated log sanitization smoke progress, 2026-06-04: extended `npm run smoke:auth-profile` with `--log-file`, `FORGEGAUGE_AUTH_LOG_PATH`, and strict `--require-sanitized-log-file` mode. The helper scans the normal app log after headless profile refresh, emits only sanitized log-inspection booleans/counts, and fails with stable sanitized codes for missing, invalid, symlinked, oversized, or sensitive logs. Disposable marker-owned blank-profile smoke accepted a safe app-style log and rejected a log containing auth/page material with `sensitive_log_detected` without exposing temporary profile or log paths. Real authenticated app-log proof remains unchecked until run against logged-in app-owned profiles.
 
+Authenticated helper fail-fast progress, 2026-06-04: strict authenticated-profile smoke checks now inspect marker-owned profile storage and disabled/default-profile preferences before starting Playwright, then inspect again after headless refresh. Added `npm run test:auth-profile-helper` to validate sanitized helper output, strict blank-profile refresh, pre-launch credential/autofill/default-profile-reference failures, session-artifact strict failure, and sensitive-log failure without exposing temporary paths or official URLs. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports `login_required`. Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default preview cards do not expose `Start login` while the expired-login state does after experimental web providers are enabled.
@@ -822,10 +824,12 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] Add `npm run smoke:auth-profile -- --require-no-credential-store-files` strict mode to fail sanitized future post-login checks when Chromium credential-store files are present.
   - [x] Add `npm run smoke:auth-profile -- --require-no-autofill-store-files` strict mode to fail sanitized future post-login checks when Chromium autofill-store files are present.
   - [x] Add `npm run smoke:auth-profile -- --require-no-default-profile-references` strict mode to fail sanitized future post-login checks when Chromium preferences reference default browser profile paths.
+  - [x] `npm run test:auth-profile-helper` validates strict credential-store, autofill-store, and default-profile-reference failures before Playwright refresh.
 - [ ] Confirm no sensitive page content is written to normal logs.
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
   - [x] Add `npm run smoke:auth-profile` to validate future authenticated app-owned profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Add `npm run smoke:auth-profile -- --require-sanitized-log-file` to validate future authenticated runs against the normal app log without returning log paths or log contents.
+  - [x] `npm run test:auth-profile-helper` validates sanitized safe-log inspection and sensitive-log rejection without exposing temporary profile or log paths.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
 - [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
 - [x] Review CSP and permissions needed before implementing provider UI.
@@ -1039,6 +1043,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Headless official web smoke | `npm run test:official-fail-closed` |
 | Synthetic web fail-closed smoke | `npm run test:synthetic-fail-closed` |
 | Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
+| Authenticated helper validation | `npm run test:auth-profile-helper` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
@@ -1058,6 +1063,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
   - [x] Add `npm run smoke:auth-profile` to emit sanitized post-login app-owned profile/refresh evidence without raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Update the authenticated-login inspection checklist to require sanitized normal app-log inspection alongside profile/storage checks.
+  - [x] Add `npm run test:auth-profile-helper` to validate strict helper behavior and sanitized failure output for disposable profiles/logs.
 
 ### Automated Tests To Add
 
@@ -1085,6 +1091,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
 - [x] KDE StatusNotifier tray registration, DBusMenu quit, XWayland show/close/reopen, and isolated packaged-restart config-persistence smoke command for AppImage launch validation.
 - [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and marker-owned dedicated-profile evidence.
+- [x] Authenticated-profile helper validation for strict profile safety, session-artifact requirements, and sanitized log inspection failures.
 
 ### Manual Tests To Complete
 
@@ -1128,6 +1135,7 @@ Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browse
 - [ ] No password storage.
   - [x] Chromium managed-profile initialization disables password saving and autosign-in preferences before a future launch.
   - [x] Sanitized profile inspection counts Chromium password and autofill store artifacts without reading store contents.
+  - [x] Strict authenticated-profile smoke validation now fails on credential/autofill store artifacts before launching Playwright.
 - [x] Managed browser launch disables password manager/autofill/save-password prompts where supported.
   - [x] Chromium managed-profile initialization writes disabled autofill/password preferences with restrictive permissions.
   - [x] Real headed Playwright sidecar launch preserves disabled password/autofill preferences across relaunch.
@@ -1142,6 +1150,7 @@ Blocked: KDE checks require user-visible CachyOS KDE/Wayland interaction, browse
 - [x] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
 - [ ] Dedicated profiles contain no saved credentials after login validation.
   - [x] Add sanitized credential/autofill-artifact and preference inspector for future login validation evidence.
+  - [x] `npm run test:auth-profile-helper` validates strict credential/autofill artifact rejection on disposable marker-owned profiles.
 Blocked: requires authenticated login validation with the selected browser backend.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
   - [x] Profile inspection IPC returns only sanitized counts, booleans, timestamps, service values, and profile labels.
@@ -1150,6 +1159,7 @@ Blocked: requires authenticated login validation with the selected browser backe
   - [x] Real headless official refresh validation checks sidecar stdout/stderr for sanitized output without raw URLs, launch flags, profile paths, auth/cookie-looking material, or page markup.
   - [x] Authenticated-profile smoke helper is available for future real-profile validation, requires app-owned profile markers by default, and its marker-owned blank-profile test run emitted sanitized headless output without raw paths, URLs, auth material, browser storage contents, or page markup.
   - [x] Authenticated-profile smoke helper can require a sanitized normal app log file and fails closed on sensitive auth/page material without returning log paths or log contents.
+  - [x] `npm run test:auth-profile-helper` validates safe-log inspection and sensitive-log rejection without returning temporary profile or log paths.
 Blocked: real authenticated refresh logging proof requires logged-in app-owned profiles and manual authenticated provider smoke.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.

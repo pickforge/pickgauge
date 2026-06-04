@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Authenticated helper fail-fast coverage:
+
+- Moved strict authenticated-profile smoke storage/preference checks before Playwright refresh, while keeping a second post-refresh inspection.
+- Added `npm run test:auth-profile-helper` to validate strict blank-profile refresh, pre-launch credential/autofill/default-profile-reference failures, session-artifact strict failure, and sensitive-log rejection with sanitized output.
+- Validation: `node --check scripts/validate-playwright-authenticated-profile.mjs`, `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:auth-profile-helper`, `npm run test:official-fail-closed`, `npm run test:synthetic-fail-closed`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves disposable marker-owned profile and helper behavior; real saved-credential absence and authenticated log cleanliness still require logged-in app-owned profile smoke.
+
 Sidecar parse-failure bridge coverage:
 
 - Extended Rust bridge tests for sidecar `usage` responses with missing visible percentages, inconsistent percentages, invalid reset timestamps, and unsupported visible fields.

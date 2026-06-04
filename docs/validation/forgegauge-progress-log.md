@@ -9,7 +9,7 @@ Browser session manager status reconciliation:
 - Marked the isolated browser session manager complete in the plan while leaving authenticated login, authenticated cookie/session validation, saved-credential absence after login, and real provider refresh parsing unchecked.
 - Evidence: `cargo test browser_session --lib` passed 31 tests covering process tracking, graceful stop, orphan recovery, Playwright persistent-context request construction, sidecar request/response validation, disabled password/autofill preferences, redacted diagnostics, and sanitized profile inspection.
 - Evidence: `cargo test browser_profile --lib` passed 24 tests covering app-owned default profile paths, ownership markers, restrictive permissions, default-browser path rejection, configured path preservation, distinct/non-nested service paths, and safe profile clearing.
-- Evidence: `npm run test:sidecar-launch` passed for Codex and Claude, emitted sanitized JSON evidence, preserved temporary isolated profiles across relaunch, kept service profiles distinct, preserved disabled storage preferences, avoided seeded default-profile import, sanitized stdout/stderr, and asserted process-group cleanup plus temporary profile root removal.
+- Evidence: `npm run test:sidecar-launch` passed for Codex and Claude, emitted sanitized JSON evidence with `os.id = cachyos`, `currentDesktop = KDE`, and `xdgSessionType = wayland`, preserved temporary isolated profiles across relaunch, kept service profiles distinct, preserved disabled storage preferences, avoided seeded default-profile import, sanitized stdout/stderr, and asserted process-group cleanup plus temporary profile root removal.
 
 KDE tray registration smoke:
 

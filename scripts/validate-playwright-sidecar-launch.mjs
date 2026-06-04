@@ -95,6 +95,11 @@ try {
       {
         generatedAt: new Date().toISOString(),
         backend: "playwright-headed-chromium-sidecar",
+        desktopSession: {
+          currentDesktop: safeEnv("XDG_CURRENT_DESKTOP"),
+          xdgSessionType: safeEnv("XDG_SESSION_TYPE"),
+        },
+        os: osReleaseSummary(),
         targetTriple,
         profileIsolation: {
           distinctServiceProfiles: true,
@@ -335,6 +340,48 @@ function defaultBrowserProfileRootsForHome(home, xdgConfigHome = resolve(home, "
     resolve(xdgConfigHome, "google-chrome"),
     resolve(xdgConfigHome, "chromium"),
   ];
+}
+
+function osReleaseSummary() {
+  try {
+    const values = Object.fromEntries(
+      readFileSync("/etc/os-release", "utf8")
+        .split(/\r?\n/u)
+        .map((line) => line.match(/^([A-Z_]+)=(.*)$/u))
+        .filter(Boolean)
+        .map((match) => [match[1], unquoteOsReleaseValue(match[2])]),
+    );
+
+    return {
+      id: safeValue(values.ID),
+      name: safeValue(values.PRETTY_NAME ?? values.NAME),
+    };
+  } catch {
+    return {
+      id: null,
+      name: null,
+    };
+  }
+}
+
+function unquoteOsReleaseValue(value) {
+  return value.replace(/^"(.*)"$/u, "$1");
+}
+
+function safeEnv(name) {
+  return safeValue(process.env[name]);
+}
+
+function safeValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (!/^[A-Za-z0-9_ .:+/-]{1,80}$/u.test(value)) {
+    return "<redacted>";
+  }
+
+  return value;
 }
 
 function prepareDefaultBrowserProfileFixtures(fakeHome) {

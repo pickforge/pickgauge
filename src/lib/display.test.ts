@@ -185,30 +185,20 @@ describe("frontend provider status notes", () => {
 });
 
 describe("frontend login prompt visibility", () => {
-  it("shows the headed login action only after a login-required web state", () => {
-    expect(loginPromptVisible(snapshot({ details: { status: "login_required" } }))).toBe(true);
-    expect(
-      loginPromptVisible(
-        snapshot({
-          details: {
-            status: "parsed",
-            webStatus: "login_required",
-          },
-        }),
-      ),
-    ).toBe(true);
-    expect(loginPromptVisible(snapshot({ details: { status: "parsed" } }))).toBe(false);
-    expect(loginPromptVisible(snapshot({ details: { status: "mfa_required" } }))).toBe(false);
-    expect(
-      loginPromptVisible(
-        snapshot({
-          details: {
-            status: "parsed",
-            webStatus: "network_unavailable",
-          },
-        }),
-      ),
-    ).toBe(false);
+  it("shows the headed login action only after a user-action web state", () => {
+    for (const status of ["login_required", "mfa_required", "captcha_or_bot_check"]) {
+      expect(loginPromptVisible(snapshot({ details: { status } }))).toBe(true);
+      expect(loginPromptVisible(snapshot({ details: { status: "parsed", webStatus: status } }))).toBe(
+        true,
+      );
+    }
+
+    for (const status of ["parsed", "network_unavailable", "timed_out", "unexpected_ui"]) {
+      expect(loginPromptVisible(snapshot({ details: { status } }))).toBe(false);
+      expect(loginPromptVisible(snapshot({ details: { status: "parsed", webStatus: status } }))).toBe(
+        false,
+      );
+    }
   });
 });
 

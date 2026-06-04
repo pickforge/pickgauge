@@ -131,8 +131,15 @@ export function lastOfficialCheck(snapshot: UsageSnapshot) {
 
 export function loginPromptVisible(snapshot: UsageSnapshot) {
   return (
-    snapshot.details.status === "login_required" ||
-    snapshot.details.webStatus === "login_required"
+    loginActionStatus(snapshot.details.status) || loginActionStatus(snapshot.details.webStatus)
+  );
+}
+
+function loginActionStatus(value: unknown) {
+  return (
+    value === "login_required" ||
+    value === "mfa_required" ||
+    value === "captcha_or_bot_check"
   );
 }
 

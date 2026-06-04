@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+User-action login prompt gating:
+
+- Updated the frontend login prompt gate so `Start login` is shown only for explicit user-action web states: `login_required`, `mfa_required`, and `captcha_or_bot_check`.
+- Browser-preview validation now asserts default, network-unavailable, and unexpected-UI states do not expose `Start login`, while expired-login, MFA, and CAPTCHA states expose it only after experimental web providers are enabled.
+- Validation: `npm run lint`, `npm run check`, `npm test`, `npm run test:browser-preview`, and `npm run build` passed.
+- Remaining caveat: this proves rendered prompt gating and desktop-fallback behavior in browser preview; real headed login and post-login persistence still require logged-in app-owned profiles.
+
 Authenticated profile helper report sanitization:
 
 - Added a final-report sanitizer to `npm run smoke:auth-profile` before the helper prints JSON.

@@ -174,19 +174,16 @@ async function validateDesktopOnlyControlFallbacks(browser) {
     await officialRefresh.click();
     await assertVisibleText(page, "Official Codex usage refreshes in the desktop app");
 
-    await page.goto(`${baseUrl}?previewState=expired-login`, { waitUntil: "domcontentloaded" });
-    await page.locator("article.usage-card").first().waitFor();
-
-    const expiredLoginStart = page.getByRole("button", {
-      name: "Start Codex login",
+    const expiredLoginStart = await validateStartLoginPrompt(page, "expired-login", {
+      expectedVisible: true,
     });
-
-    assert.equal(await expiredLoginStart.isDisabled(), true);
-    await page.getByLabel("Experimental web providers").check();
-    assert.equal(await expiredLoginStart.isDisabled(), false);
-
-    await expiredLoginStart.click();
+    await expiredLoginStart?.click();
     await assertVisibleText(page, "Codex login starts from the desktop app");
+
+    await validateStartLoginPrompt(page, "mfa-required", { expectedVisible: true });
+    await validateStartLoginPrompt(page, "captcha-or-bot-check", { expectedVisible: true });
+    await validateStartLoginPrompt(page, "network-unavailable", { expectedVisible: false });
+    await validateStartLoginPrompt(page, "unexpected-ui", { expectedVisible: false });
 
     await page.getByRole("button", { name: "Hide popup to tray" }).click();
     await assertVisibleText(page, "Popup hides to tray in the desktop app");
@@ -194,6 +191,27 @@ async function validateDesktopOnlyControlFallbacks(browser) {
   } finally {
     await context.close();
   }
+}
+
+async function validateStartLoginPrompt(page, state, { expectedVisible }) {
+  await page.goto(`${baseUrl}?previewState=${state}`, { waitUntil: "domcontentloaded" });
+  await page.locator("article.usage-card").first().waitFor();
+
+  const startLogin = page.getByRole("button", {
+    name: "Start Codex login",
+  });
+
+  if (!expectedVisible) {
+    assert.equal(await startLogin.count(), 0, `${state} should not show Start login`);
+    await page.getByLabel("Experimental web providers").check();
+    assert.equal(await startLogin.count(), 0, `${state} should keep Start login hidden`);
+    return null;
+  }
+
+  assert.equal(await startLogin.isDisabled(), true, `${state} login prompt should start disabled`);
+  await page.getByLabel("Experimental web providers").check();
+  assert.equal(await startLogin.isDisabled(), false, `${state} login prompt should be enabled`);
+  return startLogin;
 }
 
 async function assertVisibleText(page, text) {

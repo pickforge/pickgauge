@@ -94,7 +94,7 @@ Authenticated helper environment-input progress, 2026-06-04: extended `npm run t
 
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
-Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports `login_required`. Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default preview cards do not expose `Start login` while the expired-login state does after experimental web providers are enabled.
+Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`). Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default, network-unavailable, and unexpected-UI preview cards do not expose `Start login` while expired-login, MFA, and CAPTCHA states do after experimental web providers are enabled.
 
 Login preflight progress, 2026-06-04: the desktop `Start login` command now performs a headless Playwright usage preflight before launching headed Chromium and returns sanitized `already_authenticated` status without opening a visible browser when the app-owned profile already reaches the usage page. Rust tests cover the preflight decision boundary and sanitized IPC status shape; real post-login preflight evidence still requires authenticated profiles.
 
@@ -595,7 +595,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] `npm run test:official-fail-closed` validates blank profiles are checked with `headless: true` and `visibleBrowserRequired: false`.
   - [x] Scheduled due-refresh web checks use the same headless Playwright sidecar without consuming manual refresh cooldown.
   - [x] Rust unit coverage asserts the app-side official refresh request builder uses `refreshUsage` with `headless: true` and never passes `--user-data-dir` through browser args.
-  - [x] Frontend only renders `Start login` after a web status of `login_required`; default/parsed/non-login web states keep the visible browser action hidden.
+  - [x] Frontend only renders `Start login` after a user-action web status (`login_required`, `mfa_required`, or `captcha_or_bot_check`); default/parsed/non-action web states keep the visible browser action hidden.
   - [x] Desktop `Start login` performs a headless preflight and skips headed Chromium when the usage page is already reachable.
   - [x] Desktop `Start login` suppresses headed Chromium when the headless preflight returns network-unavailable, timed-out, unexpected-UI, or unavailable-preflight states.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
@@ -907,7 +907,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Wire scheduled due-refresh web checks through headless sidecar results without visible browser launch.
   - [x] Keep headed Chromium limited to explicit `Start login`.
   - [x] Add app-boundary regression coverage for the headless official refresh request shape.
-  - [x] Hide `Start login` until a silent official refresh/fallback web status reports `login_required`.
+  - [x] Hide `Start login` until a silent official refresh/fallback web status reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`).
   - [x] Add a headless `Start login` preflight that returns `already_authenticated` without launching headed Chromium when usage is reachable.
   - [x] Keep `Start login` from launching headed Chromium when the preflight cannot prove a login/MFA/CAPTCHA user-action state.
 - [x] Add fail-closed web provider boundary before browser backend selection.
@@ -1145,6 +1145,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Browser-preview fixture renders `Login required` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Provider interruption states.
   - [x] Browser-preview fixtures render `MFA required`, `Additional verification required`, `Unexpected usage page`, `Usage refresh timed out`, and `Usage data could not be parsed` notes for both services at desktop and mobile widths without horizontal overflow.
+  - [x] Browser-preview validation shows `Start login` for MFA and CAPTCHA states after web-provider opt-in, while keeping it hidden for unexpected UI.
   - [x] Synthetic browser-backed smoke validates headless Playwright sidecar classification for MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages for both service labels.
 - [ ] Provider unavailable/blocked states.
   - [x] Browser-preview fixtures render `Stale data`, `Provider unavailable`, `Usage data is not readable`, `Profile path blocked`, and `Provider disabled` notes for both services at desktop and mobile widths without horizontal overflow.

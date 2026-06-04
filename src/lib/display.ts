@@ -140,6 +140,12 @@ export function loginPromptVisible(snapshot: UsageSnapshot) {
   );
 }
 
+export function loginStatusClearedBySnapshots(service: Service, snapshots: UsageSnapshot[]) {
+  const snapshot = snapshots.find((snapshot) => snapshot.service === service);
+
+  return snapshot !== undefined && !loginPromptVisible(snapshot);
+}
+
 function loginActionStatus(value: unknown) {
   return (
     value === "login_required" ||

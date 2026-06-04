@@ -13,6 +13,7 @@
     formatPercent,
     formatTimestamp,
     lastOfficialCheck,
+    loginStatusClearedBySnapshots,
     loginPromptVisible,
     localActivitySummary,
     profileInspectionSummary,
@@ -58,6 +59,7 @@
   let hidingWindow = $state(false);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
+  let loginStatusService = $state<Service | null>(null);
   const webControls = $derived(webProviderControlState(config));
 
   const serviceTone: Record<Service, string> = {
@@ -155,6 +157,15 @@
 
     listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
       snapshots = event.payload.snapshots;
+
+      if (
+        loginStatusService !== null &&
+        statusMessage === `${serviceLabels[loginStatusService]} login required` &&
+        loginStatusClearedBySnapshots(loginStatusService, snapshots)
+      ) {
+        statusMessage = null;
+        loginStatusService = null;
+      }
     })
       .then((cleanup) => {
         if (cancelled) {
@@ -169,6 +180,7 @@
     listen<LoginRequiredEvent>("login://required", (event) => {
       error = null;
       statusMessage = `${serviceLabels[event.payload.service]} login required`;
+      loginStatusService = event.payload.service;
     })
       .then((cleanup) => {
         if (cancelled) {
@@ -290,6 +302,7 @@
       const login = await invoke<ProviderLoginStart>("start_provider_login", { service });
       error = null;
       statusMessage = providerLoginStatusMessage(service, login);
+      loginStatusService = login.status === "login_required" ? service : null;
     } catch (caught) {
       error = formatError(caught, `Could not start ${serviceLabels[service]} login`);
     } finally {

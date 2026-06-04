@@ -3,6 +3,7 @@ import {
   confidenceLabels,
   formatPercent,
   lastOfficialCheck,
+  loginStatusClearedBySnapshots,
   loginPromptVisible,
   localActivitySummary,
   profileInspectionSummary,
@@ -232,6 +233,42 @@ describe("frontend login prompt visibility", () => {
         ),
       ).toBe(false);
     }
+  });
+
+  it("clears stale login status messages when service snapshots no longer need login", () => {
+    expect(
+      loginStatusClearedBySnapshots("codex", [
+        snapshot({
+          service: "codex",
+          source: "web",
+          details: { status: "parsed" },
+        }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("keeps login status messages when matching service snapshots still need login", () => {
+    expect(
+      loginStatusClearedBySnapshots("codex", [
+        snapshot({
+          service: "codex",
+          source: "local",
+          details: { status: "parsed", webStatus: "login_required" },
+        }),
+      ]),
+    ).toBe(false);
+  });
+
+  it("keeps login status messages when the matching service snapshot is absent", () => {
+    expect(
+      loginStatusClearedBySnapshots("claude", [
+        snapshot({
+          service: "codex",
+          source: "web",
+          details: { status: "parsed" },
+        }),
+      ]),
+    ).toBe(false);
   });
 });
 

@@ -42,6 +42,8 @@ Browser-preview validator progress, 2026-06-04: added `npm run test:browser-prev
 
 Manual smoke preflight progress, 2026-06-04: added `npm run smoke:preflight`, a sanitized metadata collector for future manual KDE/auth/platform smoke notes. It reports commit, app/package metadata, OS/session signals, Playwright package version, and repo-relative AppImage/sidecar artifact status without browser profile contents, account data, secrets, or full local paths. Manual observed-behavior and authenticated-profile evidence remains unchecked.
 
+KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies ForgeGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, then terminates the app and removes temporary dirs. This proves D-Bus tray registration in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or quit behavior.
+
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser process launch integration, manual login flow, and authenticated profile validation remain unchecked.
@@ -940,6 +942,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Frontend/Svelte | `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Manual smoke preflight | `npm run smoke:preflight` |
+| KDE tray D-Bus registration smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
 | Tauri integration | `npm run check`, `npm run build`, `cd src-tauri && cargo check`, `npm run tauri -- build --bundles appimage` or `npm run build:appimage` on CachyOS/Arch-like systems |
 | Release workflow | Local validators plus a real GitHub Actions `workflow_dispatch` or mainline run |
@@ -975,10 +978,12 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
+- [x] KDE StatusNotifier tray registration smoke command for isolated AppImage launch validation.
 
 ### Manual Tests To Complete
 
 - [ ] KDE tray visibility.
+  - [x] KDE StatusNotifier smoke verifies the AppImage registers an active ForgeGauge tray item over D-Bus with isolated XDG dirs.
 - [ ] Popup position and dismissal behavior.
 - [ ] Settings persistence after restart.
 - [ ] Dedicated browser login.

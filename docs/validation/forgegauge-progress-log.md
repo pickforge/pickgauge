@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+KDE tray registration smoke:
+
+- Added `npm run smoke:kde-tray`, which requires a Linux user session with `qdbus` and an active KDE StatusNotifier host.
+- The smoke launches the built AppImage with temporary isolated XDG config/data/cache/state directories, waits for a new ForgeGauge `org.kde.StatusNotifierItem`, verifies title `forgegauge`, id `tray-icon tray app main`, status `Active`, and then terminates the app and removes temporary dirs.
+- This proves AppImage tray registration through KDE's StatusNotifier watcher in the current Wayland/KDE session, but not visual tray placement, tray-click popup behavior, close-button behavior, settings persistence, or quit menu behavior.
+- Validation: `npm run smoke:kde-tray`, `git diff --check`, and cleanup checks for leftover ForgeGauge processes, ForgeGauge tray registrations, and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
+
 Manual smoke preflight:
 
 - Added `npm run smoke:preflight`, which emits sanitized JSON for future manual smoke notes: commit, package/app metadata, OS/session signals, Playwright package version, and repo-relative AppImage/sidecar artifact status.

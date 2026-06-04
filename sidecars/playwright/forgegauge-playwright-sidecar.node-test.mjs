@@ -36,6 +36,19 @@ test("accepts sanitized headed Playwright login launch requests", () => {
   assert.equal(validation.request.headless, false);
 });
 
+test("accepts sanitized headless Playwright usage refresh requests", () => {
+  const validation = validateLaunchRequest(
+    request({
+      action: "refreshUsage",
+      headless: true,
+    }),
+  );
+
+  assert.equal(validation.ok, true);
+  assert.equal(validation.request.action, "refreshUsage");
+  assert.equal(validation.request.headless, true);
+});
+
 test("dry-run response omits raw user data directory and launch args", async () => {
   const rawPath = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
   const result = await runLaunchRequest(
@@ -63,6 +76,29 @@ test("dry-run response omits raw user data directory and launch args", async () 
   assert.equal(serialized.includes(rawPath), false);
   assert.equal(serialized.includes("/home/dev"), false);
   assert.equal(serialized.includes("--disable-save-password-bubble"), false);
+});
+
+test("rejects visible browser usage refresh requests", () => {
+  const validation = validateLaunchRequest(
+    request({
+      action: "refreshUsage",
+      headless: false,
+    }),
+  );
+
+  assert.deepEqual(validation, {
+    ok: false,
+    code: "headless_mode_required",
+  });
+});
+
+test("rejects headless login launch requests", () => {
+  const validation = validateLaunchRequest(request({ headless: true }));
+
+  assert.deepEqual(validation, {
+    ok: false,
+    code: "headed_mode_required",
+  });
 });
 
 test("rejects user-data-dir launch args because Playwright receives it separately", () => {

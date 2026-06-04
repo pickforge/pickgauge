@@ -21,9 +21,10 @@ use tauri::{
     AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use usage::{
-    Service, UsageDisplayState, UsageEngine, UsageProviderErrorEvent, UsageRefreshEvent,
-    UsageRefreshStatus, UsageSnapshot, UsageSource,
+    Service, UsageDisplayState, UsageEngine, UsageProviderError, UsageProviderErrorEvent,
+    UsageRefreshEvent, UsageRefreshStatus, UsageSnapshot, UsageSource,
 };
+use web_provider::{VisiblePageState, VisibleUsageInput};
 
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
@@ -825,10 +826,132 @@ fn emit_provider_error_events(app: &AppHandle, display_state: &UsageDisplayState
     }
 }
 
+fn refresh_web_provider_headless(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
+    service: Service,
+) -> CommandResult<UsageDisplayState> {
+    engine
+        .refresh_provider_source_with_snapshot(service, UsageSource::Web, |observed_at| {
+            let response = headless_web_usage_response(app, engine, sessions, service)
+                .map_err(|_| UsageProviderError::Internal)?;
+
+            usage_snapshot_from_sidecar_usage_response(response, observed_at)
+        })
+        .map_err(map_provider_refresh_error)
+}
+
+fn headless_web_usage_response(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
+    service: Service,
+) -> Result<browser_session::PlaywrightSidecarUsageResponse, String> {
+    let config = engine
+        .config()
+        .map_err(|_| "Could not load usage configuration".to_string())?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Could not resolve app data directory".to_string())?;
+    let paths = prepare_managed_browser_profiles(&config, &app_data_dir)?;
+    let Some(paths) = paths else {
+        return Err("Managed browser profile is not prepared".to_string());
+    };
+    let profile_path = match service {
+        Service::Codex => &paths.codex,
+        Service::Claude => &paths.claude,
+    };
+    let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
+    let launch_request = browser_session::playwright_launch_request(&launch_plan);
+    let sidecar_request = browser_session::playwright_sidecar_refresh_request(
+        &launch_request,
+        official_usage_url(service),
+    )?;
+
+    run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)
+}
+
+fn run_playwright_sidecar_usage_refresh(
+    app: &AppHandle,
+    sessions: &browser_session::BrowserSessionManager,
+    request: &browser_session::PlaywrightSidecarLaunchRequest,
+) -> Result<browser_session::PlaywrightSidecarUsageResponse, String> {
+    sessions.stop_service(request.service, browser_session::PROFILE_STOP_TIMEOUT)?;
+
+    let mut command: std::process::Command = app
+        .shell()
+        .sidecar(PLAYWRIGHT_SIDECAR_NAME)
+        .map_err(|_| "Managed usage sidecar is unavailable".to_string())?
+        .into();
+    let mut child = command
+        .spawn()
+        .map_err(|_| "Managed usage sidecar is unavailable".to_string())?;
+
+    if let Err(error) = write_sidecar_launch_request(&mut child, request) {
+        return Err(kill_untracked_child(child, &error));
+    }
+
+    let Some(stdout) = child.stdout.take() else {
+        return Err(kill_untracked_child(
+            child,
+            "Managed usage sidecar did not acknowledge refresh",
+        ));
+    };
+    let line = match read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT) {
+        Ok(line) => line,
+        Err(error) => return Err(kill_untracked_child(child, &error)),
+    };
+    let response = match browser_session::playwright_sidecar_usage_response(&line, request) {
+        Ok(response) => response,
+        Err(error) => return Err(kill_untracked_child(child, &error)),
+    };
+
+    child
+        .wait()
+        .map_err(|_| "Managed usage sidecar did not finish refresh".to_string())?;
+
+    Ok(response)
+}
+
+fn usage_snapshot_from_sidecar_usage_response(
+    response: browser_session::PlaywrightSidecarUsageResponse,
+    observed_at: &str,
+) -> Result<UsageSnapshot, UsageProviderError> {
+    let page_state = visible_page_state_from_sidecar(response.page_state.as_str())?;
+
+    Ok(web_provider::parse_visible_usage(
+        VisibleUsageInput {
+            service: response.service,
+            page_state,
+            remaining_percent: response.remaining_percent,
+            used_percent: response.used_percent,
+            reset_at: response.reset_at,
+            visible_fields: response.visible_fields,
+        },
+        observed_at,
+    ))
+}
+
+fn visible_page_state_from_sidecar(value: &str) -> Result<VisiblePageState, UsageProviderError> {
+    match value {
+        "usage" => Ok(VisiblePageState::Usage),
+        "logged_out" => Ok(VisiblePageState::LoggedOut),
+        "mfa_required" => Ok(VisiblePageState::MfaRequired),
+        "captcha_or_bot_check" => Ok(VisiblePageState::CaptchaOrBotCheck),
+        "network_unavailable" => Ok(VisiblePageState::NetworkUnavailable),
+        "timed_out" => Ok(VisiblePageState::TimedOut),
+        "unexpected_ui" => Ok(VisiblePageState::UnexpectedUi),
+        _ => Err(UsageProviderError::UnexpectedUi),
+    }
+}
+
 #[tauri::command]
 fn refresh_usage(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
+    sessions: State<'_, browser_session::BrowserSessionManager>,
 ) -> CommandResult<UsageDisplayState> {
     emit_refresh_event(
         &app,
@@ -838,7 +961,7 @@ fn refresh_usage(
         UsageRefreshStatus::Started,
     )?;
 
-    match engine.refresh_all_and_emit(&app) {
+    match refresh_all_with_headless_web(&app, &engine, &sessions) {
         Ok(display_state) => {
             emit_provider_error_events(&app, &display_state);
             emit_refresh_event(
@@ -858,15 +981,47 @@ fn refresh_usage(
                 usage::REFRESH_FINISHED_EVENT,
                 UsageRefreshStatus::Failed,
             );
-            Err(map_usage_refresh_error(error))
+            Err(error)
         }
     }
+}
+
+fn refresh_all_with_headless_web(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
+) -> CommandResult<UsageDisplayState> {
+    let mut display_state = engine.refresh_all().map_err(map_usage_refresh_error)?;
+    let config = engine.config().map_err(map_usage_state_error)?;
+
+    if config.providers.web_enabled {
+        for service in [Service::Codex, Service::Claude] {
+            let service_enabled = match service {
+                Service::Codex => config.enabled_services.codex,
+                Service::Claude => config.enabled_services.claude,
+            };
+
+            if !service_enabled {
+                continue;
+            }
+
+            if let Ok(updated) = refresh_web_provider_headless(app, engine, sessions, service) {
+                display_state = updated;
+            }
+        }
+    }
+
+    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
+        .map_err(map_event_emit_error)?;
+
+    Ok(display_state)
 }
 
 #[tauri::command]
 fn refresh_provider(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
+    sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
     source: UsageSource,
 ) -> CommandResult<UsageDisplayState> {
@@ -878,7 +1033,15 @@ fn refresh_provider(
         UsageRefreshStatus::Started,
     )?;
 
-    match engine.refresh_provider_source(service, source) {
+    let refresh_result = if source == UsageSource::Web {
+        refresh_web_provider_headless(&app, &engine, &sessions, service)
+    } else {
+        engine
+            .refresh_provider_source(service, source)
+            .map_err(map_provider_refresh_error)
+    };
+
+    match refresh_result {
         Ok(display_state) => {
             app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
                 .map_err(map_event_emit_error)?;
@@ -900,7 +1063,7 @@ fn refresh_provider(
                 usage::REFRESH_FINISHED_EVENT,
                 UsageRefreshStatus::Failed,
             );
-            Err(map_provider_refresh_error(error))
+            Err(error)
         }
     }
 }
@@ -1399,6 +1562,71 @@ mod tests {
         );
         assert!(value.get("path").is_none());
         assert!(value.get("raw").is_none());
+    }
+
+    #[test]
+    fn sidecar_logged_out_usage_response_maps_to_login_required_snapshot() {
+        let response = browser_session::PlaywrightSidecarUsageResponse {
+            protocol_version: 1,
+            action: browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            service: Service::Claude,
+            profile_label: "claude-profile".to_string(),
+            headless: true,
+            arg_count: 4,
+            status: browser_session::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
+            page_state: "logged_out".to_string(),
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            visible_fields: Vec::new(),
+        };
+
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect("snapshot is built");
+
+        assert_eq!(snapshot.service, Service::Claude);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.details["status"], "login_required");
+        assert_eq!(snapshot.details["reason"], "logged_out");
+        assert_eq!(snapshot.details["providerId"], "claude.web");
+    }
+
+    #[test]
+    fn sidecar_usage_response_maps_visible_fields_to_web_snapshot() {
+        let response = browser_session::PlaywrightSidecarUsageResponse {
+            protocol_version: 1,
+            action: browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            service: Service::Codex,
+            profile_label: "codex-profile".to_string(),
+            headless: true,
+            arg_count: 4,
+            status: browser_session::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
+            page_state: "usage".to_string(),
+            remaining_percent: Some(63.0),
+            used_percent: Some(37.0),
+            reset_at: Some("2026-06-05T00:00:00Z".to_string()),
+            visible_fields: vec![
+                "remaining_percent".to_string(),
+                "used_percent".to_string(),
+                "reset_at".to_string(),
+            ],
+        };
+
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect("snapshot is built");
+
+        assert_eq!(snapshot.service, Service::Codex);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(63.0));
+        assert_eq!(snapshot.used_percent, Some(37.0));
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(
+            snapshot.details["lastOfficialCheckAt"],
+            "2026-06-04T12:00:00Z"
+        );
     }
 
     fn read_preferences(path: impl Into<PathBuf>) -> serde_json::Value {

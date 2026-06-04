@@ -19,7 +19,9 @@ pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
 pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
+pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
+pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
 pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
@@ -209,6 +211,23 @@ pub struct PlaywrightSidecarLaunchResponse {
     pub status: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlaywrightSidecarUsageResponse {
+    pub protocol_version: u32,
+    pub action: String,
+    pub backend: String,
+    pub service: Service,
+    pub profile_label: String,
+    pub headless: bool,
+    pub arg_count: usize,
+    pub status: String,
+    pub page_state: String,
+    pub remaining_percent: Option<f32>,
+    pub used_percent: Option<f32>,
+    pub reset_at: Option<String>,
+    pub visible_fields: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawPlaywrightSidecarLaunchResponse {
@@ -221,6 +240,25 @@ struct RawPlaywrightSidecarLaunchResponse {
     profile_label: Option<String>,
     headless: Option<bool>,
     arg_count: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPlaywrightSidecarUsageResponse {
+    ok: bool,
+    status: String,
+    protocol_version: u32,
+    action: Option<String>,
+    backend: Option<String>,
+    service: Option<Service>,
+    profile_label: Option<String>,
+    headless: Option<bool>,
+    arg_count: Option<usize>,
+    page_state: Option<String>,
+    remaining_percent: Option<f32>,
+    used_percent: Option<f32>,
+    reset_at: Option<String>,
+    visible_fields: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -587,33 +625,63 @@ pub fn playwright_sidecar_launch_request(
     request: &PlaywrightLaunchRequest,
     url: impl Into<String>,
 ) -> Result<PlaywrightSidecarLaunchRequest, String> {
+    playwright_sidecar_request(
+        request,
+        url,
+        PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN,
+        false,
+        "Managed browser login URL must use HTTPS",
+    )
+}
+
+#[allow(dead_code)]
+pub fn playwright_sidecar_refresh_request(
+    request: &PlaywrightLaunchRequest,
+    url: impl Into<String>,
+) -> Result<PlaywrightSidecarLaunchRequest, String> {
+    playwright_sidecar_request(
+        request,
+        url,
+        PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE,
+        true,
+        "Managed browser refresh URL must use HTTPS",
+    )
+}
+
+fn playwright_sidecar_request(
+    request: &PlaywrightLaunchRequest,
+    url: impl Into<String>,
+    action: &'static str,
+    headless: bool,
+    https_error: &str,
+) -> Result<PlaywrightSidecarLaunchRequest, String> {
     let url = url.into();
     if !url.starts_with("https://") {
-        return Err("Managed browser login URL must use HTTPS".to_string());
+        return Err(https_error.to_string());
     }
 
     let user_data_dir = request.user_data_dir.to_string_lossy().to_string();
     let redacted_user_data_dir = format!("<{}>", request.profile_label);
     let diagnostics = PlaywrightSidecarLaunchDiagnostics {
         protocol_version: PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION,
-        action: PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN,
+        action,
         backend: request.backend,
         service: request.service,
         profile_label: request.profile_label.clone(),
         user_data_dir: redacted_user_data_dir,
-        headless: request.headless,
+        headless,
         arg_count: request.args.len(),
     };
 
     Ok(PlaywrightSidecarLaunchRequest {
         protocol_version: PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION,
-        action: PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN,
+        action,
         backend: request.backend,
         service: request.service,
         url,
         profile_label: request.profile_label.clone(),
         user_data_dir,
-        headless: request.headless,
+        headless,
         args: request.args.clone(),
         diagnostics,
     })
@@ -674,6 +742,91 @@ pub fn playwright_sidecar_launch_response(
         headless,
         arg_count,
         status: response.status,
+    })
+}
+
+#[allow(dead_code)]
+pub fn playwright_sidecar_usage_response(
+    raw: &str,
+    request: &PlaywrightSidecarLaunchRequest,
+) -> Result<PlaywrightSidecarUsageResponse, String> {
+    let response = serde_json::from_str::<RawPlaywrightSidecarUsageResponse>(raw)
+        .map_err(|_| "Managed usage sidecar returned invalid response".to_string())?;
+
+    if !response.ok {
+        return Err("Managed usage sidecar rejected refresh".to_string());
+    }
+
+    if response.status != PLAYWRIGHT_SIDECAR_STATUS_CHECKED {
+        return Err("Managed usage sidecar did not check usage".to_string());
+    }
+
+    let Some(action) = response.action else {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    };
+    let Some(backend) = response.backend else {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    };
+    let Some(service) = response.service else {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    };
+    let Some(profile_label) = response.profile_label else {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    };
+    let Some(headless) = response.headless else {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    };
+    let Some(arg_count) = response.arg_count else {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    };
+    let Some(page_state) = response.page_state else {
+        return Err("Managed usage sidecar returned invalid page state".to_string());
+    };
+    let visible_fields = response.visible_fields.unwrap_or_default();
+
+    if response.protocol_version != request.protocol_version
+        || action != request.action
+        || backend != request.backend
+        || service != request.service
+        || profile_label != request.profile_label
+        || headless != request.headless
+        || arg_count != request.args.len()
+    {
+        return Err("Managed usage sidecar returned mismatched response".to_string());
+    }
+
+    if page_state.len() > 32
+        || !page_state
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    {
+        return Err("Managed usage sidecar returned invalid page state".to_string());
+    }
+
+    if visible_fields.iter().any(|field| {
+        field.is_empty()
+            || field.len() > 64
+            || !field
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    }) {
+        return Err("Managed usage sidecar returned invalid visible fields".to_string());
+    }
+
+    Ok(PlaywrightSidecarUsageResponse {
+        protocol_version: response.protocol_version,
+        action,
+        backend,
+        service,
+        profile_label,
+        headless,
+        arg_count,
+        status: response.status,
+        page_state,
+        remaining_percent: response.remaining_percent,
+        used_percent: response.used_percent,
+        reset_at: response.reset_at,
+        visible_fields,
     })
 }
 
@@ -1582,6 +1735,54 @@ mod tests {
     }
 
     #[test]
+    fn playwright_sidecar_refresh_request_serializes_to_headless_protocol_shape() {
+        let profile_path = "/tmp/forgegauge/browser-profiles/claude";
+        let plan = chromium_launch_plan(Service::Claude, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request =
+            playwright_sidecar_refresh_request(&launch_request, "https://claude.ai/new")
+                .expect("sidecar request is created");
+        let value = serde_json::to_value(&sidecar_request).expect("sidecar request serializes");
+
+        assert_eq!(sidecar_request.protocol_version, 1);
+        assert_eq!(sidecar_request.action, "refreshUsage");
+        assert_eq!(sidecar_request.backend, PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(sidecar_request.service, Service::Claude);
+        assert_eq!(sidecar_request.profile_label, "claude-profile");
+        assert_eq!(sidecar_request.user_data_dir, profile_path);
+        assert!(sidecar_request.headless);
+        assert_eq!(value["protocolVersion"], 1);
+        assert_eq!(value["action"], "refreshUsage");
+        assert_eq!(value["backend"], "playwright-headed-chromium-sidecar");
+        assert_eq!(value["service"], "claude");
+        assert_eq!(value["profileLabel"], "claude-profile");
+        assert_eq!(value["userDataDir"], profile_path);
+        assert_eq!(value["headless"], true);
+        assert!(value.get("diagnostics").is_none());
+    }
+
+    #[test]
+    fn playwright_sidecar_refresh_request_debug_redacts_sensitive_input() {
+        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let plan = chromium_launch_plan(Service::Codex, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_refresh_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let diagnostics = format!("{:?}", sidecar_request.diagnostics);
+        let debug = format!("{sidecar_request:?}");
+
+        assert_eq!(sidecar_request.diagnostics.user_data_dir, "<codex-profile>");
+        assert!(sidecar_request.diagnostics.headless);
+        assert!(!diagnostics.contains(profile_path));
+        assert!(!debug.contains(profile_path));
+        assert!(!debug.contains("/home/dev"));
+        assert!(!debug.contains("--disable-save-password-bubble"));
+    }
+
+    #[test]
     fn playwright_sidecar_launch_request_rejects_non_https_urls() {
         let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
         let launch_request = playwright_launch_request(&plan);
@@ -1620,6 +1821,82 @@ mod tests {
         assert_eq!(response.service, Service::Codex);
         assert_eq!(response.profile_label, "codex-profile");
         assert_eq!(response.arg_count, sidecar_request.args.len());
+    }
+
+    #[test]
+    fn playwright_sidecar_usage_response_accepts_checked_status() {
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_refresh_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "checked",
+            "protocolVersion": 1,
+            "action": "refreshUsage",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "codex",
+            "profileLabel": "codex-profile",
+            "headless": true,
+            "argCount": sidecar_request.args.len(),
+            "pageState": "usage",
+            "remainingPercent": 62.5,
+            "usedPercent": 37.5,
+            "resetAt": "2026-06-05T00:00:00Z",
+            "visibleFields": ["remaining_percent", "used_percent", "reset_at"]
+        })
+        .to_string();
+        let response = playwright_sidecar_usage_response(&raw, &sidecar_request)
+            .expect("checked response is accepted");
+
+        assert_eq!(response.status, PLAYWRIGHT_SIDECAR_STATUS_CHECKED);
+        assert_eq!(response.action, PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE);
+        assert_eq!(response.page_state, "usage");
+        assert_eq!(response.remaining_percent, Some(62.5));
+        assert_eq!(response.used_percent, Some(37.5));
+        assert_eq!(
+            response.visible_fields,
+            vec!["remaining_percent", "used_percent", "reset_at"]
+        );
+    }
+
+    #[test]
+    fn playwright_sidecar_usage_response_rejects_unsanitized_fields() {
+        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let plan = chromium_launch_plan(Service::Codex, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_refresh_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "checked",
+            "protocolVersion": 1,
+            "action": "refreshUsage",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "codex",
+            "profileLabel": "codex-profile",
+            "headless": true,
+            "argCount": sidecar_request.args.len(),
+            "pageState": "usage",
+            "visibleFields": ["raw account email"]
+        })
+        .to_string();
+        let error = playwright_sidecar_usage_response(&raw, &sidecar_request)
+            .expect_err("unsanitized visible fields are rejected");
+
+        assert_eq!(
+            error,
+            "Managed usage sidecar returned invalid visible fields"
+        );
+        assert!(!error.contains(profile_path));
+        assert!(!error.contains("/home/dev"));
+        assert!(!error.contains("email"));
     }
 
     #[test]

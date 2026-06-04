@@ -8,7 +8,8 @@ export const BACKEND_ID = "playwright-headed-chromium-sidecar";
 export const PROTOCOL_VERSION = 1;
 
 const allowedServices = new Set(["codex", "claude"]);
-const allowedActions = new Set(["launchLogin"]);
+const allowedActions = new Set(["launchLogin", "refreshUsage"]);
+const navigationTimeoutMs = 30_000;
 
 export function validateLaunchRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -43,8 +44,12 @@ export function validateLaunchRequest(input) {
     return rejected("invalid_url");
   }
 
-  if (input.headless !== false) {
+  if (input.action === "launchLogin" && input.headless !== false) {
     return rejected("headed_mode_required");
+  }
+
+  if (input.action === "refreshUsage" && input.headless !== true) {
+    return rejected("headless_mode_required");
   }
 
   if (!Array.isArray(input.args) || !input.args.every((arg) => typeof arg === "string")) {
@@ -109,13 +114,21 @@ export async function runLaunchRequest(input, { dryRun = false } = {}) {
   let context;
 
   try {
+    if (request.action === "refreshUsage") {
+      return await runRefreshUsageRequest(request);
+    }
+
     const { chromium } = await import("playwright");
     context = await chromium.launchPersistentContext(request.userDataDir, {
       args: request.args,
       headless: request.headless,
+      timeout: navigationTimeoutMs,
     });
     const page = context.pages()[0] ?? (await context.newPage());
-    await page.goto(request.url, { waitUntil: "domcontentloaded" });
+    await page.goto(request.url, {
+      waitUntil: "domcontentloaded",
+      timeout: navigationTimeoutMs,
+    });
 
     return {
       ...sanitizedAcceptedResponse(request),
@@ -128,6 +141,222 @@ export async function runLaunchRequest(input, { dryRun = false } = {}) {
 
     return sanitizedRejectedResponse("sidecar_launch_failed");
   }
+}
+
+async function runRefreshUsageRequest(request) {
+  let context;
+
+  try {
+    const { chromium } = await import("playwright");
+    context = await chromium.launchPersistentContext(request.userDataDir, {
+      args: request.args,
+      headless: true,
+      timeout: navigationTimeoutMs,
+    });
+    const page = context.pages()[0] ?? (await context.newPage());
+    const existingCookieCount = await serviceCookieCount(context, request.url);
+    await page.goto(request.url, {
+      waitUntil: "domcontentloaded",
+      timeout: navigationTimeoutMs,
+    });
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+
+    const visibleUsage = await extractVisibleUsage(page, request.service);
+    const pageState = await detectPageState(page, visibleUsage, existingCookieCount);
+
+    return {
+      ...sanitizedAcceptedResponse(request),
+      status: "checked",
+      pageState,
+      remainingPercent: pageState === "usage" ? visibleUsage.remainingPercent : null,
+      resetAt: pageState === "usage" ? visibleUsage.resetAt : null,
+      usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
+      visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
+    };
+  } catch {
+    return sanitizedRejectedResponse("sidecar_refresh_failed");
+  } finally {
+    if (context) {
+      await context.close().catch(() => {});
+    }
+  }
+}
+
+async function detectPageState(page, visibleUsage, cookieCount) {
+  if (await urlLooksLoggedOut(page)) {
+    return "logged_out";
+  }
+
+  if (await hasAnyVisibleLocator(captchaLocators(page))) {
+    return "captcha_or_bot_check";
+  }
+
+  if (await hasAnyVisibleLocator(mfaLocators(page))) {
+    return "mfa_required";
+  }
+
+  if (await hasAnyVisibleLocator(authGateLocators(page))) {
+    return "logged_out";
+  }
+
+  if (visibleUsage.visibleFields.length > 0) {
+    return "usage";
+  }
+
+  if (cookieCount === 0) {
+    return "logged_out";
+  }
+
+  return "unexpected_ui";
+}
+
+async function serviceCookieCount(context, url) {
+  return (await context.cookies(url).catch(() => [])).length;
+}
+
+async function urlLooksLoggedOut(page) {
+  try {
+    const url = new URL(page.url());
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+
+    return (
+      host.includes("auth") ||
+      host.includes("login") ||
+      path.includes("login") ||
+      path.includes("signin") ||
+      path.includes("sign-in") ||
+      path.includes("oauth") ||
+      path.includes("authorize")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function authGateLocators(page) {
+  return [
+    page.getByRole("button", { name: /\b(log in|sign in|sign up)\b/iu }),
+    page.getByRole("link", { name: /\b(log in|sign in|sign up)\b/iu }),
+    page.getByRole("button", { name: /\bcontinue with\b/iu }),
+    page.getByRole("textbox", { name: /\b(email|phone)\b/iu }),
+    page.getByText(/\b(log in|sign in|sign up|continue with|welcome back)\b/iu),
+  ];
+}
+
+function captchaLocators(page) {
+  return [
+    page.getByText(/\b(captcha|verify you are human|security check|checking your browser)\b/iu),
+  ];
+}
+
+function mfaLocators(page) {
+  return [
+    page.getByText(/\b(two-factor|multi-factor|verification code|authentication code)\b/iu),
+  ];
+}
+
+async function hasAnyVisibleLocator(locators) {
+  for (const locator of locators) {
+    const count = await locator.count().catch(() => 0);
+
+    for (let index = 0; index < Math.min(count, 25); index += 1) {
+      if (await locator.nth(index).isVisible({ timeout: 500 }).catch(() => false)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function extractVisibleUsage(page, service) {
+  const text = await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
+  const percentages = visiblePercentages(text);
+  const resetAt = visibleResetAt(text);
+  const visibleFields = [];
+
+  if (percentages.remainingPercent !== null) {
+    visibleFields.push("remaining_percent");
+  }
+
+  if (percentages.usedPercent !== null) {
+    visibleFields.push("used_percent");
+  }
+
+  if (resetAt !== null) {
+    visibleFields.push("reset_at");
+  }
+
+  if (/\b(plan|pro|team|max|plus)\b/iu.test(text)) {
+    visibleFields.push("plan_label");
+  }
+
+  if (/\b(day|week|month|hour|reset|renews|window)\b/iu.test(text)) {
+    visibleFields.push("quota_window");
+  }
+
+  return {
+    remainingPercent: percentages.remainingPercent,
+    resetAt,
+    service,
+    usedPercent: percentages.usedPercent,
+    visibleFields: [...new Set(visibleFields)],
+  };
+}
+
+function visiblePercentages(text) {
+  const remaining = percentNearLabel(text, /\b(remaining|left|available)\b/iu);
+  const used = percentNearLabel(text, /\b(used|usage|consumed)\b/iu);
+  const firstPercent = firstPercentValue(text);
+
+  return {
+    remainingPercent: remaining ?? (used === null ? firstPercent : null),
+    usedPercent: used,
+  };
+}
+
+function percentNearLabel(text, labelPattern) {
+  const normalized = text.replace(/\s+/gu, " ");
+  const matches = normalized.matchAll(/([0-9]{1,3}(?:\.[0-9]{1,2})?)\s*%/gu);
+
+  for (const match of matches) {
+    const value = Number.parseFloat(match[1]);
+    const start = Math.max(0, match.index - 80);
+    const end = Math.min(normalized.length, match.index + match[0].length + 80);
+
+    if (validPercent(value) && labelPattern.test(normalized.slice(start, end))) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function firstPercentValue(text) {
+  const match = text.match(/\b([0-9]{1,3}(?:\.[0-9]{1,2})?)\s*%/u);
+
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseFloat(match[1]);
+  return validPercent(value) ? value : null;
+}
+
+function validPercent(value) {
+  return Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+function visibleResetAt(text) {
+  const iso = text.match(/\b20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]/u);
+
+  if (!iso) {
+    return null;
+  }
+
+  const value = iso[0].endsWith("Z") ? iso[0] : `${iso[0]}:00Z`;
+  return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
 function rejected(code) {

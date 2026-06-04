@@ -325,7 +325,11 @@
       });
       snapshots = displayState.snapshots;
       error = null;
-      statusMessage = `Official ${serviceLabels[service]} usage refreshed`;
+      const refreshedSnapshot = displayState.snapshots.find((snapshot) => snapshot.service === service);
+      const providerMessage = refreshedSnapshot ? providerStatusMessage(refreshedSnapshot) : null;
+      statusMessage = providerMessage
+        ? `Official ${serviceLabels[service]}: ${providerMessage}`
+        : `Official ${serviceLabels[service]} usage refreshed`;
     } catch (caught) {
       error = formatError(caught, `Could not refresh official ${serviceLabels[service]} usage`);
     } finally {

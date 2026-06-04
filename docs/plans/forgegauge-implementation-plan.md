@@ -60,6 +60,8 @@ Playwright backend decision progress, 2026-06-04: user approved the Playwright h
 
 Profile storage artifact progress, 2026-06-04: extended sanitized managed-profile inspection to report cookie-store and site-storage artifact counts in addition to credential/autofill counts, symlink counts, disabled preference booleans, inspected entry counts, and limit status. IPC and maintenance UI summaries expose only counts/booleans/labels/timestamps. `npm run test:sidecar-launch` now records sanitized headed Playwright evidence that both temporary Codex and Claude persistent profiles produced cookie-store artifacts under distinct service profiles without symlinks, default-profile import, raw profile paths, cookies, auth-looking material, or page markup in sidecar output. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
 
+Headless official refresh progress, 2026-06-04: split the Playwright sidecar into headed `launchLogin` for explicit user login and headless `refreshUsage` for normal official usage refresh checks. The desktop `Refresh usage` and `Refresh official` commands now use the headless sidecar with the existing app-owned persistent profile, convert sanitized sidecar page state/visible fields through the web parser, update the normal provider cache/merge path, and report login-required states without flashing a visible browser. `npm run test:official-fail-closed` validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states with `headless: true` and `visibleBrowserRequired: false` on CachyOS KDE/Wayland. Authenticated official parsing, post-login session persistence, and saved-credential validation remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -170,7 +172,7 @@ Blocked: requires an explicit product decision for ccusage-style cost/block prec
 - [x] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
-Blocked: requires manual authenticated profile/login validation before real web-provider refresh flows can be completed.
+Blocked: requires manual authenticated profile/login validation before real web-provider parsing can be claimed complete.
 - [x] Merge engine for web baselines plus local deltas.
 - [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
@@ -538,6 +540,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] The chosen backend can disable or avoid password saving/autofill prompts.
   - [x] Generated Playwright sidecar preserves disabled Chromium password/autofill preferences across real headed relaunch.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
+- [x] Normal official refresh checks use headless Playwright; visible Chromium is reserved for explicit login.
+  - [x] `npm run test:official-fail-closed` validates blank profiles are checked with `headless: true` and `visibleBrowserRequired: false`.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
   - [x] Browser launch plan debug output redacts raw profile paths and raw `--user-data-dir` arguments.
@@ -547,7 +551,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Web providers fail closed on login, MFA, CAPTCHA, bot checks, unexpected UI, or parse failure.
   - [x] Parser contract returns unknown snapshots for logged-out, MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, missing visible data, and parse failures.
   - [x] Display merge keeps local data visible and carries sanitized `webStatus`/`webReason` metadata for fail-closed web states.
-Blocked: real browser-backed provider failure validation remains unchecked until a backend and authenticated/manual test flow exist.
+  - [x] Real headless Playwright official refresh smoke validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states without opening a visible browser.
+Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
 ## Logging and Diagnostics Policy
@@ -755,7 +760,8 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [ ] Prove fail-closed handling for logged-out, MFA, CAPTCHA, and unexpected UI states.
   - [x] Parser fixtures and tests cover logged-out, MFA, CAPTCHA/bot-check, unexpected UI, network unavailable, timeout, missing visible data, and parse-failure states.
   - [x] Display merge and browser-preview fixtures keep local data visible and surface sanitized fail-closed web status notes without horizontal overflow.
-Blocked: real browser-backed provider failure validation still requires authenticated/manual provider smoke tests.
+  - [x] `npm run test:official-fail-closed` validates real headless Playwright official refreshes for blank Codex/Claude profiles return sanitized `logged_out` states without opening a visible browser.
+Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
 - [ ] Confirm no sensitive page content is written to normal logs.
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
@@ -812,6 +818,9 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 
 - [ ] Add Codex web provider for the Codex analytics URL.
 - [ ] Add Claude web provider for the Claude usage URL.
+  - [x] Add headless Playwright `refreshUsage` sidecar action for normal official refresh checks.
+  - [x] Wire desktop `Refresh official` through headless sidecar results and the existing sanitized web parser/cache path.
+  - [x] Keep headed Chromium limited to explicit `Start login`.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.
 - [x] Define exact visible fields required for each provider before parsing implementation.
@@ -956,6 +965,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Documentation only | `git diff --check`, `npm run check` |
 | Frontend/Svelte | `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
+| Headless official web smoke | `npm run test:official-fail-closed` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |
@@ -1049,6 +1059,7 @@ Blocked: requires authenticated login validation with the selected browser backe
   - [x] Profile inspection IPC returns only sanitized counts, booleans, timestamps, service values, and profile labels.
   - [x] Profile inspection and sidecar launch evidence count cookie/site-storage artifacts without returning artifact names, cookie rows, storage contents, raw paths, or page content.
   - [x] Real headed Playwright sidecar launch validation checks stdout/stderr for sanitized output without raw launch data, seeded profile sentinels, auth/cookie-looking material, or page markup.
+  - [x] Real headless official refresh validation checks sidecar stdout/stderr for sanitized output without raw URLs, launch flags, profile paths, auth/cookie-looking material, or page markup.
 Blocked: real authenticated refresh logging proof requires selected browser backend and web provider implementation.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.

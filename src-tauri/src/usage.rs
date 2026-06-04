@@ -515,6 +515,37 @@ impl UsageEngine {
         service: Service,
         source: UsageSource,
     ) -> Result<UsageDisplayState, String> {
+        self.refresh_provider_source_with_snapshot(service, source, |now| {
+            let provider_id = UsageProviderId::for_service_source(service, source)
+                .ok_or(UsageProviderError::Internal)?;
+            let provider = {
+                let state = self
+                    .inner
+                    .lock()
+                    .map_err(|_| UsageProviderError::Internal)?;
+                state
+                    .providers
+                    .iter()
+                    .map(|provider| provider_descriptor(provider.as_ref()))
+                    .find(|provider| {
+                        provider.service == service && provider.provider_id == provider_id
+                    })
+            }
+            .ok_or(UsageProviderError::Internal)?;
+
+            self.refresh_provider(&provider, now)
+        })
+    }
+
+    pub fn refresh_provider_source_with_snapshot<F>(
+        &self,
+        service: Service,
+        source: UsageSource,
+        refresh: F,
+    ) -> Result<UsageDisplayState, String>
+    where
+        F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
+    {
         let provider_id = UsageProviderId::for_service_source(service, source)
             .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
         let now = self.clock.now_rfc3339();
@@ -537,9 +568,15 @@ impl UsageEngine {
             return self.display_state();
         }
 
-        let snapshot = match self.refresh_provider(&provider, &now) {
-            Ok(snapshot) => {
+        let snapshot = match refresh(&now) {
+            Ok(snapshot) if snapshot.service == service && snapshot.source == source => {
                 self.record_provider_success(&provider.provider_key)?;
+                snapshot
+            }
+            Ok(_) => {
+                let failure = self.record_provider_failure(&provider.provider_key, &now)?;
+                let mut snapshot = error_snapshot(&provider, UsageProviderError::Internal, &now);
+                add_failure_details(&mut snapshot, &failure);
                 snapshot
             }
             Err(error) => {
@@ -2023,6 +2060,52 @@ mod tests {
         assert_eq!(snapshot.details["status"], "login_required");
         assert_eq!(snapshot.details["providerId"], "codex.web");
         assert_eq!(snapshot.details["mergeStatus"], "web_unavailable");
+    }
+
+    #[test]
+    fn manual_web_refresh_accepts_external_headless_snapshot() {
+        let engine = UsageEngine::with_clock(
+            web_enabled_config(),
+            Box::new(FixedClock {
+                now: "2026-06-04T12:00:00Z".to_string(),
+            }),
+        );
+
+        let display_state = engine
+            .refresh_provider_source_with_snapshot(Service::Claude, UsageSource::Web, |now| {
+                Ok(UsageSnapshot {
+                    service: Service::Claude,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::Unknown,
+                    last_updated: now.to_string(),
+                    details: serde_json::json!({
+                        "status": "login_required",
+                        "providerId": "claude.web",
+                        "source": "web",
+                        "reason": "logged_out",
+                        "lastOfficialCheckAt": now
+                    }),
+                })
+            })
+            .expect("external web snapshot refresh succeeds");
+        let snapshot = display_state
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.service == Service::Claude)
+            .expect("claude snapshot exists");
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.details["status"], "login_required");
+        assert_eq!(snapshot.details["reason"], "logged_out");
+        assert_eq!(
+            engine
+                .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:01Z")
+                .expect_err("external web refresh records cooldown"),
+            "Manual web refresh is cooling down"
+        );
     }
 
     #[test]

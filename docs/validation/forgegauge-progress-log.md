@@ -119,8 +119,17 @@ Browser launch policy safety:
 - The fail-closed `start_provider_login` boundary now prepares managed browser profiles and Chromium preferences before returning the existing login-required response.
 - Sanitized launch diagnostics redact raw profile paths to service profile labels such as `codex-profile` and `claude-profile`.
 - Validation: targeted `cargo test browser_session --lib` and `cargo test prepare_managed_browser_profiles --lib` passed with launch-policy, preference-initialization, and profile-preparation wiring tests.
-- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow after the launch-policy, preference-initialization, profile-preparation wiring, and login-start preparation changes.
+- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow after the launch-policy, preference-initialization, profile-preparation wiring, login-start preparation, and profile-inspection changes.
 - Real backend selection, process launch integration, manual login flow, and authenticated profile inspection remain unchecked.
+
+Profile inspection safety:
+
+- Added a sanitized managed Chromium profile storage inspector for future login validation.
+- The inspector reports only credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status.
+- It reads Chromium `Default/Preferences` booleans but does not read cookie databases, token stores, browser storage, authenticated page content, screenshots, raw page text, or local profile contents.
+- Tests cover missing profiles, prepared disabled profiles, credential-store file detection, symlink detection without following symlinks, enabled preference detection, and malformed preference rejection without leaking raw paths or file contents.
+- Validation: targeted `cargo test browser_session --lib` passed with the new inspection tests.
+- Manual authenticated profile inspection remains unchecked.
 
 Web parser fallback coverage:
 

@@ -38,6 +38,8 @@ Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now 
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
+Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. Manual authenticated profile inspection remains unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -738,6 +740,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Add tests for browser shutdown, orphan detection, and cleanup refusal.
 - [x] Verify profile/cache paths use restrictive local permissions where supported.
 - [x] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
+  - [x] Add sanitized managed-profile storage inspector for credential artifact and preference checks.
 
 ### Phase 8 — Web Providers
 
@@ -947,6 +950,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Clear/delete actions reject symlinked paths.
 - [x] Clear/delete actions re-verify canonical app-owned marker paths immediately before deletion.
 - [ ] Dedicated profiles contain no saved credentials after login validation.
+  - [x] Add sanitized credential-artifact and preference inspector for future login validation evidence.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.

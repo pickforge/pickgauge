@@ -16,6 +16,7 @@ pub const SESSION_REGISTRY_FILE_NAME: &str = "managed-browser-sessions.json";
 pub const PROCESS_MARKER_ENV: &str = "FORGEGAUGE_BROWSER_PROCESS_MARKER";
 pub const CHROMIUM_DEFAULT_PROFILE_DIR: &str = "Default";
 pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
+pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
@@ -88,6 +89,16 @@ pub struct BrowserLaunchDiagnostics {
     pub service: Service,
     pub profile_label: String,
     pub args: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BrowserProfileStorageInspection {
+    pub credential_store_files: usize,
+    pub symlink_entries: usize,
+    pub password_saving_enabled: bool,
+    pub autofill_enabled: bool,
+    pub inspected_entries: usize,
+    pub entry_limit_reached: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -458,6 +469,41 @@ pub fn prepare_chromium_profile_preferences(profile_path: &Path) -> Result<PathB
     Ok(preferences_path)
 }
 
+#[allow(dead_code)]
+pub fn inspect_chromium_profile_storage(
+    profile_path: &Path,
+) -> Result<BrowserProfileStorageInspection, String> {
+    let mut inspection = BrowserProfileStorageInspection {
+        credential_store_files: 0,
+        symlink_entries: 0,
+        password_saving_enabled: false,
+        autofill_enabled: false,
+        inspected_entries: 0,
+        entry_limit_reached: false,
+    };
+
+    match fs::symlink_metadata(profile_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            inspection.symlink_entries = 1;
+            return Ok(inspection);
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err("Managed browser profile must be a directory".to_string());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(inspection),
+        Err(_) => return Err("Could not inspect managed browser profile".to_string()),
+    }
+
+    inspect_profile_entries(profile_path, &mut inspection)?;
+    let preferences_path = profile_path
+        .join(CHROMIUM_DEFAULT_PROFILE_DIR)
+        .join(CHROMIUM_PREFERENCES_FILE_NAME);
+    apply_preference_inspection(&preferences_path, &mut inspection)?;
+
+    Ok(inspection)
+}
+
 fn read_chromium_preferences(path: &Path) -> Result<Value, String> {
     if !path.exists() {
         return Ok(json!({}));
@@ -473,6 +519,99 @@ fn read_chromium_preferences(path: &Path) -> Result<Value, String> {
     }
 
     Ok(preferences)
+}
+
+fn inspect_profile_entries(
+    profile_path: &Path,
+    inspection: &mut BrowserProfileStorageInspection,
+) -> Result<(), String> {
+    let mut pending = vec![profile_path.to_path_buf()];
+
+    while let Some(path) = pending.pop() {
+        if inspection.inspected_entries >= PROFILE_INSPECTION_ENTRY_LIMIT {
+            inspection.entry_limit_reached = true;
+            return Ok(());
+        }
+
+        let entries = match fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(_) => return Err("Could not inspect managed browser profile".to_string()),
+        };
+
+        for entry in entries {
+            if inspection.inspected_entries >= PROFILE_INSPECTION_ENTRY_LIMIT {
+                inspection.entry_limit_reached = true;
+                return Ok(());
+            }
+
+            let entry =
+                entry.map_err(|_| "Could not inspect managed browser profile".to_string())?;
+            inspection.inspected_entries += 1;
+            let metadata = entry
+                .path()
+                .symlink_metadata()
+                .map_err(|_| "Could not inspect managed browser profile".to_string())?;
+
+            if metadata.file_type().is_symlink() {
+                inspection.symlink_entries += 1;
+                continue;
+            }
+
+            if is_chromium_login_data_file(&entry.file_name()) {
+                inspection.credential_store_files += 1;
+            }
+
+            if metadata.is_dir() {
+                pending.push(entry.path());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_preference_inspection(
+    preferences_path: &Path,
+    inspection: &mut BrowserProfileStorageInspection,
+) -> Result<(), String> {
+    match fs::symlink_metadata(preferences_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            inspection.symlink_entries += 1;
+            return Ok(());
+        }
+        Ok(metadata) if !metadata.is_file() => return Ok(()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("Could not inspect managed browser preferences".to_string()),
+    }
+
+    let preferences = read_chromium_preferences(preferences_path)?;
+    inspection.password_saving_enabled =
+        preference_bool(&preferences, &["credentials_enable_service"])
+            || preference_bool(&preferences, &["credentials_enable_autosignin"])
+            || preference_bool(&preferences, &["profile", "password_manager_enabled"])
+            || preference_bool(
+                &preferences,
+                &["profile", "password_manager_allow_show_passwords"],
+            );
+    inspection.autofill_enabled = preference_bool(&preferences, &["autofill", "enabled"])
+        || preference_bool(&preferences, &["autofill", "profile_enabled"])
+        || preference_bool(&preferences, &["autofill", "credit_card_enabled"]);
+
+    Ok(())
+}
+
+fn preference_bool(preferences: &Value, path: &[&str]) -> bool {
+    path.iter()
+        .try_fold(preferences, |value, segment| value.get(*segment))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn is_chromium_login_data_file(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .map(|name| name == "Login Data" || name.starts_with("Login Data-"))
+        .unwrap_or(false)
 }
 
 fn merge_chromium_preferences(target: &mut Value, patch: &Value) -> Result<(), String> {
@@ -1154,6 +1293,132 @@ mod tests {
             .expect_err("symlinked preferences are rejected");
 
         assert_eq!(error, "Managed browser path must not be a symlink");
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_returns_empty_for_missing_profile() {
+        let dir = TestDir::new();
+
+        let inspection = inspect_chromium_profile_storage(&dir.path.join("missing"))
+            .expect("missing profile is inspectable");
+
+        assert_eq!(
+            inspection,
+            BrowserProfileStorageInspection {
+                credential_store_files: 0,
+                symlink_entries: 0,
+                password_saving_enabled: false,
+                autofill_enabled: false,
+                inspected_entries: 0,
+                entry_limit_reached: false,
+            }
+        );
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_reports_disabled_prepared_profile() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        prepare_chromium_profile_preferences(&profile_path).expect("preferences are prepared");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+        let debug = format!("{inspection:?}");
+
+        assert_eq!(inspection.credential_store_files, 0);
+        assert_eq!(inspection.symlink_entries, 0);
+        assert!(!inspection.password_saving_enabled);
+        assert!(!inspection.autofill_enabled);
+        assert!(!inspection.entry_limit_reached);
+        assert!(!debug.contains(profile_path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_counts_credential_store_files() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("claude");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        fs::write(
+            default_profile_dir.join("Login Data"),
+            "database placeholder",
+        )
+        .expect("login data marker is written");
+        fs::write(
+            default_profile_dir.join("Login Data-journal"),
+            "journal placeholder",
+        )
+        .expect("login data journal marker is written");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+
+        assert_eq!(inspection.credential_store_files, 2);
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_reports_enabled_preferences() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        fs::write(
+            default_profile_dir.join(CHROMIUM_PREFERENCES_FILE_NAME),
+            serde_json::json!({
+                "autofill": {
+                    "enabled": true
+                },
+                "credentials_enable_service": true
+            })
+            .to_string(),
+        )
+        .expect("preferences are written");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+
+        assert!(inspection.password_saving_enabled);
+        assert!(inspection.autofill_enabled);
+    }
+
+    #[test]
+    fn inspect_chromium_profile_storage_rejects_malformed_preferences_without_leaking_content() {
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("claude");
+        let default_profile_dir = profile_path.join(CHROMIUM_DEFAULT_PROFILE_DIR);
+        fs::create_dir_all(&default_profile_dir).expect("default profile dir is created");
+        fs::write(
+            default_profile_dir.join(CHROMIUM_PREFERENCES_FILE_NAME),
+            "{secret token}",
+        )
+        .expect("malformed preferences are written");
+
+        let error = inspect_chromium_profile_storage(&profile_path)
+            .expect_err("malformed preferences are rejected");
+
+        assert_eq!(error, "Could not parse managed browser preferences");
+        assert!(!error.contains(profile_path.to_string_lossy().as_ref()));
+        assert!(!error.contains("secret"));
+        assert!(!error.contains("token"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inspect_chromium_profile_storage_counts_symlinks_without_following_them() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestDir::new();
+        let profile_path = dir.path.join("codex");
+        fs::create_dir_all(&profile_path).expect("profile dir is created");
+        let target = dir.path.join("target");
+        fs::write(&target, "target").expect("target is written");
+        symlink(&target, profile_path.join("Login Data")).expect("symlink is created");
+
+        let inspection =
+            inspect_chromium_profile_storage(&profile_path).expect("profile is inspected");
+
+        assert_eq!(inspection.symlink_entries, 1);
+        assert_eq!(inspection.credential_store_files, 0);
     }
 
     fn read_test_preferences(path: &Path) -> Value {

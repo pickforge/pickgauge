@@ -139,6 +139,7 @@ async function validateAuthenticatedProfile(request, options) {
 
   const profileStorage = inspectChromiumProfileStorage(request.profileRoot);
   const disabledStoragePreferences = inspectDisabledStoragePreferences(request.profileRoot);
+  const defaultProfileReferences = inspectDefaultProfileReferences(request.profileRoot);
 
   if (profileStorage.symlinkEntries > 0) {
     throw new Error(`${request.service} authenticated profile contains symlink entries`);
@@ -160,9 +161,14 @@ async function validateAuthenticatedProfile(request, options) {
     throw new Error(`${request.service} profile does not preserve disabled storage preferences`);
   }
 
+  if (options.requireNoDefaultProfileReferences && !defaultProfileReferences.absent) {
+    throw new Error(`${request.service} profile preferences reference a default browser profile`);
+  }
+
   return {
     autofillStoreFilesAbsent: profileStorage.autofillStoreFiles === 0,
     credentialStoreFilesAbsent: profileStorage.credentialStoreFiles === 0,
+    defaultProfileReferences,
     failClosedState: response.pageState === "usage" ? null : response.pageState,
     headlessRefresh: true,
     profileLabel: request.profileLabel,
@@ -185,6 +191,7 @@ function parseOptions(args) {
     requireDisabledPreferences: false,
     requireNoAutofillStoreFiles: false,
     requireNoCredentialStoreFiles: false,
+    requireNoDefaultProfileReferences: false,
     requireUsage: false,
     allowUnmarkedTestProfile: false,
   };
@@ -217,6 +224,11 @@ function parseOptions(args) {
       continue;
     }
 
+    if (arg === "--require-no-default-profile-references") {
+      options.requireNoDefaultProfileReferences = true;
+      continue;
+    }
+
     if (arg === "--allow-unmarked-test-profile") {
       options.allowUnmarkedTestProfile = true;
       continue;
@@ -243,7 +255,7 @@ function parseOptions(args) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
 
 Environment:
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
@@ -483,6 +495,27 @@ function inspectDisabledStoragePreferences(profileRoot) {
   };
 }
 
+function inspectDefaultProfileReferences(profileRoot) {
+  const preferencesPath = resolve(profileRoot, "Default", "Preferences");
+
+  if (!existsSync(preferencesPath)) {
+    return {
+      absent: true,
+      preferencesPresent: false,
+    };
+  }
+
+  const rawPreferences = readFileSync(preferencesPath, "utf8");
+  const absent = defaultBrowserProfileRoots().every(
+    (defaultRoot) => !rawPreferences.includes(defaultRoot),
+  );
+
+  return {
+    absent,
+    preferencesPresent: true,
+  };
+}
+
 function preferenceAtPath(preferences, path) {
   return path.reduce((value, key) => value?.[key], preferences);
 }
@@ -585,12 +618,13 @@ function printSanitizedFailure(error) {
     [
       ["missing_profile_marker", /missing the ForgeGauge ownership marker/u],
       ["invalid_profile_marker", /ownership marker/u],
-      ["default_browser_profile", /default browser profile/u],
+      ["default_browser_profile", /must not be a default browser profile/u],
       ["invalid_profile_root", /profile root/u],
       ["usage_not_reached", /did not reach usage state/u],
       ["storage_preferences_not_disabled", /disabled storage preferences/u],
       ["credential_store_detected", /credential store files/u],
       ["autofill_store_detected", /autofill store files/u],
+      ["default_profile_reference_detected", /preferences reference a default browser profile/u],
       ["profile_inspection_failed", /profile inspection/u],
       ["unsupported_page_state", /unsupported page state/u],
       ["sidecar_timeout", /Timed out/u],
@@ -632,6 +666,15 @@ function defaultBrowserProfileRootsForHome(home, xdgConfigHome = resolve(home, "
   return [
     resolve(xdgConfigHome, "google-chrome"),
     resolve(xdgConfigHome, "chromium"),
+    resolve(xdgConfigHome, "BraveSoftware"),
+    resolve(xdgConfigHome, "microsoft-edge"),
+    resolve(xdgConfigHome, "vivaldi"),
+    resolve(xdgConfigHome, "opera"),
+    resolve(home, ".mozilla/firefox"),
+    resolve(home, ".var/app/com.google.Chrome"),
+    resolve(home, ".var/app/com.brave.Browser"),
+    resolve(home, ".var/app/org.chromium.Chromium"),
+    resolve(home, ".var/app/org.mozilla.firefox"),
   ];
 }
 

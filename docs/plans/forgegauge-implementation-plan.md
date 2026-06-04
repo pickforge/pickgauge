@@ -295,6 +295,7 @@ Build in this order to avoid rework:
 1. **Tray/window hardening**
    - [x] Decide tray-first window lifecycle.
    - [ ] Validate KDE/Wayland tray and popup behavior.
+Blocked: remaining validation requires human-visible tray placement, physical tray click, and popup placement observation.
    - [x] Add fallback close/dismiss behavior if focus-loss dismissal is unreliable.
 
 2. **Core data plumbing**
@@ -316,12 +317,15 @@ Build in this order to avoid rework:
 
 5. **Browser automation and web providers**
    - [ ] Complete automation spike and backend decision matrix.
+Blocked: decision matrix and backend selection are complete, but real manual login, authenticated persistence, and official parseable-field evidence remain required.
    - [x] Implement isolated session manager.
    - [ ] Implement opt-in web providers and parser contracts.
+Blocked: parser contracts and headless refresh plumbing exist, but real opt-in web providers require authenticated profile smoke for both official pages.
 
 6. **Merge and release readiness**
 - [x] Implement merge engine.
    - [ ] Complete KDE smoke test.
+Blocked: automated KDE smoke passes, but full completion requires user-visible tray/popup observation on CachyOS KDE/Wayland.
    - [x] Verify remote release workflow and platform artifact uploads.
 
 ## Definition of Done for Each Phase
@@ -844,9 +848,12 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Prove there is no import from default browser profiles.
   - [x] Validate headed Playwright sidecar launches against fake default Chrome/Chromium profile sentinels without reading real browser profile contents.
 - [ ] Prove visible manual login works for both services.
+Blocked: requires user-completed Codex and Claude login in the managed headed browser profiles.
 - [ ] Prove isolated session persistence survives app restart.
   - [x] Add `npm run smoke:auth-profile -- --require-session-storage-artifacts` strict mode to fail sanitized future post-login checks when usage is not reached or no cookie/site-storage artifacts are present.
+Blocked: requires logged-in app-owned profiles and a ForgeGauge restart before strict authenticated smoke can prove persistence.
 - [ ] Prove each official URL exposes parseable visible fields for the snapshot contract.
+Blocked: requires authenticated access to the real Codex and Claude official usage pages.
 - [x] Define parser contract and partial/no-data fallback behavior.
 - [x] Document runtime/package dependencies.
 - [x] Record chosen backend, rejected alternatives, decision matrix, and proceed/defer decision.
@@ -867,6 +874,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] Add `npm run smoke:auth-profile -- --require-no-default-profile-references` strict mode to fail sanitized future post-login checks when Chromium preferences reference default browser profile paths.
   - [x] `npm run test:auth-profile-helper` validates strict credential-store, autofill-store, and default-profile-reference failures before Playwright refresh.
   - [x] `npm run test:auth-profile-helper` validates a dual-service strict blank-profile helper run for Codex and Claude marker-owned profiles.
+Blocked: requires strict authenticated smoke after real manual login.
 - [ ] Confirm no sensitive page content is written to normal logs.
   - [x] Validate real headed Playwright sidecar stdout/stderr omit raw profile paths, official URLs, launch flags, default-profile sentinels, auth/cookie-looking material, and page markup.
   - [x] Add `npm run smoke:auth-profile` to validate future authenticated app-owned profile refreshes with sanitized headless output and no raw paths, URLs, auth material, browser storage contents, or page markup.
@@ -878,6 +886,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] `npm run test:auth-profile-helper` validates missing, non-directory, symlink, and default-browser shared profile-root rejection without exposing raw root paths.
   - [x] `npm run test:official-fail-closed` self-checks its emitted JSON report for raw profile roots, official URLs, launch flags, home-directory paths, auth material, and page markup.
   - [x] `npm run test:synthetic-fail-closed` self-checks its emitted JSON report for raw profile roots, local HTTPS URLs, launch flags, synthetic cookie names, home-directory paths, auth material, and page markup.
+Blocked: requires strict authenticated smoke against the normal app log after real manual login.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
 - [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
 - [x] Review CSP and permissions needed before implementing provider UI.
@@ -930,6 +939,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 ### Phase 8 — Web Providers
 
 - [ ] Add Codex web provider for the Codex analytics URL.
+Blocked: requires authenticated Codex profile validation before claiming the real provider is complete.
 - [ ] Add Claude web provider for the Claude usage URL.
   - [x] Add headless Playwright `refreshUsage` sidecar action for normal official refresh checks.
   - [x] Wire desktop `Refresh official` through headless sidecar results and the existing sanitized web parser/cache path.
@@ -947,6 +957,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Frontend usage-event handling clears stale top-level login-required status messages after successful snapshot updates.
   - [x] Frontend status-message clearing requires direct or fallback web evidence, so local-only updates cannot hide a needed login prompt.
   - [x] Add a pure Rust regression helper for headed-login preflight decisions so unknown and unavailable states cannot fall through to headed launch.
+Blocked: requires authenticated Claude profile validation before claiming the real provider is complete.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.
 - [x] Define exact visible fields required for each provider before parsing implementation.
@@ -962,6 +973,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 - [x] Reject raw page HTML, account identifiers, cookies, tokens, auth headers, and unsanitized browser errors from fixtures.
 - [ ] Add manual authenticated refresh smoke test for each service.
   - [x] Add `npm run smoke:auth-profile` as a repeatable sanitized manual post-login refresh/profile smoke helper.
+Blocked: requires logged-in app-owned Codex and Claude profiles plus sanitized normal app-log evidence.
 - [x] Add parser tests for successful usage read.
   - [x] Add Playwright sidecar visible-field extraction tests for remaining/used percentage, reset timestamp, plan label, and quota window text.
 - [x] Add parser tests for partial visible data.

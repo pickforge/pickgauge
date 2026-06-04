@@ -4,6 +4,11 @@
 
 Branch: `forgegauge-implementation`
 
+Plan blocker reconciliation:
+
+- Added local `Blocked:` notes for unchecked implementation-sequence and web-provider rows whose detailed evidence already shows they are waiting on user-visible KDE observation or real authenticated Codex/Claude profile smoke.
+- Kept the related checkboxes unchecked because automated D-Bus/XWayland, browser-preview, synthetic, and blank-profile evidence does not prove human-visible tray placement or authenticated official-page behavior.
+
 Current-branch packaged KDE smoke revalidation:
 
 - Rebuilt the current branch AppImage with `npm run build:appimage` after the latest login-preflight hardening commit.

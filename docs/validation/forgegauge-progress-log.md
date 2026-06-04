@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Manual preflight report sanitization:
+
+- Added a final-report sanitizer to `npm run smoke:preflight` before the preflight prints JSON.
+- The preflight now rejects home-directory paths, the repo root, full local artifact paths, official usage URLs, auth-looking material, and page markup while still allowing repo-relative artifact paths and sanitized manual-observation templates.
+- Validation: `node --check scripts/collect-smoke-preflight.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run smoke:preflight`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the preflight artifact is sanitized; it is still only a metadata/template collector and does not replace manual KDE, authenticated web, or platform smoke observations.
+
 Synthetic fail-closed report sanitization:
 
 - Added a final-report sanitizer to `npm run test:synthetic-fail-closed` before the smoke prints JSON.

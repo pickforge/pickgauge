@@ -44,6 +44,8 @@ Manual smoke preflight progress, 2026-06-04: added `npm run smoke:preflight`, a 
 
 Manual evidence template progress, 2026-06-04: extended `npm run smoke:preflight` with sanitized pending-observation templates for KDE tray behavior, authenticated web/session checks, and Windows/macOS platform smoke. The templates list the required manual evidence fields and pending observation categories while still excluding cookies, tokens, auth headers, browser profile contents, account identifiers, authenticated page content, and full local paths. The preflight now also records sanitized KDE smoke dependency availability for `qdbus`, `gdbus`, `xdotool`, `xprop`, and `xmessage`, plus StatusNotifier host registration status when queryable.
 
+Manual preflight report sanitization progress, 2026-06-04: `npm run smoke:preflight` now self-checks its emitted JSON report before printing it, rejecting home-directory paths, the repo root, full local artifact paths, official usage URLs, auth-looking material, and page markup. Repo-relative artifact paths and sanitized manual-observation templates remain allowed. Manual observed-behavior and authenticated-profile evidence remains unchecked.
+
 KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies ForgeGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, dispatches the tray `Quit` menu event, confirms the AppImage exits successfully and unregisters the tray item, then removes temporary dirs. This proves D-Bus tray registration and tray-menu quit handling in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or visual quit-menu interaction.
 
 KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show ForgeGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible ForgeGauge window, the tray menu `Show ForgeGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show ForgeGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or human-visible settings-form persistence.
@@ -1072,6 +1074,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Add sanitized `npm run smoke:preflight` command to collect date/session, OS/session, commit, artifact, and runtime metadata without full local paths or secrets.
   - [x] Add sanitized preflight templates listing the required KDE/auth/platform manual observation fields without collecting secrets or raw local paths.
   - [x] Add sanitized preflight booleans for KDE smoke dependency availability and StatusNotifier host registration.
+  - [x] `npm run smoke:preflight` self-checks its emitted JSON report for full local paths, official usage URLs, auth-looking material, and page markup before printing.
 - [x] For release checks: workflow run URL, release tag, and artifact names are recorded.
   - [x] Add sanitized preflight booleans confirming platform artifacts are configured and README/release notes still mark Windows/macOS artifacts as untested.
 - [ ] For web/session security checks: sanitized inspection notes confirm no secrets or raw authenticated page content are persisted outside browser profiles.
@@ -1082,6 +1085,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] `npm run test:auth-profile-helper` validates the environment-variable profile/log input form recommended for real profile paths.
   - [x] `npm run test:official-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
   - [x] `npm run test:synthetic-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
+  - [x] `npm run smoke:preflight` validates its own JSON preflight artifact remains sanitized before printing.
 
 ### Automated Tests To Add
 

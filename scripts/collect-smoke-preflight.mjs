@@ -19,6 +19,12 @@ const readmePath = resolve(repoRoot, "README.md");
 const releaseWorkflowPath = resolve(repoRoot, ".github/workflows/release.yml");
 const packageJson = readJson(resolve(repoRoot, "package.json"));
 const tauriConfig = readJson(resolve(repoRoot, "src-tauri/tauri.conf.json"));
+const officialUsageUrls = [
+  "https://chatgpt.com/codex/cloud/settings/analytics",
+  "https://claude.ai/new#settings/usage",
+];
+const sensitiveOutputPattern =
+  /\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?(id|token)|csrf)\b/iu;
 const preflight = {
   generatedAt: new Date().toISOString(),
   git: gitMetadata(),
@@ -137,11 +143,8 @@ const preflight = {
   },
 };
 const serialized = `${JSON.stringify(preflight, null, 2)}\n`;
-const homePath = process.env.HOME;
 
-if (homePath && serialized.includes(homePath)) {
-  throw new Error("Preflight output contains the home directory path");
-}
+verifySanitizedPreflight(serialized);
 
 process.stdout.write(serialized);
 
@@ -313,4 +316,28 @@ function safeEnv(name) {
   }
 
   return value;
+}
+
+function verifySanitizedPreflight(output) {
+  for (const fragment of [
+    process.env.HOME,
+    repoRoot,
+    appImagePath,
+    sidecarPath,
+    readmePath,
+    releaseWorkflowPath,
+    ...officialUsageUrls,
+  ].filter(Boolean)) {
+    if (output.includes(fragment)) {
+      throw new Error("Preflight output leaked sensitive local or provider data");
+    }
+  }
+
+  if (sensitiveOutputPattern.test(output)) {
+    throw new Error("Preflight output leaked auth material");
+  }
+
+  if (/<!doctype|<html|<body|<script/iu.test(output)) {
+    throw new Error("Preflight output leaked page markup");
+  }
 }

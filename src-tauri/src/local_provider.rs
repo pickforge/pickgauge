@@ -850,6 +850,44 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude-local")
     }
 
+    fn assert_no_sensitive_fixture_text(label: &str, text: &str) {
+        let lower = text.to_ascii_lowercase();
+        for needle in [
+            "bearer ",
+            "set-cookie",
+            "cookie=",
+            "auth.json",
+            "api_key",
+            "access_token",
+            "refresh_token",
+            "sk-",
+            "/home/",
+            "/users/",
+            "c:\\users\\",
+            ".ssh",
+            "ghp_",
+            "xoxb-",
+        ] {
+            assert!(
+                !lower.contains(needle),
+                "{label} contains sensitive-looking marker {needle}"
+            );
+        }
+
+        for word in text.split_whitespace() {
+            let word = word.trim_matches(|character: char| {
+                matches!(
+                    character,
+                    ',' | ';' | ':' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}'
+                )
+            });
+            assert!(
+                !(word.contains('@') && word.contains('.')),
+                "{label} contains email-like text"
+            );
+        }
+    }
+
     fn create_codex_state_db(root: &Path, rows: &[(i64, i64, Option<&str>)]) {
         fs::create_dir_all(root).expect("codex root is created");
         let connection =
@@ -908,6 +946,47 @@ mod tests {
 
     fn ms(value: &str) -> i64 {
         i64::try_from(parse_rfc3339_ms(value).expect("timestamp parses")).expect("timestamp fits")
+    }
+
+    #[test]
+    fn committed_local_provider_fixtures_are_sanitized() {
+        let claude_fixture = fixture_root().join("projects/project-a/session.jsonl");
+        let codex_fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/codex-local/sanitized-state.sql");
+        let claude_text = fs::read_to_string(&claude_fixture).expect("claude fixture reads");
+        let codex_text = fs::read_to_string(&codex_fixture).expect("codex fixture reads");
+
+        assert_no_sensitive_fixture_text("claude fixture", &claude_text);
+        assert_no_sensitive_fixture_text("codex fixture", &codex_text);
+        assert!(claude_text.contains("redacted fixture prompt"));
+        assert!(codex_text.contains("thread-redacted"));
+        assert!(codex_text.contains("/redacted/"));
+
+        for line in claude_text.lines().filter(|line| !line.trim().is_empty()) {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+
+            assert_eq!(
+                value.get("sessionId").and_then(serde_json::Value::as_str),
+                Some("fixture-session")
+            );
+            assert!(value.get("cwd").is_none());
+            assert!(value.get("gitBranch").is_none());
+            assert!(value.get("requestId").is_none());
+            assert!(value.get("uuid").is_none());
+
+            if let Some(content) = value
+                .get("message")
+                .and_then(|message| message.get("content"))
+                .and_then(serde_json::Value::as_str)
+            {
+                assert!(
+                    content.contains("redacted"),
+                    "claude fixture content must stay redacted"
+                );
+            }
+        }
     }
 
     #[test]

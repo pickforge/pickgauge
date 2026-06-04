@@ -40,6 +40,9 @@ const disabledStoragePreferences = {
   },
 };
 const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-synthetic-fail-closed-"));
+const syntheticCookieName = "forgegauge_synthetic_session";
+const sensitiveOutputPattern =
+  /\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|session[_-]?token)\b/iu;
 let server = null;
 let validationRootCleanupFailed = false;
 
@@ -54,22 +57,23 @@ try {
     services.push(...(await validateService(baseUrl, service)));
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        backend: "playwright-headed-chromium-sidecar",
-        targetTriple,
-        syntheticServer: {
-          protocol: "https",
-          host: "127.0.0.1",
-        },
-        services,
+  const report = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      backend: "playwright-headed-chromium-sidecar",
+      targetTriple,
+      syntheticServer: {
+        protocol: "https",
+        host: "127.0.0.1",
       },
-      null,
-      2,
-    ),
+      services,
+    },
+    null,
+    2,
   );
+
+  verifySanitizedReport(report, baseUrl);
+  console.log(report);
 } finally {
   if (server) {
     await closeServer(server);
@@ -139,7 +143,7 @@ async function seedSyntheticCookie(profileRoot, baseUrl) {
     await context.addCookies([
       {
         expires: Math.floor(Date.now() / 1000) + 3_600,
-        name: "forgegauge_synthetic_session",
+        name: syntheticCookieName,
         sameSite: "Lax",
         url: baseUrl,
         value: "present",
@@ -147,7 +151,7 @@ async function seedSyntheticCookie(profileRoot, baseUrl) {
     ]);
 
     const cookies = await context.cookies(baseUrl);
-    if (!cookies.some((cookie) => cookie.name === "forgegauge_synthetic_session")) {
+    if (!cookies.some((cookie) => cookie.name === syntheticCookieName)) {
       throw new Error("Synthetic authenticated cookie could not be seeded");
     }
   } finally {
@@ -328,12 +332,34 @@ function verifySanitizedOutput({ profileRoot, service, stderr, stdout, url }) {
     }
   }
 
-  if (/\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|session[_-]?token)\b/iu.test(output)) {
+  if (sensitiveOutputPattern.test(output)) {
     throw new Error(`${service} synthetic refresh output leaked auth material`);
   }
 
   if (/<!doctype|<html|<body|<script/iu.test(output)) {
     throw new Error(`${service} synthetic refresh output leaked page markup`);
+  }
+}
+
+function verifySanitizedReport(report, baseUrl) {
+  for (const fragment of [
+    validationRoot,
+    baseUrl,
+    syntheticCookieName,
+    ...launchArgs,
+    process.env.HOME,
+  ].filter(Boolean)) {
+    if (report.includes(fragment)) {
+      throw new Error("Synthetic fail-closed report leaked sensitive launch data");
+    }
+  }
+
+  if (sensitiveOutputPattern.test(report)) {
+    throw new Error("Synthetic fail-closed report leaked auth material");
+  }
+
+  if (/<!doctype|<html|<body|<script/iu.test(report)) {
+    throw new Error("Synthetic fail-closed report leaked page markup");
   }
 }
 
@@ -394,7 +420,7 @@ function syntheticPage(path) {
       return htmlPage(
         "Pro plan monthly window. 42% remaining. 58% used. Resets 2026-06-04T18:30.",
         {
-          "set-cookie": "forgegauge_synthetic_session=present; Path=/; SameSite=Lax",
+          "set-cookie": `${syntheticCookieName}=present; Path=/; SameSite=Lax`,
         },
       );
     case "/logged-out":

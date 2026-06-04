@@ -100,6 +100,8 @@ Sidecar visible-state coverage progress, 2026-06-04: added direct Node unit cove
 
 Synthetic web fail-closed smoke progress, 2026-06-04: added `npm run test:synthetic-fail-closed`, which starts a temporary local HTTPS server and runs the real headless Playwright sidecar against synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages for both Codex and Claude profile labels. The smoke validates `visibleBrowserRequired = false`, sanitized sidecar output, and temporary profile/server cleanup without real account data. Real official authenticated page fields and real provider interruption pages remain unchecked.
 
+Synthetic fail-closed report sanitization progress, 2026-06-04: `npm run test:synthetic-fail-closed` now self-checks its emitted JSON report before printing it, rejecting temporary profile roots, local HTTPS URLs, Chromium launch flags, the synthetic session cookie name, the home directory, auth-looking material, and page markup. This extends the existing sidecar stdout/stderr sanitization to the browser-backed synthetic smoke artifact itself.
+
 Sidecar-to-snapshot bridge coverage progress, 2026-06-04: added Rust unit coverage for the desktop bridge that converts sanitized Playwright sidecar page states into web usage snapshots. The tests cover MFA, CAPTCHA/bot-check, network-unavailable, timed-out, unexpected-UI, successful usage, and unsupported sidecar state rejection without echoing raw state content.
 
 Sidecar parse-failure bridge coverage progress, 2026-06-04: extended the Rust bridge tests for sidecar `usage` responses with missing visible percentages, inconsistent percentages, invalid reset timestamps, and unsupported visible-field names. These now verify the app returns sanitized `missing_data` or `parse_failed` snapshots without echoing raw timestamp or unsupported field values.
@@ -841,6 +843,7 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
   - [x] `npm run test:auth-profile-helper` validates sanitized safe-log inspection and sensitive-log rejection without exposing temporary profile or log paths.
   - [x] `npm run test:auth-profile-helper` validates environment-variable profile/log inputs without exposing temporary profile or log paths.
   - [x] `npm run test:official-fail-closed` self-checks its emitted JSON report for raw profile roots, official URLs, launch flags, home-directory paths, auth material, and page markup.
+  - [x] `npm run test:synthetic-fail-closed` self-checks its emitted JSON report for raw profile roots, local HTTPS URLs, launch flags, synthetic cookie names, home-directory paths, auth material, and page markup.
 - [x] Confirm authenticated official pages are never loaded in the main Tauri webview.
 - [x] Identify required Tauri capabilities/plugins for opening URLs, launching child processes, choosing paths, and showing login windows.
 - [x] Review CSP and permissions needed before implementing provider UI.
@@ -1078,6 +1081,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] `npm run test:auth-profile-helper` validates Codex and Claude disposable profile results plus service-marker mismatch rejection without raw path output.
   - [x] `npm run test:auth-profile-helper` validates the environment-variable profile/log input form recommended for real profile paths.
   - [x] `npm run test:official-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
+  - [x] `npm run test:synthetic-fail-closed` validates its own JSON smoke artifact remains sanitized before printing.
 
 ### Automated Tests To Add
 

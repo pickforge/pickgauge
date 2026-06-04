@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Synthetic fail-closed report sanitization:
+
+- Added a final-report sanitizer to `npm run test:synthetic-fail-closed` before the smoke prints JSON.
+- The smoke now rejects temporary profile roots, local HTTPS URLs, Chromium launch flags, the synthetic session cookie name, the home directory, auth-looking material, and page markup in its emitted report.
+- Validation: `node --check scripts/validate-playwright-synthetic-fail-closed.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:synthetic-fail-closed`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the browser-backed synthetic smoke artifact is sanitized; real authenticated official page fields and provider interruption pages still require logged-in app-owned profiles.
+
 Official fail-closed report sanitization:
 
 - Added a final-report sanitizer to `npm run test:official-fail-closed` before the smoke prints JSON.

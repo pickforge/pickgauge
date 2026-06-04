@@ -515,7 +515,8 @@ Default local-provider output before calibration:
 
 Web providers are allowed only after the automation spike proves a safe backend.
 
-- [ ] The chosen backend supports visible manual login.
+- [x] The chosen backend supports visible manual login.
+  - [x] Generated Playwright sidecar launches both official URLs in headed mode with temporary isolated profiles.
 - [ ] The chosen backend supports persistent isolated profiles per service.
 - [ ] The chosen backend does not import default browser cookies, credentials, or profiles.
 - [ ] The chosen backend can disable or avoid password saving/autofill prompts.

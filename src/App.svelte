@@ -9,6 +9,19 @@
   import trayClaudeUrl from "../assets/branding/tray-claude.svg";
   import trayCodexUrl from "../assets/branding/tray-codex.svg";
   import {
+    confidenceLabels,
+    formatPercent,
+    formatTimestamp,
+    lastOfficialCheck,
+    localActivitySummary,
+    profilePathFromInput,
+    profilePathValue,
+    serviceLabels,
+    snapshotIsStale,
+    sourceLabels,
+    webProviderControlState,
+  } from "./lib/display";
+  import {
     defaultConfig,
     fallbackSnapshots,
     providerStatusMessage,
@@ -21,10 +34,8 @@
     type OfficialUsagePage,
     type ProviderLoginStart,
     type Service,
-    type UsageConfidence,
     type UsageDisplayState,
     type UsageSnapshot,
-    type UsageSource,
   } from "./lib/usage";
 
   let config = $state<AppConfig>(defaultConfig);
@@ -40,11 +51,7 @@
   let startingLogin = $state<Service | null>(null);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
-
-  const serviceLabels: Record<Service, string> = {
-    codex: "Codex",
-    claude: "Claude Code",
-  };
+  const webControls = $derived(webProviderControlState(config));
 
   const serviceTone: Record<Service, string> = {
     codex: "codex",
@@ -55,82 +62,6 @@
     codex: trayCodexUrl,
     claude: trayClaudeUrl,
   };
-
-  const sourceLabels: Record<UsageSource, string> = {
-    local: "Local estimate",
-    web: "Official web",
-    merged: "Official + local",
-    fake: "Preview",
-  };
-
-  const confidenceLabels: Record<UsageConfidence, string> = {
-    high: "High",
-    medium: "Medium",
-    low: "Low",
-    unknown: "Unknown",
-  };
-
-  function formatPercent(value: number | null) {
-    return value === null ? "Unknown" : `${Math.round(value)}%`;
-  }
-
-  function formatCount(value: number) {
-    return new Intl.NumberFormat().format(value);
-  }
-
-  function detailNumber(snapshot: UsageSnapshot, key: string) {
-    const value = snapshot.details[key];
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-  }
-
-  function detailString(snapshot: UsageSnapshot, key: string) {
-    const value = snapshot.details[key];
-    return typeof value === "string" && value.length > 0 ? value : null;
-  }
-
-  function plural(value: number, singular: string, pluralValue = `${singular}s`) {
-    return value === 1 ? singular : pluralValue;
-  }
-
-  function localActivitySummary(snapshot: UsageSnapshot) {
-    if (snapshot.source !== "local" || snapshot.remainingPercent !== null) {
-      return null;
-    }
-
-    const totalTokens =
-      detailNumber(snapshot, "totalTokens") ??
-      (detailNumber(snapshot, "inputTokens") ?? 0) +
-        (detailNumber(snapshot, "outputTokens") ?? 0) +
-        (detailNumber(snapshot, "cacheCreationInputTokens") ?? 0) +
-        (detailNumber(snapshot, "cacheReadInputTokens") ?? 0);
-
-    if (totalTokens <= 0) {
-      return null;
-    }
-
-    const activityCount =
-      detailNumber(snapshot, "sessionCount") ??
-      detailNumber(snapshot, "usageThreads") ??
-      detailNumber(snapshot, "usageRecords");
-    const activityLabel =
-      detailNumber(snapshot, "sessionCount") !== null
-        ? plural(activityCount ?? 0, "session")
-        : detailNumber(snapshot, "usageThreads") !== null
-          ? plural(activityCount ?? 0, "thread")
-          : plural(activityCount ?? 0, "record");
-    const modelCount = detailNumber(snapshot, "modelCount");
-    const parts = [`${formatCount(totalTokens)} tokens`];
-
-    if (activityCount !== null && activityCount > 0) {
-      parts.push(`${formatCount(activityCount)} ${activityLabel}`);
-    }
-
-    if (modelCount !== null && modelCount > 0) {
-      parts.push(`${formatCount(modelCount)} ${plural(modelCount, "model")}`);
-    }
-
-    return `Local activity: ${parts.join(" | ")}`;
-  }
 
   function isCommandError(caught: unknown): caught is CommandError {
     if (typeof caught !== "object" || caught === null) {
@@ -169,32 +100,6 @@
     return fallback;
   }
 
-  function formatTimestamp(value: string) {
-    const parsed = new Date(value);
-
-    if (Number.isNaN(parsed.getTime())) {
-      return value;
-    }
-
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(parsed);
-  }
-
-  function snapshotIsStale(snapshot: UsageSnapshot) {
-    return snapshot.details.stale === true;
-  }
-
-  function lastOfficialCheck(snapshot: UsageSnapshot) {
-    const checkedAt = detailString(snapshot, "lastOfficialCheckAt");
-    return checkedAt === null ? null : formatTimestamp(checkedAt);
-  }
-
-  function profilePathValue(value: string | null) {
-    return value ?? "";
-  }
-
   function updateProfilePath(field: keyof AppConfig["browserProfiles"], event: Event) {
     const target = event.currentTarget;
 
@@ -202,8 +107,7 @@
       return;
     }
 
-    const value = target.value.trim();
-    config.browserProfiles[field] = value.length > 0 ? value : null;
+    config.browserProfiles[field] = profilePathFromInput(target.value);
   }
 
   function updateQuotaLabel(service: keyof AppConfig["localQuotas"], event: Event) {
@@ -548,7 +452,7 @@
           <button
             class="secondary-button"
             type="button"
-            disabled={!config.providers.webEnabled || refreshingOfficial === snapshot.service}
+            disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
             aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
             onclick={() => refreshOfficialUsage(snapshot.service)}
           >
@@ -557,7 +461,7 @@
           <button
             class="secondary-button"
             type="button"
-            disabled={!config.providers.webEnabled || startingLogin === snapshot.service}
+            disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
             aria-label={`Start ${serviceLabels[snapshot.service]} login`}
             onclick={() => startProviderLogin(snapshot.service)}
           >
@@ -618,7 +522,7 @@
           min="15"
           max="60"
           bind:value={config.intervals.webMinutes}
-          disabled={!config.providers.webEnabled}
+          disabled={webControls.webRefreshDisabled}
         />
       </label>
       <label>
@@ -627,7 +531,7 @@
           type="number"
           min="60"
           bind:value={config.intervals.manualWebRefreshCooldownSeconds}
-          disabled={!config.providers.webEnabled}
+          disabled={webControls.webCooldownDisabled}
         />
       </label>
       <label>
@@ -650,7 +554,7 @@
           placeholder="Default app data path"
           value={profilePathValue(config.browserProfiles.rootPath)}
           oninput={(event) => updateProfilePath("rootPath", event)}
-          disabled={!config.providers.webEnabled}
+          disabled={webControls.profilePathInputsDisabled}
         />
       </label>
       <label>
@@ -662,7 +566,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.codexPath)}
           oninput={(event) => updateProfilePath("codexPath", event)}
-          disabled={!config.providers.webEnabled}
+          disabled={webControls.profilePathInputsDisabled}
         />
       </label>
       <label>
@@ -674,7 +578,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.claudePath)}
           oninput={(event) => updateProfilePath("claudePath", event)}
-          disabled={!config.providers.webEnabled}
+          disabled={webControls.profilePathInputsDisabled}
         />
       </label>
     </div>

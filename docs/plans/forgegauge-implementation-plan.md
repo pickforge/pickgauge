@@ -890,10 +890,10 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] No-double-count and stale-baseline merge behavior.
 - [x] Stale data handling.
 - [x] Gauge state mapping.
-- [ ] Frontend display formatting.
-- [ ] Frontend confidence/source labels.
-- [ ] Frontend settings form behavior.
-- [ ] Frontend web-provider opt-in toggles and disabled states.
+- [x] Frontend display formatting.
+- [x] Frontend confidence/source labels.
+- [x] Frontend settings form behavior.
+- [x] Frontend web-provider opt-in toggles and disabled states.
 
 ### Manual Tests To Complete
 

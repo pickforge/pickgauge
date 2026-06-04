@@ -18,6 +18,7 @@ Automated validation passed:
 - `cargo fmt --check`
 - `cargo test` (`116 passed`)
 - `cargo clippy -- -D warnings`
+- `npm test` (`11 passed`)
 - `npm run check`
 - `npm run build`
 - `git diff --check`

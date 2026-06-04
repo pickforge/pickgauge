@@ -19,6 +19,7 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
 
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
+const SESSION_RESET_EVENT: &str = "session://reset";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
 const LOG_FILE_NAME: &str = "forgegauge.log";
@@ -356,6 +357,26 @@ fn clear_provider_profile(
     engine: State<'_, UsageEngine>,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
+    clear_provider_profile_for_service(&app, &engine, service)
+}
+
+#[tauri::command]
+fn reset_provider_session(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+    service: Service,
+) -> CommandResult<ClearedProviderProfile> {
+    let reset = clear_provider_profile_for_service(&app, &engine, service)?;
+    app.emit(SESSION_RESET_EVENT, &reset)
+        .map_err(map_event_emit_error)?;
+    Ok(reset)
+}
+
+fn clear_provider_profile_for_service(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    service: Service,
+) -> CommandResult<ClearedProviderProfile> {
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
     let cleared = browser_profile::clear_browser_profile(
@@ -671,6 +692,7 @@ pub fn run() {
             open_official_usage_page,
             refresh_provider,
             refresh_usage,
+            reset_provider_session,
             update_app_config
         ])
         .plugin(tauri_plugin_autostart::init(
@@ -782,6 +804,11 @@ mod tests {
             official_usage_url(Service::Claude),
             "https://claude.ai/new#settings/usage"
         );
+    }
+
+    #[test]
+    fn session_reset_event_name_is_stable() {
+        assert_eq!(SESSION_RESET_EVENT, "session://reset");
     }
 
     #[test]

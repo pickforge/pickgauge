@@ -15,6 +15,7 @@ Command return models:
 | `open_official_usage_page` | `OfficialUsagePage` | Authenticated page content and browser profile data |
 | `clear_cached_snapshots` | `UsageDisplayState` | Raw local logs, raw page HTML/text, account identifiers |
 | `clear_provider_profile` | `ClearedProviderProfile` | Browser profile paths and contents |
+| `reset_provider_session` | `ClearedProviderProfile` | Browser profile paths and contents |
 | `get_log_location` | `LogLocation` | Log contents |
 
 Command errors use `CommandError` with stable `code` and sanitized `message` fields. Command errors must not include raw filesystem paths, raw browser errors, raw provider records, page HTML/text, account identifiers, cookies, tokens, or auth headers.
@@ -37,5 +38,6 @@ Event payloads:
 | `usage://refresh-finished` | `UsageRefreshEvent` | Provider internals and raw errors |
 | `usage://provider-error` | `UsageProviderErrorEvent` | Raw provider errors and raw source data |
 | `settings://updated` | `AppConfig` | Browser profile contents, cookies, tokens, local provider records |
+| `session://reset` | `ClearedProviderProfile` | Browser profile paths and contents |
 
 `UsageSnapshot.details` may contain stable status codes, provider IDs, aggregate counts, window metadata, timestamps, and sanitized reason codes. It must not contain raw Claude Code JSONL rows, raw Codex SQLite rows, prompts, responses, account identifiers, cookies, tokens, auth headers, browser profile contents, or authenticated page HTML/text.

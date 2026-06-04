@@ -405,7 +405,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `refresh_provider`
 - [x] `open_official_usage_page`
 - [ ] `start_provider_login`
-- [ ] `reset_provider_session`
+- [x] `reset_provider_session`
 - [x] `clear_cached_snapshots`
 - [x] `clear_provider_profile`
 - [x] `get_log_location`
@@ -418,7 +418,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `usage://provider-error`
 - [x] `settings://updated`
 - [ ] `login://required`
-- [ ] `session://reset`
+- [x] `session://reset`
 
 ### IPC Safety Rules
 
@@ -835,7 +835,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Configure optional per-service browser profile path overrides.
 - [x] Configure optional manual plan/limit/window values.
 - [x] Configure autostart.
-- [ ] Reset browser session data.
+- [x] Reset browser session data.
 - [x] Clear cached usage data.
 
 ## Testing Strategy

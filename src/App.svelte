@@ -284,8 +284,8 @@
     }
   }
 
-  async function clearProviderProfile(service: Service) {
-    if (!confirm(`Clear the app-owned ${serviceLabels[service]} browser profile?`)) {
+  async function resetProviderSession(service: Service) {
+    if (!confirm(`Reset the app-owned ${serviceLabels[service]} browser session data?`)) {
       return;
     }
 
@@ -293,13 +293,13 @@
     statusMessage = null;
 
     try {
-      const result = await invoke<ClearedProviderProfile>("clear_provider_profile", { service });
+      const result = await invoke<ClearedProviderProfile>("reset_provider_session", { service });
       error = null;
       statusMessage = result.cleared
-        ? `Cleared ${serviceLabels[service]} browser profile`
-        : `${serviceLabels[service]} browser profile was already clear`;
+        ? `Reset ${serviceLabels[service]} browser session`
+        : `${serviceLabels[service]} browser session was already clear`;
     } catch (caught) {
-      error = formatError(caught, `Could not clear ${serviceLabels[service]} browser profile`);
+      error = formatError(caught, `Could not reset ${serviceLabels[service]} browser session`);
     } finally {
       clearingProfile = null;
     }
@@ -561,17 +561,17 @@
         class="secondary-button danger"
         type="button"
         disabled={clearingProfile === "codex"}
-        onclick={() => clearProviderProfile("codex")}
+        onclick={() => resetProviderSession("codex")}
       >
-        {clearingProfile === "codex" ? "Clearing..." : "Clear Codex profile"}
+        {clearingProfile === "codex" ? "Resetting..." : "Reset Codex session"}
       </button>
       <button
         class="secondary-button danger"
         type="button"
         disabled={clearingProfile === "claude"}
-        onclick={() => clearProviderProfile("claude")}
+        onclick={() => resetProviderSession("claude")}
       >
-        {clearingProfile === "claude" ? "Clearing..." : "Clear Claude profile"}
+        {clearingProfile === "claude" ? "Resetting..." : "Reset Claude session"}
       </button>
     </div>
   </section>

@@ -283,12 +283,12 @@ ForgeGauge uses two data sources and one display pipeline:
 
 ## Implementation Readiness Notes
 
-- Current source has a **central `UsageEngine` with fake, Claude local, and Codex local providers, latest snapshot cache, shared display-state cache, and snapshot update event**; web providers and merge behavior are not implemented yet.
+- Current source has a **central `UsageEngine` with fake, Claude local, Codex local, fail-closed web refresh, latest snapshot cache, shared display-state cache, merge behavior, and snapshot update event**; real authenticated Codex/Claude web-provider validation remains gated on manual logged-in profile smoke.
 - Current tray values read from the shared display-state cache instead of hard-coded fake values in `src-tauri/src/lib.rs`.
 - Current app window starts hidden from `src-tauri/tauri.conf.json`, can be shown from tray/menu actions, and hides back to tray on normal close requests; Phase 0.5/10 must still confirm KDE/Wayland tray behavior manually.
-- Current Rust dependencies remain narrow: `serde`, `serde_json`, `rusqlite`, `tauri`, and `time`. Any async runtime, logging, filesystem walking, browser automation, opener, or path-dialog dependencies must be added deliberately with validation.
-- Current Tauri permissions are only `core:default`; browser/session/open-url/path features will require explicit capability review before implementation.
-- Current CSP is `null`; web-provider UI and any opener/browser integration must include a security review before release.
+- Current Rust dependencies include `serde`, `serde_json`, `rusqlite`, `tauri`, `time`, `dpi`, `libc`, `tauri-plugin-autostart`, `tauri-plugin-opener`, and `tauri-plugin-shell`. Async runtimes, logging frameworks, filesystem walking crates, and path-dialog dependencies remain intentionally absent unless added deliberately with validation.
+- Current Tauri frontend permissions remain only `core:default`; opener and shell sidecar access are used from backend-owned Rust command paths, and the Linux sidecar is packaged through `src-tauri/tauri.linux.conf.json` `externalBin`.
+- Current CSP is `null`; any broader frontend plugin surface, remote content, or web-provider UI expansion must include a security review before release.
 
 ## Implementation Sequence
 

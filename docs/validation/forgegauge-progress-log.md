@@ -4,6 +4,12 @@
 
 Branch: `forgegauge-implementation`
 
+Implementation-readiness note reconciliation:
+
+- Updated the plan's implementation-readiness notes to match current source: `UsageEngine` now includes fail-closed web refresh plumbing and merge behavior, while real authenticated Codex/Claude web-provider validation remains gated on logged-in profile smoke.
+- Replaced the stale narrow Rust dependency note with the current dependency/plugin surface from `src-tauri/Cargo.toml`, while preserving the caution that async runtimes, logging frameworks, filesystem walking crates, and path-dialog dependencies remain absent unless deliberately added and validated.
+- Clarified that frontend Tauri permissions remain `core:default`; backend-owned Rust command paths use opener and shell sidecar access, and the Linux Playwright sidecar is packaged through `src-tauri/tauri.linux.conf.json` `externalBin`.
+
 Current-branch browser/auth/preflight validation:
 
 - Reran the browser/auth validation gates on current `forgegauge-implementation` commit `2c13b47`.

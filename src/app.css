@@ -388,6 +388,7 @@ input:disabled {
   margin-top: 18px;
   color: #d8dee9;
   font-size: 0.92rem;
+  overflow-wrap: anywhere;
   text-align: center;
   z-index: 1;
 }

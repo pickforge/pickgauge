@@ -503,7 +503,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Prefer stable status codes over raw error messages.
 - [ ] Redact home directory paths when they are not needed for debugging.
 - [ ] Never log cookies, tokens, auth headers, raw page HTML, raw authenticated text, account identifiers, or full browser errors.
-- [ ] Add a UI-visible log location only after log redaction policy exists.
+- [x] Add a UI-visible log location only after log redaction policy exists.
 - [ ] Include enough diagnostics to distinguish disabled, missing data, stale, parse failed, login required, and unavailable states.
 
 ## Phase Checklist

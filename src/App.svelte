@@ -15,6 +15,7 @@
     type AppConfig,
     type ClearedProviderProfile,
     type CommandError,
+    type LogLocation,
     type OfficialUsagePage,
     type Service,
     type UsageConfidence,
@@ -30,6 +31,7 @@
   let refreshing = $state(false);
   let clearingSnapshots = $state(false);
   let clearingProfile = $state<Service | null>(null);
+  let locatingLogs = $state(false);
   let openingService = $state<Service | null>(null);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
@@ -308,6 +310,22 @@
       error = formatError(caught, "Could not clear cached usage");
     } finally {
       clearingSnapshots = false;
+    }
+  }
+
+  async function showLogLocation() {
+    locatingLogs = true;
+    statusMessage = null;
+
+    try {
+      const location = await invoke<LogLocation>("get_log_location");
+      const state = location.exists ? "created" : "not created yet";
+      error = null;
+      statusMessage = `Log file: ${location.path} (${state}). Policy: ${location.redactionPolicy}`;
+    } catch (caught) {
+      error = formatError(caught, "Could not read log location");
+    } finally {
+      locatingLogs = false;
     }
   }
 
@@ -603,6 +621,14 @@
         onclick={clearSnapshotCache}
       >
         {clearingSnapshots ? "Clearing..." : "Clear cache"}
+      </button>
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={locatingLogs}
+        onclick={showLogLocation}
+      >
+        {locatingLogs ? "Checking..." : "Show log location"}
       </button>
       <button
         class="secondary-button danger"

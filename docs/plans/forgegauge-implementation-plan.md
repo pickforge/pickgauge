@@ -275,9 +275,9 @@ The current implementation starts smaller with `config.rs`, `usage.rs`, `lib.rs`
   - [x] TypeScript types mirror the IPC payloads.
   - [x] Any new field has a default, migration path, and UI fallback.
 - User-facing precision must be justified.
-  - [ ] Show percentages only for official web values or calibrated local estimates.
+  - [x] Show percentages only for official web values or calibrated local estimates.
   - [x] Show token/cost/activity summaries without percentages when local data cannot be mapped to plan limits.
-  - [ ] Never derive account-wide remaining usage from machine-local logs unless clearly labeled as partial.
+  - [x] Never derive account-wide remaining usage from machine-local logs unless clearly labeled as partial.
 
 ## Config Migration and Persistence Contract
 
@@ -489,22 +489,22 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] The chosen backend supports persistent isolated profiles per service.
 - [ ] The chosen backend does not import default browser cookies, credentials, or profiles.
 - [ ] The chosen backend can disable or avoid password saving/autofill prompts.
-- [ ] Authenticated official pages are never loaded in the main Tauri webview.
+- [x] Authenticated official pages are never loaded in the main Tauri webview.
 - [ ] Browser launch arguments and profile paths are logged only in sanitized form.
 - [ ] Parser input is sanitized visible text or structured state, not raw authenticated HTML.
 - [ ] Fixture regeneration requires explicit user-consented capture.
 - [ ] Fixtures are sanitized before writing.
 - [ ] Web providers fail closed on login, MFA, CAPTCHA, bot checks, unexpected UI, or parse failure.
-- [ ] Web refreshes never run until the user explicitly enables experimental web providers.
+- [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
 ## Logging and Diagnostics Policy
 
-- [ ] Add structured provider status/error codes.
-- [ ] Prefer stable status codes over raw error messages.
+- [x] Add structured provider status/error codes.
+- [x] Prefer stable status codes over raw error messages.
 - [ ] Redact home directory paths when they are not needed for debugging.
 - [ ] Never log cookies, tokens, auth headers, raw page HTML, raw authenticated text, account identifiers, or full browser errors.
 - [x] Add a UI-visible log location only after log redaction policy exists.
-- [ ] Include enough diagnostics to distinguish disabled, missing data, stale, parse failed, login required, and unavailable states.
+- [x] Include enough diagnostics to distinguish disabled, missing data, stale, parse failed, login required, and unavailable states.
 
 ## Phase Checklist
 
@@ -926,7 +926,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
 - [ ] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.
-- [ ] Disabling a web provider cancels future scheduled reads.
+- [x] Disabling a web provider cancels future scheduled reads.
 - [x] Clear UI label for experimental web provider.
 - [x] User can reset/delete provider session data and cached snapshots.
 - [x] Local app data uses restrictive file permissions where supported.

@@ -28,6 +28,15 @@ Frontend unavailable status note:
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`151 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
 
+Fail-closed web merge coverage:
+
+- Display merging now carries a sanitized `webReason` code when a failed web snapshot falls back to local data.
+- The `webReason` copy accepts only short lowercase code strings with digits or underscores and drops unsanitized strings such as paths, HTML, or raw error text.
+- Rust tests cover local-data fallback for login required, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures.
+- Real browser-backed provider failure validation remains unchecked until the backend/login flow exists.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`153 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
+
 ## 2026-06-03 America/Sao_Paulo
 
 Branch: `forgegauge-implementation`

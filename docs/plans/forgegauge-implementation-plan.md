@@ -34,7 +34,7 @@ Browser-preview validation progress, 2026-06-03: reran the Vite browser preview 
 
 Frontend status-note coverage progress, 2026-06-03: added Vitest coverage for provider status notes shown on usage cards, including missing local data, unavailable local/provider state, network unavailable, timed out, login required, CAPTCHA/bot-check, unexpected UI, and hidden parsed/placeholder/unknown raw status values. Manual missing-data, network, and expired-login smoke tests remain unchecked because they require end-to-end desktop/provider state validation.
 
-Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` metadata. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
+Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
@@ -517,6 +517,9 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Fixture regeneration requires explicit user-consented capture.
 - [x] Fixtures are sanitized before writing.
 - [ ] Web providers fail closed on login, MFA, CAPTCHA, bot checks, unexpected UI, or parse failure.
+  - [x] Parser contract returns unknown snapshots for logged-out, MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, missing visible data, and parse failures.
+  - [x] Display merge keeps local data visible and carries sanitized `webStatus`/`webReason` metadata for fail-closed web states.
+Blocked: real browser-backed provider failure validation remains unchecked until a backend and authenticated/manual test flow exist.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
 ## Logging and Diagnostics Policy

@@ -856,11 +856,32 @@ fn web_unavailable_fallback_snapshot(
         set_detail(&mut snapshot, "webStatus", status);
     }
 
+    if let Some(reason) = web.details.get("reason").and_then(sanitized_web_reason) {
+        set_detail(&mut snapshot, "webReason", reason);
+    }
+
     if let Some(provider_id) = web.details.get("providerId").cloned() {
         set_detail(&mut snapshot, "webProviderId", provider_id);
     }
 
     snapshot
+}
+
+fn sanitized_web_reason(value: &serde_json::Value) -> Option<String> {
+    let reason = value.as_str()?;
+
+    if reason.is_empty() || reason.len() > 64 {
+        return None;
+    }
+
+    if reason
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return Some(reason.to_string());
+    }
+
+    None
 }
 
 fn latest_snapshot_with_source<'a>(
@@ -2342,17 +2363,16 @@ mod tests {
 
     #[test]
     fn display_state_keeps_local_snapshot_when_web_provider_fails_closed() {
+        let mut web_snapshot = web_error_snapshot(
+            Service::Codex,
+            UsageProviderError::LoginRequired,
+            "2026-06-03T23:10:00Z",
+        );
+        web_snapshot.details["reason"] = serde_json::json!("logged_out");
         let display_state = display_state_from_provider_snapshots(
             web_enabled_config(),
             vec![
-                (
-                    "codex.web",
-                    web_error_snapshot(
-                        Service::Codex,
-                        UsageProviderError::LoginRequired,
-                        "2026-06-03T23:10:00Z",
-                    ),
-                ),
+                ("codex.web", web_snapshot),
                 (
                     "codex.local",
                     uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:05:00Z"),
@@ -2366,8 +2386,74 @@ mod tests {
         assert_eq!(snapshot.remaining_percent, None);
         assert_eq!(snapshot.details["status"], "parsed");
         assert_eq!(snapshot.details["webStatus"], "login_required");
+        assert_eq!(snapshot.details["webReason"], "logged_out");
         assert_eq!(snapshot.details["webProviderId"], "codex.web");
         assert_eq!(snapshot.details["mergeStatus"], "web_unavailable_fallback");
+    }
+
+    #[test]
+    fn display_state_keeps_local_snapshot_for_web_interruption_failures() {
+        for (error, status) in [
+            (UsageProviderError::MfaRequired, "mfa_required"),
+            (
+                UsageProviderError::CaptchaOrBotCheck,
+                "captcha_or_bot_check",
+            ),
+            (UsageProviderError::UnexpectedUi, "unexpected_ui"),
+            (UsageProviderError::ParseFailed, "parse_failed"),
+            (
+                UsageProviderError::NetworkUnavailable,
+                "network_unavailable",
+            ),
+            (UsageProviderError::TimedOut, "timed_out"),
+        ] {
+            let display_state = display_state_from_provider_snapshots(
+                web_enabled_config(),
+                vec![
+                    (
+                        "codex.web",
+                        web_error_snapshot(Service::Codex, error, "2026-06-03T23:10:00Z"),
+                    ),
+                    (
+                        "codex.local",
+                        uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:05:00Z"),
+                    ),
+                ],
+                "2026-06-03T23:10:00Z",
+            );
+            let snapshot = &display_state.snapshots[0];
+
+            assert_eq!(snapshot.source, UsageSource::Local);
+            assert_eq!(snapshot.details["status"], "parsed");
+            assert_eq!(snapshot.details["webStatus"], status);
+            assert_eq!(snapshot.details["webProviderId"], "codex.web");
+            assert_eq!(snapshot.details["mergeStatus"], "web_unavailable_fallback");
+        }
+    }
+
+    #[test]
+    fn display_state_drops_unsanitized_web_failure_reason() {
+        let mut web_snapshot = web_error_snapshot(
+            Service::Codex,
+            UsageProviderError::UnexpectedUi,
+            "2026-06-03T23:10:00Z",
+        );
+        web_snapshot.details["reason"] = serde_json::json!("/home/dev/page <html>");
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                ("codex.web", web_snapshot),
+                (
+                    "codex.local",
+                    uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:05:00Z"),
+                ),
+            ],
+            "2026-06-03T23:10:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.details["webStatus"], "unexpected_ui");
+        assert!(snapshot.details.get("webReason").is_none());
     }
 
     #[test]

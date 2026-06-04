@@ -90,6 +90,8 @@ Sidecar visible-state coverage progress, 2026-06-04: added direct Node unit cove
 
 Synthetic web fail-closed smoke progress, 2026-06-04: added `npm run test:synthetic-fail-closed`, which starts a temporary local HTTPS server and runs the real headless Playwright sidecar against synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages for both Codex and Claude profile labels. The smoke validates `visibleBrowserRequired = false`, sanitized sidecar output, and temporary profile/server cleanup without real account data. Real official authenticated page fields and real provider interruption pages remain unchecked.
 
+Sidecar-to-snapshot bridge coverage progress, 2026-06-04: added Rust unit coverage for the desktop bridge that converts sanitized Playwright sidecar page states into web usage snapshots. The tests cover MFA, CAPTCHA/bot-check, network-unavailable, timed-out, unexpected-UI, successful usage, and unsupported sidecar state rejection without echoing raw state content.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -591,6 +593,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Real headless Playwright official refresh smoke validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states without opening a visible browser.
   - [x] Real headless Playwright official refresh smoke validates a forced network failure returns sanitized `network_unavailable` without opening a visible browser.
   - [x] Synthetic browser-backed HTTPS smoke validates headless usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI page states for both service profile labels without visible browser launch.
+  - [x] Rust bridge tests verify sanitized sidecar page states map to fail-closed web snapshots without raw page-state leakage.
 Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
@@ -809,6 +812,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] `npm run test:official-fail-closed` validates real headless Playwright official refreshes for blank Codex/Claude profiles return sanitized `logged_out` states without opening a visible browser.
   - [x] `npm run test:official-fail-closed` validates a real headless Playwright official refresh with a forced dead proxy returns sanitized `network_unavailable` without opening a visible browser.
   - [x] `npm run test:synthetic-fail-closed` validates browser-backed headless Playwright responses for synthetic logged-out, MFA, CAPTCHA/bot-check, usage, and authenticated unexpected-UI pages for both service labels without opening a visible browser.
+  - [x] `cargo test --lib` covers app-side sidecar-to-snapshot mapping for MFA, CAPTCHA/bot-check, network-unavailable, timed-out, unexpected-UI, usage, and unsupported sidecar states.
 Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
   - [x] Add `npm run smoke:auth-profile -- --require-no-credential-store-files` strict mode to fail sanitized future post-login checks when Chromium credential-store files are present.
@@ -900,6 +904,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 - [x] Add parser tests for logged-out page.
 - [x] Add parser tests for MFA/CAPTCHA/interruption page.
   - [x] Add Playwright sidecar page-state classifier tests for logged-out URL, auth gate, MFA, CAPTCHA/bot-check, usage, no-cookie logged-out, and unexpected UI.
+  - [x] Add app-side sidecar-to-snapshot mapping tests for MFA, CAPTCHA/bot-check, network-unavailable, timed-out, and unexpected-UI page states.
 - [x] Add parser tests for network-unavailable and timeout states.
 - [x] Add parser tests for unexpected UI.
 - [x] Add parser tests for parse failure.

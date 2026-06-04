@@ -1808,21 +1808,7 @@ mod tests {
 
     #[test]
     fn sidecar_logged_out_usage_response_maps_to_login_required_snapshot() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
-            protocol_version: 1,
-            action: browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
-            service: Service::Claude,
-            profile_label: "claude-profile".to_string(),
-            headless: true,
-            arg_count: 4,
-            status: browser_session::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
-            page_state: "logged_out".to_string(),
-            remaining_percent: None,
-            used_percent: None,
-            reset_at: None,
-            visible_fields: Vec::new(),
-        };
+        let response = sidecar_usage_response(Service::Claude, "logged_out");
 
         let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
             .expect("snapshot is built");
@@ -1836,17 +1822,51 @@ mod tests {
     }
 
     #[test]
+    fn sidecar_interruption_usage_responses_map_to_fail_closed_web_snapshots() {
+        for (page_state, status, reason) in [
+            ("mfa_required", "mfa_required", "mfa_required"),
+            (
+                "captcha_or_bot_check",
+                "captcha_or_bot_check",
+                "captcha_or_bot_check",
+            ),
+            (
+                "network_unavailable",
+                "network_unavailable",
+                "network_unavailable",
+            ),
+            ("timed_out", "timed_out", "timed_out"),
+            ("unexpected_ui", "unexpected_ui", "unexpected_ui"),
+        ] {
+            let response = sidecar_usage_response(Service::Codex, page_state);
+            let snapshot =
+                usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+                    .expect("snapshot is built");
+
+            assert_eq!(snapshot.service, Service::Codex);
+            assert_eq!(snapshot.source, UsageSource::Web);
+            assert_eq!(snapshot.confidence, usage::UsageConfidence::Unknown);
+            assert_eq!(snapshot.remaining_percent, None);
+            assert_eq!(snapshot.used_percent, None);
+            assert_eq!(snapshot.details["status"], status);
+            assert_eq!(snapshot.details["reason"], reason);
+            assert_eq!(snapshot.details["providerId"], "codex.web");
+        }
+    }
+
+    #[test]
+    fn unsupported_sidecar_page_state_is_rejected_without_echoing_state() {
+        let response = sidecar_usage_response(Service::Claude, "raw_authenticated_html");
+        let error = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect_err("unsupported sidecar state is rejected");
+
+        assert_eq!(error, UsageProviderError::UnexpectedUi);
+        assert!(!format!("{error:?}").contains("raw_authenticated_html"));
+    }
+
+    #[test]
     fn sidecar_usage_response_maps_visible_fields_to_web_snapshot() {
         let response = browser_session::PlaywrightSidecarUsageResponse {
-            protocol_version: 1,
-            action: browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
-            service: Service::Codex,
-            profile_label: "codex-profile".to_string(),
-            headless: true,
-            arg_count: 4,
-            status: browser_session::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
-            page_state: "usage".to_string(),
             remaining_percent: Some(63.0),
             used_percent: Some(37.0),
             reset_at: Some("2026-06-05T00:00:00Z".to_string()),
@@ -1855,6 +1875,7 @@ mod tests {
                 "used_percent".to_string(),
                 "reset_at".to_string(),
             ],
+            ..sidecar_usage_response(Service::Codex, "usage")
         };
 
         let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
@@ -1869,6 +1890,27 @@ mod tests {
             snapshot.details["lastOfficialCheckAt"],
             "2026-06-04T12:00:00Z"
         );
+    }
+
+    fn sidecar_usage_response(
+        service: Service,
+        page_state: &str,
+    ) -> browser_session::PlaywrightSidecarUsageResponse {
+        browser_session::PlaywrightSidecarUsageResponse {
+            protocol_version: 1,
+            action: browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
+            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            service,
+            profile_label: provider_profile_label(service).to_string(),
+            headless: true,
+            arg_count: 4,
+            status: browser_session::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
+            page_state: page_state.to_string(),
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            visible_fields: Vec::new(),
+        }
     }
 
     fn read_preferences(path: impl Into<PathBuf>) -> serde_json::Value {

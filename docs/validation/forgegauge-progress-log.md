@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Sidecar-to-snapshot bridge coverage:
+
+- Added Rust unit tests for `usage_snapshot_from_sidecar_usage_response`, covering sidecar page states for MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, successful usage, and unsupported sidecar state rejection.
+- The unsupported-state check verifies the raw sidecar state is not echoed in the sanitized error path.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test --lib`, `cargo clippy -- -D warnings`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:synthetic-fail-closed`, `npm run test:browser-preview`, `npm run test:official-fail-closed`, and `git diff --check` passed.
+- Remaining caveat: this proves the app-side mapping boundary; real official authenticated and interruption pages still require logged-in app-owned profiles.
+
 Synthetic web fail-closed smoke:
 
 - Added `npm run test:synthetic-fail-closed`, which starts a temporary local HTTPS server, generates a temporary certificate, and runs the real headless Playwright sidecar against synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages.

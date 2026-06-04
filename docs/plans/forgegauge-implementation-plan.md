@@ -92,6 +92,8 @@ Synthetic web fail-closed smoke progress, 2026-06-04: added `npm run test:synthe
 
 Sidecar-to-snapshot bridge coverage progress, 2026-06-04: added Rust unit coverage for the desktop bridge that converts sanitized Playwright sidecar page states into web usage snapshots. The tests cover MFA, CAPTCHA/bot-check, network-unavailable, timed-out, unexpected-UI, successful usage, and unsupported sidecar state rejection without echoing raw state content.
 
+Sidecar parse-failure bridge coverage progress, 2026-06-04: extended the Rust bridge tests for sidecar `usage` responses with missing visible percentages, inconsistent percentages, invalid reset timestamps, and unsupported visible-field names. These now verify the app returns sanitized `missing_data` or `parse_failed` snapshots without echoing raw timestamp or unsupported field values.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -594,6 +596,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Real headless Playwright official refresh smoke validates a forced network failure returns sanitized `network_unavailable` without opening a visible browser.
   - [x] Synthetic browser-backed HTTPS smoke validates headless usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI page states for both service profile labels without visible browser launch.
   - [x] Rust bridge tests verify sanitized sidecar page states map to fail-closed web snapshots without raw page-state leakage.
+  - [x] Rust bridge tests verify sidecar `usage` parse failures map to sanitized `missing_data` or `parse_failed` web snapshots without raw visible-value leakage.
 Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
@@ -813,6 +816,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] `npm run test:official-fail-closed` validates a real headless Playwright official refresh with a forced dead proxy returns sanitized `network_unavailable` without opening a visible browser.
   - [x] `npm run test:synthetic-fail-closed` validates browser-backed headless Playwright responses for synthetic logged-out, MFA, CAPTCHA/bot-check, usage, and authenticated unexpected-UI pages for both service labels without opening a visible browser.
   - [x] `cargo test --lib` covers app-side sidecar-to-snapshot mapping for MFA, CAPTCHA/bot-check, network-unavailable, timed-out, unexpected-UI, usage, and unsupported sidecar states.
+  - [x] `cargo test --lib` covers app-side parse-failure mapping for missing visible percentages, inconsistent percentages, invalid reset timestamps, and unsupported visible fields.
 Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
   - [x] Add `npm run smoke:auth-profile -- --require-no-credential-store-files` strict mode to fail sanitized future post-login checks when Chromium credential-store files are present.
@@ -908,6 +912,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 - [x] Add parser tests for network-unavailable and timeout states.
 - [x] Add parser tests for unexpected UI.
 - [x] Add parser tests for parse failure.
+  - [x] Add app-side sidecar-to-snapshot parse-failure tests for missing percentages, inconsistent percentages, invalid reset timestamps, and unsupported visible fields.
 - [x] Add fixture sanitization tests or review checks.
 - [x] Add provider-level tests proving web providers do not run unless explicitly enabled.
 

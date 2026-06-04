@@ -1892,6 +1892,75 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sidecar_usage_response_with_missing_visible_data_maps_to_unknown_snapshot() {
+        let response = sidecar_usage_response(Service::Claude, "usage");
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect("snapshot is built");
+
+        assert_eq!(snapshot.service, Service::Claude);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.confidence, usage::UsageConfidence::Unknown);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.details["status"], "missing_data");
+        assert_eq!(snapshot.details["reason"], "missing_visible_percentage");
+        assert_eq!(snapshot.details["providerId"], "claude.web");
+    }
+
+    #[test]
+    fn sidecar_usage_response_parse_failures_are_sanitized() {
+        for (response, reason) in [
+            (
+                browser_session::PlaywrightSidecarUsageResponse {
+                    remaining_percent: Some(80.0),
+                    used_percent: Some(80.0),
+                    visible_fields: vec![
+                        "remaining_percent".to_string(),
+                        "used_percent".to_string(),
+                    ],
+                    ..sidecar_usage_response(Service::Codex, "usage")
+                },
+                "invalid_visible_percentage",
+            ),
+            (
+                browser_session::PlaywrightSidecarUsageResponse {
+                    remaining_percent: Some(80.0),
+                    reset_at: Some("not-a-timestamp".to_string()),
+                    visible_fields: vec!["remaining_percent".to_string(), "reset_at".to_string()],
+                    ..sidecar_usage_response(Service::Codex, "usage")
+                },
+                "invalid_reset_at",
+            ),
+            (
+                browser_session::PlaywrightSidecarUsageResponse {
+                    remaining_percent: Some(80.0),
+                    visible_fields: vec![
+                        "remaining_percent".to_string(),
+                        "raw_authenticated_html".to_string(),
+                    ],
+                    ..sidecar_usage_response(Service::Codex, "usage")
+                },
+                "unsupported_visible_field",
+            ),
+        ] {
+            let snapshot =
+                usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+                    .expect("snapshot is built");
+            let serialized_details = snapshot.details.to_string();
+
+            assert_eq!(snapshot.service, Service::Codex);
+            assert_eq!(snapshot.source, UsageSource::Web);
+            assert_eq!(snapshot.confidence, usage::UsageConfidence::Unknown);
+            assert_eq!(snapshot.remaining_percent, None);
+            assert_eq!(snapshot.used_percent, None);
+            assert_eq!(snapshot.details["status"], "parse_failed");
+            assert_eq!(snapshot.details["reason"], reason);
+            assert_eq!(snapshot.details["providerId"], "codex.web");
+            assert!(!serialized_details.contains("not-a-timestamp"));
+            assert!(!serialized_details.contains("raw_authenticated_html"));
+        }
+    }
+
     fn sidecar_usage_response(
         service: Service,
         page_state: &str,

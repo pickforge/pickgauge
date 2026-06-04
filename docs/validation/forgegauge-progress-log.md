@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Sidecar parse-failure bridge coverage:
+
+- Extended Rust bridge tests for sidecar `usage` responses with missing visible percentages, inconsistent percentages, invalid reset timestamps, and unsupported visible fields.
+- The tests verify sanitized `missing_data` and `parse_failed` snapshots, and ensure raw invalid timestamp and unsupported field values are not echoed in snapshot details.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test --lib`, `cargo clippy -- -D warnings`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:synthetic-fail-closed`, `npm run test:browser-preview`, `npm run test:official-fail-closed`, and `git diff --check` passed.
+- Remaining caveat: this proves app-side parse-failure handling for sanitized sidecar responses; real official authenticated page fields still require logged-in app-owned profiles.
+
 Sidecar-to-snapshot bridge coverage:
 
 - Added Rust unit tests for `usage_snapshot_from_sidecar_usage_response`, covering sidecar page states for MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, successful usage, and unsupported sidecar state rejection.

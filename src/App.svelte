@@ -138,6 +138,18 @@
     return typeof error.code === "string" && typeof error.message === "string";
   }
 
+  function desktopApiAvailable() {
+    return (
+      typeof window !== "undefined" &&
+      Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
+    );
+  }
+
+  function showDesktopOnlyError(message: string) {
+    error = message;
+    statusMessage = null;
+  }
+
   function formatError(caught: unknown, fallback: string) {
     if (isCommandError(caught) && caught.message.length > 0) {
       return caught.message;
@@ -205,6 +217,13 @@
     let cancelled = false;
     let unlisten: (() => void) | null = null;
 
+    if (!desktopApiAvailable()) {
+      loading = false;
+      return () => {
+        cancelled = true;
+      };
+    }
+
     listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
       snapshots = event.payload.snapshots;
     })
@@ -249,8 +268,14 @@
   });
 
   async function saveSettings() {
-    saving = true;
     statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError("Settings are only persisted in the desktop app");
+      return;
+    }
+
+    saving = true;
 
     try {
       config = await invoke<AppConfig>("update_app_config", { config });
@@ -265,8 +290,14 @@
   }
 
   async function openOfficialPage(service: Service) {
-    openingService = service;
     statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError(`${serviceLabels[service]} usage opens from the desktop app`);
+      return;
+    }
+
+    openingService = service;
 
     try {
       await invoke<OfficialUsagePage>("open_official_usage_page", { service });
@@ -280,8 +311,14 @@
   }
 
   async function refreshNow() {
-    refreshing = true;
     statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError("Usage refresh is available in the desktop app");
+      return;
+    }
+
+    refreshing = true;
 
     try {
       const displayState = await invoke<UsageDisplayState>("refresh_usage");
@@ -296,8 +333,14 @@
   }
 
   async function refreshOfficialUsage(service: Service) {
-    refreshingOfficial = service;
     statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError(`Official ${serviceLabels[service]} usage refreshes in the desktop app`);
+      return;
+    }
+
+    refreshingOfficial = service;
 
     try {
       const displayState = await invoke<UsageDisplayState>("refresh_provider", {
@@ -315,12 +358,18 @@
   }
 
   async function clearSnapshotCache() {
+    statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError("Cached usage is cleared in the desktop app");
+      return;
+    }
+
     if (!confirm("Clear cached usage snapshots?")) {
       return;
     }
 
     clearingSnapshots = true;
-    statusMessage = null;
 
     try {
       const displayState = await invoke<UsageDisplayState>("clear_cached_snapshots");
@@ -335,8 +384,14 @@
   }
 
   async function showLogLocation() {
-    locatingLogs = true;
     statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError("Log location is available in the desktop app");
+      return;
+    }
+
+    locatingLogs = true;
 
     try {
       const location = await invoke<LogLocation>("get_log_location");
@@ -351,12 +406,18 @@
   }
 
   async function resetProviderSession(service: Service) {
+    statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError(`${serviceLabels[service]} sessions reset in the desktop app`);
+      return;
+    }
+
     if (!confirm(`Reset the app-owned ${serviceLabels[service]} browser session data?`)) {
       return;
     }
 
     clearingProfile = service;
-    statusMessage = null;
 
     try {
       const result = await invoke<ClearedProviderProfile>("reset_provider_session", { service });

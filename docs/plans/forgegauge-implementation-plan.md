@@ -136,6 +136,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Clear/delete actions for cached snapshots.
 - [x] Clear/delete actions for browser session data.
 - [x] Basic failure logging view or log file location.
+- [x] Browser preview falls back cleanly when desktop-only Tauri APIs are unavailable.
 
 ## Core Concept
 

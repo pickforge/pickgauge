@@ -104,6 +104,8 @@ Login preflight snapshot progress, 2026-06-04: `Start login` now records success
 
 Login fallback clearing progress, 2026-06-04: added a display-state regression proving a later successful web snapshot clears stale fallback `webStatus` and `webReason` values left by an earlier login-required web failure. This protects the frontend prompt gate from continuing to show `Start login` after a silent official-usage preflight has already succeeded. Real authenticated profile evidence remains unchecked.
 
+Frontend fallback prompt progress, 2026-06-04: frontend fallback `webStatus` handling is now limited to local/preview snapshots, so successful web or merged snapshots cannot show stale login-required notes or `Start login` buttons even if fallback metadata leaks through. Vitest coverage verifies direct web failures still expose headed-login prompts, while successful web/merged snapshots ignore stale fallback login metadata. Real authenticated profile evidence remains unchecked.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports a user-action state (`login_required`, `mfa_required`, or `captcha_or_bot_check`). Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default, network-unavailable, and unexpected-UI preview cards do not expose `Start login` while expired-login, MFA, and CAPTCHA states do after experimental web providers are enabled.
@@ -931,6 +933,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
   - [x] Rust preflight outcome tests assert authenticated and unavailable states never request a headed login launch.
   - [x] `Start login` records successful headless preflight responses into display state before any headed-launch decision.
   - [x] Display-state merge tests assert successful web snapshots clear stale login-required fallback prompt details.
+  - [x] Frontend prompt helpers ignore fallback login metadata on successful web or merged snapshots.
   - [x] Add a pure Rust regression helper for headed-login preflight decisions so unknown and unavailable states cannot fall through to headed launch.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.

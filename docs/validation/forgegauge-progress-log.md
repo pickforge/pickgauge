@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Frontend fallback prompt gating:
+
+- Restricted frontend fallback `webStatus` handling to local/preview snapshots so successful web or merged snapshots cannot show stale login-required notes or `Start login` buttons.
+- Added Vitest coverage proving direct web failures can still show headed-login prompts, while successful web/merged snapshots ignore stale fallback login metadata.
+- Validation: `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the local frontend prompt-gating helper behavior; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Login fallback clearing:
 
 - Added a display-state regression proving a later successful web snapshot clears stale fallback `webStatus`/`webReason` values left by an earlier login-required web failure.

@@ -63,7 +63,13 @@ function statusMessage(value: unknown) {
 }
 
 export function providerStatusMessage(snapshot: UsageSnapshot) {
-  return statusMessage(snapshot.details.status) ?? statusMessage(snapshot.details.webStatus);
+  return statusMessage(snapshot.details.status) ?? statusMessage(fallbackWebStatus(snapshot));
+}
+
+function fallbackWebStatus(snapshot: UsageSnapshot) {
+  return snapshot.source === "local" || snapshot.source === "fake"
+    ? snapshot.details.webStatus
+    : null;
 }
 
 export function redactedUserPath(path: string) {

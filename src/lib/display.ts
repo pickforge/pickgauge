@@ -130,8 +130,13 @@ export function lastOfficialCheck(snapshot: UsageSnapshot) {
 }
 
 export function loginPromptVisible(snapshot: UsageSnapshot) {
+  if (loginActionStatus(snapshot.details.status)) {
+    return true;
+  }
+
   return (
-    loginActionStatus(snapshot.details.status) || loginActionStatus(snapshot.details.webStatus)
+    (snapshot.source === "local" || snapshot.source === "fake") &&
+    loginActionStatus(snapshot.details.webStatus)
   );
 }
 

@@ -182,12 +182,29 @@ describe("frontend provider status notes", () => {
       ),
     ).toBe("Login required");
   });
+
+  it("ignores fallback web status notes on successful web or merged snapshots", () => {
+    for (const source of ["web", "merged"] as const) {
+      expect(
+        providerStatusMessage(
+          snapshot({
+            source,
+            details: {
+              status: "parsed",
+              webStatus: "login_required",
+            },
+          }),
+        ),
+      ).toBeNull();
+    }
+  });
 });
 
 describe("frontend login prompt visibility", () => {
   it("shows the headed login action only after a user-action web state", () => {
     for (const status of ["login_required", "mfa_required", "captcha_or_bot_check"]) {
       expect(loginPromptVisible(snapshot({ details: { status } }))).toBe(true);
+      expect(loginPromptVisible(snapshot({ source: "web", details: { status } }))).toBe(true);
       expect(loginPromptVisible(snapshot({ details: { status: "parsed", webStatus: status } }))).toBe(
         true,
       );
@@ -198,6 +215,22 @@ describe("frontend login prompt visibility", () => {
       expect(loginPromptVisible(snapshot({ details: { status: "parsed", webStatus: status } }))).toBe(
         false,
       );
+    }
+  });
+
+  it("ignores fallback login prompts on successful web or merged snapshots", () => {
+    for (const source of ["web", "merged"] as const) {
+      expect(
+        loginPromptVisible(
+          snapshot({
+            source,
+            details: {
+              status: "parsed",
+              webStatus: "login_required",
+            },
+          }),
+        ),
+      ).toBe(false);
     }
   });
 });

@@ -405,7 +405,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `refresh_usage`
 - [x] `refresh_provider`
 - [x] `open_official_usage_page`
-- [ ] `start_provider_login`
+- [x] `start_provider_login`
 - [x] `reset_provider_session`
 - [x] `clear_cached_snapshots`
 - [x] `clear_provider_profile`
@@ -418,7 +418,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `usage://refresh-finished`
 - [x] `usage://provider-error`
 - [x] `settings://updated`
-- [ ] `login://required`
+- [x] `login://required`
 - [x] `session://reset`
 
 ### IPC Safety Rules

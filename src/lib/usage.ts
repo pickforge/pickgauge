@@ -84,6 +84,20 @@ export type OfficialUsagePage = {
   openedAt: string;
 };
 
+export type ProviderLoginStart = {
+  service: Service;
+  url: string;
+  status: "login_required";
+  startedAt: string;
+};
+
+export type LoginRequiredEvent = {
+  service: Service;
+  url: string;
+  reason: "managed_login_not_available";
+  emittedAt: string;
+};
+
 export type ClearedProviderProfile = {
   service: Service;
   cleared: boolean;

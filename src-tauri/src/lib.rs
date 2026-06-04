@@ -20,6 +20,7 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
 
 const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
+const LOGIN_REQUIRED_EVENT: &str = "login://required";
 const SESSION_RESET_EVENT: &str = "session://reset";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
@@ -60,6 +61,24 @@ struct OfficialUsagePage {
     service: Service,
     url: String,
     opened_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderLoginStart {
+    service: Service,
+    url: String,
+    status: String,
+    started_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginRequiredEvent {
+    service: Service,
+    url: String,
+    reason: String,
+    emitted_at: String,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -355,6 +374,29 @@ fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<O
         url: url.to_string(),
         opened_at: usage::now_rfc3339(),
     })
+}
+
+#[tauri::command]
+fn start_provider_login(app: AppHandle, service: Service) -> CommandResult<ProviderLoginStart> {
+    let now = usage::now_rfc3339();
+    let url = official_usage_url(service).to_string();
+    let login = ProviderLoginStart {
+        service,
+        url: url.clone(),
+        status: "login_required".to_string(),
+        started_at: now.clone(),
+    };
+    let event = LoginRequiredEvent {
+        service,
+        url,
+        reason: "managed_login_not_available".to_string(),
+        emitted_at: now,
+    };
+
+    app.emit(LOGIN_REQUIRED_EVENT, &event)
+        .map_err(map_event_emit_error)?;
+
+    Ok(login)
 }
 
 #[tauri::command]
@@ -752,6 +794,7 @@ pub fn run() {
             refresh_provider,
             refresh_usage,
             reset_provider_session,
+            start_provider_login,
             update_app_config
         ])
         .plugin(tauri_plugin_autostart::init(
@@ -898,6 +941,53 @@ mod tests {
             official_usage_url(Service::Claude),
             "https://claude.ai/new#settings/usage"
         );
+    }
+
+    #[test]
+    fn provider_login_start_serializes_to_ipc_shape() {
+        let login = ProviderLoginStart {
+            service: Service::Codex,
+            url: official_usage_url(Service::Codex).to_string(),
+            status: "login_required".to_string(),
+            started_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        let value = serde_json::to_value(login).expect("provider login start serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "service": "codex",
+                "url": "https://chatgpt.com/codex/cloud/settings/analytics",
+                "status": "login_required",
+                "startedAt": "2026-06-03T00:00:00Z"
+            })
+        );
+    }
+
+    #[test]
+    fn login_required_event_serializes_to_ipc_shape() {
+        let event = LoginRequiredEvent {
+            service: Service::Claude,
+            url: official_usage_url(Service::Claude).to_string(),
+            reason: "managed_login_not_available".to_string(),
+            emitted_at: "2026-06-03T00:00:00Z".to_string(),
+        };
+        let value = serde_json::to_value(event).expect("login required event serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "service": "claude",
+                "url": "https://claude.ai/new#settings/usage",
+                "reason": "managed_login_not_available",
+                "emittedAt": "2026-06-03T00:00:00Z"
+            })
+        );
+    }
+
+    #[test]
+    fn login_required_event_name_is_stable() {
+        assert_eq!(LOGIN_REQUIRED_EVENT, "login://required");
     }
 
     #[test]

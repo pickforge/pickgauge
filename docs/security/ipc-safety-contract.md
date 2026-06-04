@@ -1,6 +1,6 @@
 # IPC Safety Contract
 
-Scope: implemented Tauri invoke commands and emitted events as of this checkpoint. Browser login/session commands are not implemented yet and must update this contract when added.
+Scope: implemented Tauri invoke commands and emitted events as of this checkpoint. The managed browser login flow is not implemented yet; `start_provider_login` defines the sanitized login-required IPC boundary only.
 
 Command return models:
 
@@ -13,6 +13,7 @@ Command return models:
 | `refresh_usage` | `UsageDisplayState` | Raw provider errors, raw local logs, raw page HTML/text |
 | `refresh_provider` | `UsageDisplayState` | Raw provider errors, raw local logs, raw page HTML/text |
 | `open_official_usage_page` | `OfficialUsagePage` | Authenticated page content and browser profile data |
+| `start_provider_login` | `ProviderLoginStart` | Authenticated page content, browser profile data, cookies, tokens, and account identifiers |
 | `clear_cached_snapshots` | `UsageDisplayState` | Raw local logs, raw page HTML/text, account identifiers |
 | `clear_provider_profile` | `ClearedProviderProfile` | Browser profile paths and contents |
 | `reset_provider_session` | `ClearedProviderProfile` | Browser profile paths and contents |
@@ -38,6 +39,7 @@ Event payloads:
 | `usage://refresh-finished` | `UsageRefreshEvent` | Provider internals and raw errors |
 | `usage://provider-error` | `UsageProviderErrorEvent` | Raw provider errors and raw source data |
 | `settings://updated` | `AppConfig` | Browser profile contents, cookies, tokens, local provider records |
+| `login://required` | `LoginRequiredEvent` | Authenticated page content, browser profile data, cookies, tokens, and account identifiers |
 | `session://reset` | `ClearedProviderProfile` | Browser profile paths and contents |
 
 `UsageSnapshot.details` may contain stable status codes, provider IDs, aggregate counts, window metadata, timestamps, and sanitized reason codes. It must not contain raw Claude Code JSONL rows, raw Codex SQLite rows, prompts, responses, account identifiers, cookies, tokens, auth headers, browser profile contents, or authenticated page HTML/text.

@@ -16,8 +16,10 @@
     type AppConfig,
     type ClearedProviderProfile,
     type CommandError,
+    type LoginRequiredEvent,
     type LogLocation,
     type OfficialUsagePage,
+    type ProviderLoginStart,
     type Service,
     type UsageConfidence,
     type UsageDisplayState,
@@ -35,6 +37,7 @@
   let clearingProfile = $state<Service | null>(null);
   let locatingLogs = $state(false);
   let openingService = $state<Service | null>(null);
+  let startingLogin = $state<Service | null>(null);
   let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
 
@@ -215,7 +218,8 @@
 
   onMount(() => {
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
+    let unlistenUsage: (() => void) | null = null;
+    let unlistenLogin: (() => void) | null = null;
 
     if (!desktopApiAvailable()) {
       loading = false;
@@ -233,7 +237,21 @@
           return;
         }
 
-        unlisten = cleanup;
+        unlistenUsage = cleanup;
+      })
+      .catch(() => {});
+
+    listen<LoginRequiredEvent>("login://required", (event) => {
+      error = null;
+      statusMessage = `${serviceLabels[event.payload.service]} login required`;
+    })
+      .then((cleanup) => {
+        if (cancelled) {
+          cleanup();
+          return;
+        }
+
+        unlistenLogin = cleanup;
       })
       .catch(() => {});
 
@@ -263,7 +281,8 @@
 
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlistenUsage?.();
+      unlistenLogin?.();
     };
   });
 
@@ -307,6 +326,30 @@
       error = formatError(caught, `Could not open ${serviceLabels[service]} usage page`);
     } finally {
       openingService = null;
+    }
+  }
+
+  async function startProviderLogin(service: Service) {
+    statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError(`${serviceLabels[service]} login starts from the desktop app`);
+      return;
+    }
+
+    startingLogin = service;
+
+    try {
+      const login = await invoke<ProviderLoginStart>("start_provider_login", { service });
+      error = null;
+      statusMessage =
+        login.status === "login_required"
+          ? `${serviceLabels[service]} login required`
+          : `Started ${serviceLabels[service]} login`;
+    } catch (caught) {
+      error = formatError(caught, `Could not start ${serviceLabels[service]} login`);
+    } finally {
+      startingLogin = null;
     }
   }
 
@@ -510,6 +553,15 @@
             onclick={() => refreshOfficialUsage(snapshot.service)}
           >
             {refreshingOfficial === snapshot.service ? "Refreshing..." : "Refresh official"}
+          </button>
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={!config.providers.webEnabled || startingLogin === snapshot.service}
+            aria-label={`Start ${serviceLabels[snapshot.service]} login`}
+            onclick={() => startProviderLogin(snapshot.service)}
+          >
+            {startingLogin === snapshot.service ? "Starting..." : "Start login"}
           </button>
           <button
             class="secondary-button"

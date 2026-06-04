@@ -546,23 +546,74 @@ impl UsageEngine {
     where
         F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
     {
+        self.refresh_provider_source_with_snapshot_policy(
+            service,
+            source,
+            RefreshPolicy::Manual,
+            refresh,
+        )
+    }
+
+    pub fn refresh_due_provider_source_with_snapshot<F>(
+        &self,
+        service: Service,
+        source: UsageSource,
+        refresh: F,
+    ) -> Result<UsageDisplayState, String>
+    where
+        F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
+    {
+        self.refresh_provider_source_with_snapshot_policy(
+            service,
+            source,
+            RefreshPolicy::Scheduled,
+            refresh,
+        )
+    }
+
+    fn refresh_provider_source_with_snapshot_policy<F>(
+        &self,
+        service: Service,
+        source: UsageSource,
+        policy: RefreshPolicy,
+        refresh: F,
+    ) -> Result<UsageDisplayState, String>
+    where
+        F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
+    {
         let provider_id = UsageProviderId::for_service_source(service, source)
             .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
         let now = self.clock.now_rfc3339();
 
-        if source == UsageSource::Web {
+        if policy == RefreshPolicy::Manual && source == UsageSource::Web {
             self.ensure_manual_web_refresh_allowed(service, &now)?;
         }
 
-        let provider = {
+        let (provider, last_scheduled_refresh, config) = {
             let state = self.lock()?;
-            state
+            let provider = state
                 .providers
                 .iter()
                 .map(|provider| provider_descriptor(provider.as_ref()))
                 .find(|provider| provider.service == service && provider.provider_id == provider_id)
+                .ok_or_else(|| "Provider is not configured".to_string())?;
+            let last_scheduled_refresh = state
+                .scheduled_provider_refreshes
+                .get(&provider.provider_key)
+                .cloned();
+
+            (provider, last_scheduled_refresh, state.config.clone())
+        };
+
+        if policy == RefreshPolicy::Scheduled
+            && !provider_refresh_due(
+                last_scheduled_refresh.as_ref(),
+                &now,
+                provider_refresh_interval(&config, source),
+            )
+        {
+            return self.display_state();
         }
-        .ok_or_else(|| "Provider is not configured".to_string())?;
 
         if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
             return self.display_state();
@@ -587,7 +638,7 @@ impl UsageEngine {
             }
         };
         self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
-        if source == UsageSource::Web {
+        if policy == RefreshPolicy::Manual && source == UsageSource::Web {
             self.record_manual_web_refresh(service, &now)?;
         }
         self.finish_refresh(&provider.provider_key)?;
@@ -1377,7 +1428,7 @@ mod tests {
         collections::VecDeque,
         fs,
         sync::{
-            atomic::{AtomicU64, Ordering},
+            atomic::{AtomicU64, AtomicUsize, Ordering},
             Mutex as TestMutex,
         },
     };
@@ -2106,6 +2157,60 @@ mod tests {
                 .expect_err("external web refresh records cooldown"),
             "Manual web refresh is cooling down"
         );
+    }
+
+    #[test]
+    fn scheduled_web_refresh_accepts_external_headless_snapshot_without_manual_cooldown() {
+        let engine = UsageEngine::with_clock(
+            web_enabled_config(),
+            Box::new(FixedClock {
+                now: "2026-06-04T12:00:00Z".to_string(),
+            }),
+        );
+        let refresh_calls = AtomicUsize::new(0);
+
+        let display_state = engine
+            .refresh_due_provider_source_with_snapshot(Service::Codex, UsageSource::Web, |now| {
+                refresh_calls.fetch_add(1, Ordering::Relaxed);
+                Ok(UsageSnapshot {
+                    service: Service::Codex,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::Unknown,
+                    last_updated: now.to_string(),
+                    details: serde_json::json!({
+                        "status": "login_required",
+                        "providerId": "codex.web",
+                        "source": "web",
+                        "reason": "logged_out",
+                        "lastOfficialCheckAt": now
+                    }),
+                })
+            })
+            .expect("scheduled external web snapshot refresh succeeds");
+        let snapshot = display_state
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.service == Service::Codex)
+            .expect("codex snapshot exists");
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.details["status"], "login_required");
+        engine
+            .ensure_manual_web_refresh_allowed(Service::Codex, "2026-06-04T12:00:01Z")
+            .expect("scheduled refresh does not record manual cooldown");
+
+        engine
+            .refresh_due_provider_source_with_snapshot(Service::Codex, UsageSource::Web, |_| {
+                refresh_calls.fetch_add(1, Ordering::Relaxed);
+                Err(UsageProviderError::Internal)
+            })
+            .expect("non-due scheduled refresh is skipped");
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
     }
 
     #[test]

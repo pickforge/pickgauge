@@ -842,6 +842,22 @@ fn refresh_web_provider_headless(
         .map_err(map_provider_refresh_error)
 }
 
+fn refresh_due_web_provider_headless(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
+    service: Service,
+) -> CommandResult<UsageDisplayState> {
+    engine
+        .refresh_due_provider_source_with_snapshot(service, UsageSource::Web, |observed_at| {
+            let response = headless_web_usage_response(app, engine, sessions, service)
+                .map_err(|_| UsageProviderError::Internal)?;
+
+            usage_snapshot_from_sidecar_usage_response(response, observed_at)
+        })
+        .map_err(map_provider_refresh_error)
+}
+
 fn headless_web_usage_response(
     app: &AppHandle,
     engine: &UsageEngine,
@@ -1017,6 +1033,33 @@ fn refresh_all_with_headless_web(
     Ok(display_state)
 }
 
+fn refresh_due_with_headless_web(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
+) -> CommandResult<UsageDisplayState> {
+    let config = engine.config().map_err(map_usage_state_error)?;
+
+    if config.providers.web_enabled {
+        for service in [Service::Codex, Service::Claude] {
+            let service_enabled = match service {
+                Service::Codex => config.enabled_services.codex,
+                Service::Claude => config.enabled_services.claude,
+            };
+
+            if service_enabled {
+                refresh_due_web_provider_headless(app, engine, sessions, service)?;
+            }
+        }
+    }
+
+    let display_state = engine.refresh_due().map_err(map_usage_refresh_error)?;
+    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
+        .map_err(map_event_emit_error)?;
+
+    Ok(display_state)
+}
+
 #[tauri::command]
 fn refresh_provider(
     app: AppHandle,
@@ -1140,6 +1183,7 @@ fn start_usage_scheduler(app: AppHandle) {
     std::thread::spawn(move || loop {
         let sleep_duration = {
             let engine = app.state::<UsageEngine>();
+            let sessions = app.state::<browser_session::BrowserSessionManager>();
             let _ = emit_refresh_event(
                 &app,
                 None,
@@ -1147,7 +1191,7 @@ fn start_usage_scheduler(app: AppHandle) {
                 usage::REFRESH_STARTED_EVENT,
                 UsageRefreshStatus::Started,
             );
-            let refresh_result = engine.refresh_due_and_emit(&app);
+            let refresh_result = refresh_due_with_headless_web(&app, &engine, &sessions);
             if let Ok(display_state) = &refresh_result {
                 emit_provider_error_events(&app, display_state);
             }

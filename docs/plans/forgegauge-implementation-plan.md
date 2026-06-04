@@ -60,7 +60,7 @@ Playwright backend decision progress, 2026-06-04: user approved the Playwright h
 
 Profile storage artifact progress, 2026-06-04: extended sanitized managed-profile inspection to report cookie-store and site-storage artifact counts in addition to credential/autofill counts, symlink counts, disabled preference booleans, inspected entry counts, and limit status. IPC and maintenance UI summaries expose only counts/booleans/labels/timestamps. `npm run test:sidecar-launch` now records sanitized headed Playwright evidence that both temporary Codex and Claude persistent profiles produced cookie-store artifacts under distinct service profiles without symlinks, default-profile import, raw profile paths, cookies, auth-looking material, or page markup in sidecar output. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
 
-Headless official refresh progress, 2026-06-04: split the Playwright sidecar into headed `launchLogin` for explicit user login and headless `refreshUsage` for normal official usage refresh checks. The desktop `Refresh usage` and `Refresh official` commands now use the headless sidecar with the existing app-owned persistent profile, convert sanitized sidecar page state/visible fields through the web parser, update the normal provider cache/merge path, and report login-required states without flashing a visible browser. `npm run test:official-fail-closed` validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states with `headless: true` and `visibleBrowserRequired: false` on CachyOS KDE/Wayland. Authenticated official parsing, post-login session persistence, and saved-credential validation remain unchecked.
+Headless official refresh progress, 2026-06-04: split the Playwright sidecar into headed `launchLogin` for explicit user login and headless `refreshUsage` for normal official usage refresh checks. The desktop `Refresh usage`, `Refresh official`, and scheduled due-refresh paths now use the headless sidecar with the existing app-owned persistent profile, convert sanitized sidecar page state/visible fields through the web parser, update the normal provider cache/merge path, and report login-required states without flashing a visible browser. Scheduled headless web refreshes do not consume the manual web-refresh cooldown. `npm run test:official-fail-closed` validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states with `headless: true` and `visibleBrowserRequired: false` on CachyOS KDE/Wayland. Authenticated official parsing, post-login session persistence, and saved-credential validation remain unchecked.
 
 Supersedes:
 
@@ -542,6 +542,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
 - [x] Normal official refresh checks use headless Playwright; visible Chromium is reserved for explicit login.
   - [x] `npm run test:official-fail-closed` validates blank profiles are checked with `headless: true` and `visibleBrowserRequired: false`.
+  - [x] Scheduled due-refresh web checks use the same headless Playwright sidecar without consuming manual refresh cooldown.
 - [x] Browser launch arguments and profile paths are logged only in sanitized form.
   - [x] Backend-agnostic Chromium launch diagnostics redact raw `--user-data-dir` paths to service profile labels.
   - [x] Browser launch plan debug output redacts raw profile paths and raw `--user-data-dir` arguments.
@@ -820,6 +821,7 @@ Blocked: requires manual CachyOS KDE/Wayland login validation with installed Nod
 - [ ] Add Claude web provider for the Claude usage URL.
   - [x] Add headless Playwright `refreshUsage` sidecar action for normal official refresh checks.
   - [x] Wire desktop `Refresh official` through headless sidecar results and the existing sanitized web parser/cache path.
+  - [x] Wire scheduled due-refresh web checks through headless sidecar results without visible browser launch.
   - [x] Keep headed Chromium limited to explicit `Start login`.
 - [x] Add fail-closed web provider boundary before browser backend selection.
 - [x] Parse visible usage fields only.

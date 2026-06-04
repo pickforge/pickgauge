@@ -17,8 +17,10 @@
     type CommandError,
     type OfficialUsagePage,
     type Service,
+    type UsageConfidence,
     type UsageDisplayState,
     type UsageSnapshot,
+    type UsageSource,
   } from "./lib/usage";
 
   let config = $state<AppConfig>(defaultConfig);
@@ -45,6 +47,20 @@
   const serviceIcons: Record<Service, string> = {
     codex: trayCodexUrl,
     claude: trayClaudeUrl,
+  };
+
+  const sourceLabels: Record<UsageSource, string> = {
+    local: "Local estimate",
+    web: "Official web",
+    merged: "Official + local",
+    fake: "Preview",
+  };
+
+  const confidenceLabels: Record<UsageConfidence, string> = {
+    high: "High",
+    medium: "Medium",
+    low: "Low",
+    unknown: "Unknown",
   };
 
   function formatPercent(value: number | null) {
@@ -342,7 +358,7 @@
             <img src={serviceIcons[snapshot.service]} alt="" aria-hidden="true" />
             <h2>{serviceLabels[snapshot.service]}</h2>
           </div>
-          <span>{snapshot.confidence}</span>
+          <span>{confidenceLabels[snapshot.confidence]}</span>
         </div>
 
         <div class="gauge-row">
@@ -358,7 +374,7 @@
           <dl>
             <div>
               <dt>Source</dt>
-              <dd>{snapshot.source}</dd>
+              <dd>{sourceLabels[snapshot.source]}</dd>
             </div>
             <div>
               <dt>Updated</dt>
@@ -436,7 +452,13 @@
       </label>
       <label>
         Web refresh
-        <input type="number" min="15" max="60" bind:value={config.intervals.webMinutes} />
+        <input
+          type="number"
+          min="15"
+          max="60"
+          bind:value={config.intervals.webMinutes}
+          disabled={!config.providers.webEnabled}
+        />
       </label>
       <label>
         Web cooldown
@@ -444,6 +466,7 @@
           type="number"
           min="60"
           bind:value={config.intervals.manualWebRefreshCooldownSeconds}
+          disabled={!config.providers.webEnabled}
         />
       </label>
       <label>
@@ -466,6 +489,7 @@
           placeholder="Default app data path"
           value={profilePathValue(config.browserProfiles.rootPath)}
           oninput={(event) => updateProfilePath("rootPath", event)}
+          disabled={!config.providers.webEnabled}
         />
       </label>
       <label>
@@ -477,6 +501,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.codexPath)}
           oninput={(event) => updateProfilePath("codexPath", event)}
+          disabled={!config.providers.webEnabled}
         />
       </label>
       <label>
@@ -488,6 +513,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.claudePath)}
           oninput={(event) => updateProfilePath("claudePath", event)}
+          disabled={!config.providers.webEnabled}
         />
       </label>
     </div>

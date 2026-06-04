@@ -927,7 +927,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.
 - [ ] Disabling a web provider cancels future scheduled reads.
-- [ ] Clear UI label for experimental web provider.
+- [x] Clear UI label for experimental web provider.
 - [x] User can reset/delete provider session data and cached snapshots.
 - [x] Local app data uses restrictive file permissions where supported.
 - [x] `details` metadata is sanitized and never contains raw page content or secrets.

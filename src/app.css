@@ -344,6 +344,12 @@ input[type="text"] {
   font-weight: 800;
 }
 
+input:disabled {
+  cursor: not-allowed;
+  background: #eef2f7;
+  color: #647084;
+}
+
 .save-button {
   border: 0;
   border-radius: 16px;

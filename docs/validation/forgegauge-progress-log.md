@@ -13,6 +13,14 @@ Profile storage isolation:
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
 - Manual authenticated cookie/session validation remains unchecked until a browser backend and login flow are selected and tested.
 
+Browser launch logging redaction:
+
+- `BrowserLaunchPlan` debug output now uses the sanitized launch diagnostics args and a profile label placeholder instead of raw profile paths or raw `--user-data-dir` values.
+- The log redaction policy now requires browser launch diagnostics and debug output to use sanitized profile labels.
+- Tests cover both sanitized diagnostics and full launch-plan debug output.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`151 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
+
 ## 2026-06-03 America/Sao_Paulo
 
 Branch: `forgegauge-implementation`

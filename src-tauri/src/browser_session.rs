@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
     process::Child,
     sync::Mutex,
@@ -74,7 +74,7 @@ pub struct BrowserSessionStartupRecovery {
     pub orphaned_processes: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct BrowserLaunchPlan {
     pub service: Service,
     pub profile_path: PathBuf,
@@ -82,6 +82,22 @@ pub struct BrowserLaunchPlan {
     pub args: Vec<String>,
     pub preferences: serde_json::Value,
     pub diagnostics: BrowserLaunchDiagnostics,
+}
+
+impl fmt::Debug for BrowserLaunchPlan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let profile_path = format!("<{}>", self.profile_label);
+
+        formatter
+            .debug_struct("BrowserLaunchPlan")
+            .field("service", &self.service)
+            .field("profile_path", &profile_path)
+            .field("profile_label", &self.profile_label)
+            .field("args", &self.diagnostics.args)
+            .field("preferences", &self.preferences)
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1148,6 +1164,19 @@ mod tests {
             .contains(&"--user-data-dir=<claude-profile>".to_string()));
         assert!(!diagnostics.contains(profile_path));
         assert!(!diagnostics.contains("/home/dev"));
+    }
+
+    #[test]
+    fn launch_plan_debug_redacts_raw_profile_paths_and_args() {
+        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let plan = chromium_launch_plan(Service::Codex, profile_path);
+        let debug = format!("{plan:?}");
+
+        assert!(debug.contains("codex-profile"));
+        assert!(debug.contains("--user-data-dir=<codex-profile>"));
+        assert!(!debug.contains(profile_path));
+        assert!(!debug.contains("/home/dev"));
+        assert!(!debug.contains("--user-data-dir=/"));
     }
 
     #[test]

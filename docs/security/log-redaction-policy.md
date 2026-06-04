@@ -22,6 +22,7 @@ Path handling:
 - Prefer status codes over paths.
 - Redact the home directory as `~` when a path is needed for user-visible diagnostics.
 - Do not log browser profile contents. App-owned profile deletion reports only service, result, and timestamp.
+- Browser launch diagnostics and debug output must use sanitized profile labels instead of raw `--user-data-dir` paths.
 
 Failure handling:
 

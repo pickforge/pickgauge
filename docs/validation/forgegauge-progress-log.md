@@ -4,6 +4,14 @@
 
 Branch: `forgegauge-implementation`
 
+Login preflight snapshot update:
+
+- `Start login` now records successful headless preflight responses into the normal web snapshot cache and emits the standard snapshot update event before deciding whether a headed login launch is needed.
+- Added a preflight refresh policy so this state update does not consume or extend the manual official-refresh cooldown.
+- Added Rust coverage proving preflight web snapshots update display state while an existing manual cooldown remains unchanged.
+- Validation: `cargo fmt --check`, `cargo test --lib preflight_web_refresh_accepts_external_headless_snapshot_without_manual_cooldown`, `cargo test --lib login_start_preflight_outcome`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
+- Remaining caveat: this proves the local state-update path for successful preflight responses; real authenticated profile persistence still requires logged-in app-owned profile smoke.
+
 Login preflight launch gating:
 
 - Factored the desktop `Start login` preflight into an explicit Rust outcome carrying both the returned login status and whether a headed browser launch is allowed.

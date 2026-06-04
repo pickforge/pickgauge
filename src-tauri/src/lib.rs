@@ -499,7 +499,11 @@ fn start_provider_login(
     let login_required_reason = if let Some(request) = plan.sidecar_request {
         let preflight_outcome = match headless_web_usage_response(&app, &engine, &sessions, service)
         {
-            Ok(response) => login_start_preflight_outcome(Some(response.page_state.as_str())),
+            Ok(response) => {
+                let page_state = response.page_state.clone();
+                refresh_web_provider_preflight_response(&app, &engine, service, response)?;
+                login_start_preflight_outcome(Some(page_state.as_str()))
+            }
             Err(_) => login_start_preflight_outcome(None),
         };
 
@@ -919,6 +923,28 @@ fn refresh_due_web_provider_headless(
             usage_snapshot_from_sidecar_usage_response(response, observed_at)
         })
         .map_err(map_provider_refresh_error)
+}
+
+fn refresh_web_provider_preflight_response(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    service: Service,
+    response: browser_session::PlaywrightSidecarUsageResponse,
+) -> CommandResult<UsageDisplayState> {
+    let mut response = Some(response);
+    let display_state = engine
+        .refresh_preflight_provider_source_with_snapshot(service, UsageSource::Web, |observed_at| {
+            let response = response.take().ok_or(UsageProviderError::Internal)?;
+
+            usage_snapshot_from_sidecar_usage_response(response, observed_at)
+        })
+        .map_err(map_provider_refresh_error)?;
+
+    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
+        .map_err(map_event_emit_error)?;
+    emit_provider_error_events(app, &display_state);
+
+    Ok(display_state)
 }
 
 fn headless_web_usage_response(

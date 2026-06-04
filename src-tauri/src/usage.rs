@@ -191,6 +191,7 @@ struct LocalProviderRoots {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RefreshPolicy {
     Manual,
+    Preflight,
     Scheduled,
 }
 
@@ -567,6 +568,23 @@ impl UsageEngine {
             service,
             source,
             RefreshPolicy::Scheduled,
+            refresh,
+        )
+    }
+
+    pub fn refresh_preflight_provider_source_with_snapshot<F>(
+        &self,
+        service: Service,
+        source: UsageSource,
+        refresh: F,
+    ) -> Result<UsageDisplayState, String>
+    where
+        F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
+    {
+        self.refresh_provider_source_with_snapshot_policy(
+            service,
+            source,
+            RefreshPolicy::Preflight,
             refresh,
         )
     }
@@ -2157,6 +2175,71 @@ mod tests {
                 .expect_err("external web refresh records cooldown"),
             "Manual web refresh is cooling down"
         );
+    }
+
+    #[test]
+    fn preflight_web_refresh_accepts_external_headless_snapshot_without_manual_cooldown() {
+        let engine = UsageEngine::with_clock(
+            web_enabled_config(),
+            Box::new(FixedClock {
+                now: "2026-06-04T12:00:00Z".to_string(),
+            }),
+        );
+        let refresh_calls = AtomicUsize::new(0);
+
+        engine
+            .record_manual_web_refresh(Service::Claude, "2026-06-04T11:59:30Z")
+            .expect("manual cooldown is recorded");
+        assert_eq!(
+            engine
+                .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:00Z")
+                .expect_err("manual cooldown starts active"),
+            "Manual web refresh is cooling down"
+        );
+
+        let display_state = engine
+            .refresh_preflight_provider_source_with_snapshot(
+                Service::Claude,
+                UsageSource::Web,
+                |now| {
+                    refresh_calls.fetch_add(1, Ordering::Relaxed);
+                    Ok(UsageSnapshot {
+                        service: Service::Claude,
+                        remaining_percent: Some(63.0),
+                        used_percent: Some(37.0),
+                        reset_at: Some("2026-06-04T17:00:00Z".to_string()),
+                        source: UsageSource::Web,
+                        confidence: UsageConfidence::High,
+                        last_updated: now.to_string(),
+                        details: serde_json::json!({
+                            "status": "parsed",
+                            "providerId": "claude.web",
+                            "source": "web",
+                            "lastOfficialCheckAt": now
+                        }),
+                    })
+                },
+            )
+            .expect("preflight web snapshot refresh succeeds");
+        let snapshot = display_state
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.service == Service::Claude)
+            .expect("claude snapshot exists");
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(63.0));
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(
+            engine
+                .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:29Z")
+                .expect_err("preflight refresh does not replace manual cooldown"),
+            "Manual web refresh is cooling down"
+        );
+        engine
+            .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:30Z")
+            .expect("preflight refresh does not extend manual cooldown");
     }
 
     #[test]

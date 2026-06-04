@@ -148,11 +148,16 @@ async function validateAuthenticatedProfile(request, options) {
     throw new Error(`${request.service} authenticated profile inspection reached the entry limit`);
   }
 
+  if (options.requireNoCredentialStoreFiles && profileStorage.credentialStoreFiles > 0) {
+    throw new Error(`${request.service} profile contains credential store files`);
+  }
+
   if (options.requireDisabledPreferences && !disabledStoragePreferences.allDisabled) {
     throw new Error(`${request.service} profile does not preserve disabled storage preferences`);
   }
 
   return {
+    credentialStoreFilesAbsent: profileStorage.credentialStoreFiles === 0,
     failClosedState: response.pageState === "usage" ? null : response.pageState,
     headlessRefresh: true,
     profileLabel: request.profileLabel,
@@ -173,6 +178,7 @@ function parseOptions(args) {
     help: false,
     profileRoots,
     requireDisabledPreferences: false,
+    requireNoCredentialStoreFiles: false,
     requireUsage: false,
     allowUnmarkedTestProfile: false,
   };
@@ -192,6 +198,11 @@ function parseOptions(args) {
 
     if (arg === "--require-disabled-storage-preferences") {
       options.requireDisabledPreferences = true;
+      continue;
+    }
+
+    if (arg === "--require-no-credential-store-files") {
+      options.requireNoCredentialStoreFiles = true;
       continue;
     }
 
@@ -221,7 +232,7 @@ function parseOptions(args) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences --require-no-credential-store-files
 
 Environment:
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
@@ -567,6 +578,7 @@ function printSanitizedFailure(error) {
       ["invalid_profile_root", /profile root/u],
       ["usage_not_reached", /did not reach usage state/u],
       ["storage_preferences_not_disabled", /disabled storage preferences/u],
+      ["credential_store_detected", /credential store files/u],
       ["profile_inspection_failed", /profile inspection/u],
       ["unsupported_page_state", /unsupported page state/u],
       ["sidecar_timeout", /Timed out/u],

@@ -115,6 +115,8 @@ On CachyOS/Arch-like systems, local AppImage bundling can fail because the linux
 npm run build:appimage
 ```
 
+The AppImage script also prepares the Linux Playwright sidecar executable under `src-tauri/binaries/` before invoking Tauri. Real headed web-provider login still requires a working local Node/Playwright runtime.
+
 ## Roadmap
 
 1. Bootstrap the Tauri + Svelte app shell.

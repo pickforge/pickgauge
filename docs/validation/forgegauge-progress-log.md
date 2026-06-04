@@ -4,6 +4,16 @@
 
 Branch: `forgegauge-implementation`
 
+Playwright Linux sidecar packaging:
+
+- Added a Linux-only Tauri config that registers `binaries/forgegauge-playwright-sidecar` as an `externalBin`.
+- Added `scripts/prepare-playwright-sidecar.mjs` to generate `src-tauri/binaries/forgegauge-playwright-sidecar-x86_64-unknown-linux-gnu` from the checked-in sidecar source and keep it executable.
+- Added package validation to `npm test` that checks the generated sidecar is current, executable, accepts the dry-run `launchLogin` protocol, and does not echo raw `userDataDir` or launch args.
+- Validation: `npm test` (`16` Vitest tests, `4` Node sidecar protocol tests, and generated sidecar dry-run passed), `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed.
+- Packaging evidence: `npm run build:appimage` produced `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage` (`106M`) and included `ForgeGauge.AppDir/usr/bin/forgegauge-playwright-sidecar`.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- The generated sidecar is still Node-based; real headed Playwright login requires an available Node/Playwright runtime and manual authenticated CachyOS KDE/Wayland validation.
+
 Playwright sidecar process boundary:
 
 - Added `tauri-plugin-shell` and wired `start_provider_login` to attempt a Rust-owned Playwright sidecar launch when managed web profiles are enabled.
@@ -12,7 +22,7 @@ Playwright sidecar process boundary:
 - Tests cover sanitized sidecar response parsing, mismatch/rejection handling without echoing raw paths, sidecar request planning without exposing paths to login-start IPC, web-disabled fallback, and the new login-required reason.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
 - Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
-- Tauri `externalBin` registration and real packaged sidecar launch remain unchecked until a target-triple sidecar binary exists under `src-tauri/binaries`; manual login and authenticated profile validation remain unchecked.
+- Tauri `externalBin` registration is now covered by the Linux sidecar packaging entry above. Manual login and authenticated profile validation remain unchecked.
 
 Playwright sidecar request serialization:
 

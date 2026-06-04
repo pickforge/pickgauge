@@ -502,7 +502,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Add structured provider status/error codes.
 - [x] Prefer stable status codes over raw error messages.
 - [x] Redact home directory paths when they are not needed for debugging.
-- [ ] Never log cookies, tokens, auth headers, raw page HTML, raw authenticated text, account identifiers, or full browser errors.
+- [x] Never log cookies, tokens, auth headers, raw page HTML, raw authenticated text, account identifiers, or full browser errors.
 - [x] Add a UI-visible log location only after log redaction policy exists.
 - [x] Include enough diagnostics to distinguish disabled, missing data, stale, parse failed, login required, and unavailable states.
 

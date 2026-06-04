@@ -37,6 +37,12 @@ const TRAY_TRACK: [u8; 4] = [100, 112, 132, 112];
 const TRAY_SURFACE: [u8; 4] = [246, 247, 251, 255];
 const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 
+#[derive(Clone, Copy)]
+enum StartupWarning {
+    AutostartSyncFailed,
+    InitialUsageRefreshFailed,
+}
+
 struct ConfigLoadState {
     error: Mutex<Option<String>>,
 }
@@ -167,6 +173,19 @@ fn map_open_usage_page_error() -> CommandError {
 
 fn map_autostart_error() -> CommandError {
     command_error("autostart_update_failed", "Could not update autostart")
+}
+
+fn startup_warning_message(warning: StartupWarning) -> &'static str {
+    match warning {
+        StartupWarning::AutostartSyncFailed => "ForgeGauge startup warning: autostart sync failed",
+        StartupWarning::InitialUsageRefreshFailed => {
+            "ForgeGauge startup warning: initial usage refresh failed"
+        }
+    }
+}
+
+fn log_startup_warning(warning: StartupWarning) {
+    eprintln!("{}", startup_warning_message(warning));
 }
 
 fn sync_autostart(app: &AppHandle, enabled: bool) -> CommandResult<()> {
@@ -748,12 +767,16 @@ pub fn run() {
             };
 
             app.manage(ConfigLoadState::new(config_error));
-            if let Err(error) = sync_autostart(&app_handle, config.autostart.enabled) {
-                eprintln!("Could not sync autostart setting: {}", error.message);
+            if sync_autostart(&app_handle, config.autostart.enabled).is_err() {
+                log_startup_warning(StartupWarning::AutostartSyncFailed);
             }
             app.manage(UsageEngine::new(config));
-            if let Err(error) = app.state::<UsageEngine>().refresh_all_and_emit(&app_handle) {
-                eprintln!("Could not refresh initial usage state: {error}");
+            if app
+                .state::<UsageEngine>()
+                .refresh_all_and_emit(&app_handle)
+                .is_err()
+            {
+                log_startup_warning(StartupWarning::InitialUsageRefreshFailed);
             }
             setup_window_lifecycle(&app_handle);
             setup_tray(app)?;
@@ -813,6 +836,37 @@ mod tests {
             error,
             CommandError::new("config_save_failed", "Could not save app settings")
         );
+    }
+
+    #[test]
+    fn startup_warning_messages_are_sanitized() {
+        let forbidden = [
+            "cookie",
+            "token",
+            "authorization",
+            "bearer",
+            "password",
+            "session",
+            "account",
+            "<html",
+            "/home/",
+            "/users/",
+            "c:\\users\\",
+        ];
+
+        for warning in [
+            StartupWarning::AutostartSyncFailed,
+            StartupWarning::InitialUsageRefreshFailed,
+        ] {
+            let message = startup_warning_message(warning).to_ascii_lowercase();
+
+            for marker in forbidden {
+                assert!(
+                    !message.contains(marker),
+                    "startup warning contains forbidden marker {marker}"
+                );
+            }
+        }
     }
 
     #[test]

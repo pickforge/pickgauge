@@ -4,6 +4,23 @@
 
 Branch: `forgegauge-implementation`
 
+Headless official refresh and visible-browser suppression:
+
+- Normal official refresh checks now use the Playwright sidecar `refreshUsage` action in headless mode with the app-owned persistent profile. Visible Chromium remains reserved for explicit `Start login` requests.
+- Desktop `Refresh usage`, service-specific `Refresh official`, and scheduled due-refresh web checks use the headless sidecar result path and keep the existing provider cache/merge behavior. Scheduled headless web checks do not consume the manual web-refresh cooldown.
+- Headless navigation failures after a persistent context is created now map to sanitized visible page states: `timed_out` for Playwright timeout errors and `network_unavailable` for other refresh navigation failures. Sidecar launch/protocol failures still fail closed as sanitized sidecar errors.
+- Evidence: `npm run test:official-fail-closed` passed on CachyOS KDE/Wayland. Blank Codex and Claude profiles returned sanitized `logged_out` states with `headlessRefresh = true` and `visibleBrowserRequired = false`; a forced dead-proxy Codex refresh returned sanitized `network_unavailable` with the same headless/no-visible-browser flags.
+- Validation: `npm test`, `npm run test:official-fail-closed`, `npm run check`, `npm run build`, `npm run test:browser-preview`, `git diff --check`, and cleanup checks for leftover sidecar processes and temporary official-fail-closed profile roots passed for the implementation slice.
+- Remaining caveat: authenticated official parsing, post-login session persistence, real MFA/CAPTCHA/unexpected-UI browser states, and saved-credential absence after login still require manual authenticated validation.
+
+Packaged settings persistence smoke:
+
+- `npm run smoke:kde-tray` now validates packaged config persistence in addition to KDE StatusNotifier registration, DBusMenu show/quit, and XWayland close/reopen behavior.
+- The smoke launches the AppImage with isolated XDG directories, verifies ForgeGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval values into that isolated config, restarts the AppImage from the same isolated root, verifies those persisted values survive restart, dispatches tray `Quit`, and removes the isolated directories.
+- Evidence from the passing smoke: `currentDesktop = KDE`, `xdgSessionType = wayland`, AppImage path reported repo-relatively as `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`, `configCreatedOnFirstLaunch = true`, `persistedServiceTogglesPreservedAfterRestart = true`, `persistedGaugeIntervalPreservedAfterRestart = true`, and `persistedConfigSurvivesPackagedRestart = true`.
+- Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `git diff --check`, `npm run check`, `npm run smoke:kde-tray`, and cleanup checks for leftover ForgeGauge processes and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
+- Remaining caveat: this proves packaged config survival across an isolated restart, but not a human-visible settings-form save inside the KDE webview or physical tray placement/click behavior.
+
 Browser session manager status reconciliation:
 
 - Marked the isolated browser session manager complete in the plan while leaving authenticated login, authenticated cookie/session validation, saved-credential absence after login, and real provider refresh parsing unchecked.

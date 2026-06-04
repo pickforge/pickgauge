@@ -68,6 +68,8 @@ Headless official refresh progress, 2026-06-04: split the Playwright sidecar int
 
 Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:auth-profile`, a manual post-login validation helper that accepts user-supplied dedicated Codex/Claude profile roots through CLI args or environment variables, requires ForgeGauge app-owned profile markers by default, performs only headless Playwright `refreshUsage` checks, inspects profile storage counts and disabled preference booleans without reading browser storage contents, and emits sanitized JSON without profile paths, official URLs, cookies, tokens, auth headers, page markup, or raw page content. Real profile runs should use `npm --silent run` or environment variables so npm does not echo CLI path arguments before the helper starts. The helper supports strict `--require-usage`, `--require-disabled-storage-preferences`, `--require-no-credential-store-files`, `--require-no-autofill-store-files`, and `--require-no-default-profile-references` modes for future authenticated validation. A temporary marker-owned blank Codex profile run validated the command path and returned sanitized `logged_out` with `visibleBrowserRequired: false`; a missing-marker profile fails with sanitized `missing_profile_marker` output; marker-owned profiles containing `Login Data`, `Web Data`, or a default-browser profile reference fail with sanitized `credential_store_detected`, `autofill_store_detected`, or `default_profile_reference_detected` output. Real authenticated profile evidence remains unchecked.
 
+Authenticated session-artifact smoke progress, 2026-06-04: extended `npm run smoke:auth-profile` with strict `--require-session-storage-artifacts` mode for future post-login persistence validation. The mode requires the headless refresh to reach `usage` and the sanitized profile inspection to report cookie-store or site-storage artifact counts; logged-out or artifact-empty profiles fail with sanitized `session_artifacts_missing` output. Normal helper output also reports `authenticatedSessionEvidencePresent` so storage artifacts created by a logged-out page are not mistaken for authenticated persistence. This adds a repeatable future evidence gate but does not prove real authenticated persistence until run against logged-in app-owned profiles.
+
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
 Login prompt visibility progress, 2026-06-04: the frontend now keeps `Refresh official` as the always-available silent check after web-provider opt-in and renders the headed `Start login` action only when the current web snapshot, or local fallback carrying `webStatus`, reports `login_required`. Vitest covers the prompt-visibility helper, and browser-preview Playwright validation now asserts default preview cards do not expose `Start login` while the expired-login state does after experimental web providers are enabled.
@@ -769,6 +771,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Validate headed Playwright sidecar launches against fake default Chrome/Chromium profile sentinels without reading real browser profile contents.
 - [ ] Prove visible manual login works for both services.
 - [ ] Prove isolated session persistence survives app restart.
+  - [x] Add `npm run smoke:auth-profile -- --require-session-storage-artifacts` strict mode to fail sanitized future post-login checks when usage is not reached or no cookie/site-storage artifacts are present.
 - [ ] Prove each official URL exposes parseable visible fields for the snapshot contract.
 - [x] Define parser contract and partial/no-data fallback behavior.
 - [x] Document runtime/package dependencies.
@@ -994,7 +997,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Frontend/Svelte | `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
-| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --require-usage --require-disabled-storage-preferences` |
+| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --require-usage --require-session-storage-artifacts --require-disabled-storage-preferences` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
 | Rust backend | `cd src-tauri && cargo fmt --check`, `cd src-tauri && cargo check`, `cd src-tauri && cargo clippy -- -D warnings`, `cd src-tauri && cargo test` |

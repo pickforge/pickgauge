@@ -165,7 +165,22 @@ async function validateAuthenticatedProfile(request, options) {
     throw new Error(`${request.service} profile preferences reference a default browser profile`);
   }
 
+  const sessionStorageArtifactsPresent =
+    profileStorage.cookieStoreFiles > 0 || profileStorage.siteStorageEntries > 0;
+  const authenticatedSessionEvidencePresent =
+    response.pageState === "usage" && sessionStorageArtifactsPresent;
+
+  if (
+    options.requireSessionStorageArtifacts &&
+    !authenticatedSessionEvidencePresent
+  ) {
+    throw new Error(
+      `${request.service} authenticated session state or storage artifacts are missing`,
+    );
+  }
+
   return {
+    authenticatedSessionEvidencePresent,
     autofillStoreFilesAbsent: profileStorage.autofillStoreFiles === 0,
     credentialStoreFilesAbsent: profileStorage.credentialStoreFiles === 0,
     defaultProfileReferences,
@@ -176,6 +191,7 @@ async function validateAuthenticatedProfile(request, options) {
     profileStorage,
     sanitizedOutput: true,
     service: request.service,
+    sessionStorageArtifactsPresent,
     usageFieldsVisible: response.pageState === "usage" ? response.visibleFields : [],
     usageStateReached: response.pageState === "usage",
     visibleBrowserRequired: false,
@@ -192,6 +208,7 @@ function parseOptions(args) {
     requireNoAutofillStoreFiles: false,
     requireNoCredentialStoreFiles: false,
     requireNoDefaultProfileReferences: false,
+    requireSessionStorageArtifacts: false,
     requireUsage: false,
     allowUnmarkedTestProfile: false,
   };
@@ -229,6 +246,11 @@ function parseOptions(args) {
       continue;
     }
 
+    if (arg === "--require-session-storage-artifacts") {
+      options.requireSessionStorageArtifacts = true;
+      continue;
+    }
+
     if (arg === "--allow-unmarked-test-profile") {
       options.allowUnmarkedTestProfile = true;
       continue;
@@ -255,7 +277,7 @@ function parseOptions(args) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-session-storage-artifacts --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
 
 Environment:
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
@@ -625,6 +647,7 @@ function printSanitizedFailure(error) {
       ["credential_store_detected", /credential store files/u],
       ["autofill_store_detected", /autofill store files/u],
       ["default_profile_reference_detected", /preferences reference a default browser profile/u],
+      ["session_artifacts_missing", /session state or storage artifacts are missing/u],
       ["profile_inspection_failed", /profile inspection/u],
       ["unsupported_page_state", /unsupported page state/u],
       ["sidecar_timeout", /Timed out/u],

@@ -4,8 +4,10 @@ import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  lstatSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -41,10 +43,14 @@ const disabledStoragePreferences = {
     password_manager_enabled: false,
   },
 };
+const defaultProfileStoreNames = ["Cookies", "Login Data", "Web Data", "Preferences"];
 const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profiles-"));
 
 try {
   const profileRoots = new Map();
+  const defaultProfileFixtures = prepareDefaultBrowserProfileFixtures(
+    resolve(validationRoot, "fake-home"),
+  );
 
   for (const request of [
     {
@@ -52,12 +58,14 @@ try {
       url: "https://chatgpt.com/codex/cloud/settings/analytics",
       profileLabel: "codex-profile",
       profileRoot: resolve(validationRoot, "codex"),
+      defaultProfileFixtures,
     },
     {
       service: "claude",
       url: "https://claude.ai/new#settings/usage",
       profileLabel: "claude-profile",
       profileRoot: resolve(validationRoot, "claude"),
+      defaultProfileFixtures,
     },
   ]) {
     profileRoots.set(request.service, request.profileRoot);
@@ -73,30 +81,33 @@ try {
   rmSync(validationRoot, { force: true, recursive: true });
 }
 
-async function validateLaunch({ service, url, profileLabel, profileRoot }) {
+async function validateLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures }) {
   assertNonDefaultProfile(profileRoot);
   prepareDisabledStoragePreferences(profileRoot);
-  await runLaunch({ service, url, profileLabel, profileRoot });
-  verifyDisabledStoragePreferences(profileRoot, service);
+  await runLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures });
+  verifyDisabledStoragePreferences(profileRoot, service, defaultProfileFixtures.defaultRoots);
+  verifyNoDefaultProfileImport(profileRoot, service, defaultProfileFixtures);
 
   const sentinelPath = resolve(profileRoot, "forgegauge-profile-sentinel.txt");
   writeFileSync(sentinelPath, `${service}\n`);
 
-  await runLaunch({ service, url, profileLabel, profileRoot });
-  verifyDisabledStoragePreferences(profileRoot, service);
+  await runLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures });
+  verifyDisabledStoragePreferences(profileRoot, service, defaultProfileFixtures.defaultRoots);
+  verifyNoDefaultProfileImport(profileRoot, service, defaultProfileFixtures);
 
   if (!existsSync(sentinelPath)) {
     throw new Error(`${service} sidecar profile did not persist across relaunch`);
   }
 
   console.log(
-    `Playwright sidecar persisted ${service} isolated profile and disabled storage preferences across relaunch`,
+    `Playwright sidecar persisted ${service} isolated profile with disabled storage preferences and no default profile import`,
   );
 }
 
-async function runLaunch({ service, url, profileLabel, profileRoot }) {
+async function runLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures }) {
   const child = spawn(sidecarPath, [], {
     detached: true,
+    env: sidecarLaunchEnvironment(defaultProfileFixtures.fakeHome),
     stdio: ["pipe", "pipe", "pipe"],
   });
   const timeout = setTimeout(() => {
@@ -219,7 +230,7 @@ function prepareDisabledStoragePreferences(profileRoot) {
   );
 }
 
-function verifyDisabledStoragePreferences(profileRoot, service) {
+function verifyDisabledStoragePreferences(profileRoot, service, extraDefaultRoots = []) {
   const preferencesPath = resolve(profileRoot, "Default", "Preferences");
   const preferences = JSON.parse(readFileSync(preferencesPath, "utf8"));
 
@@ -243,7 +254,7 @@ function verifyDisabledStoragePreferences(profileRoot, service) {
   }
 
   const serialized = JSON.stringify(preferences);
-  for (const defaultRoot of defaultBrowserProfileRoots()) {
+  for (const defaultRoot of [...defaultBrowserProfileRoots(), ...extraDefaultRoots]) {
     if (serialized.includes(defaultRoot)) {
       throw new Error(`${service} sidecar preferences reference a default browser profile`);
     }
@@ -255,10 +266,106 @@ function preferenceAtPath(preferences, path) {
 }
 
 function defaultBrowserProfileRoots() {
-  const home = homedir();
+  return defaultBrowserProfileRootsForHome(
+    homedir(),
+    process.env.XDG_CONFIG_HOME || resolve(homedir(), ".config"),
+  );
+}
 
+function defaultBrowserProfileRootsForHome(home, xdgConfigHome = resolve(home, ".config")) {
   return [
-    resolve(home, ".config/google-chrome"),
-    resolve(home, ".config/chromium"),
+    resolve(xdgConfigHome, "google-chrome"),
+    resolve(xdgConfigHome, "chromium"),
   ];
+}
+
+function prepareDefaultBrowserProfileFixtures(fakeHome) {
+  const fakeConfigHome = resolve(fakeHome, ".config");
+  const defaultRoots = defaultBrowserProfileRootsForHome(fakeHome, fakeConfigHome);
+  const sentinels = [];
+  const sentinelFileNames = [];
+
+  for (const [rootIndex, defaultRoot] of defaultRoots.entries()) {
+    const defaultProfileDir = resolve(defaultRoot, "Default");
+    mkdirSync(defaultProfileDir, { recursive: true, mode: 0o700 });
+
+    for (const storeName of defaultProfileStoreNames) {
+      const sentinel = `forgegauge-default-profile-sentinel-${rootIndex}-${storeName}`;
+      writeFileSync(resolve(defaultProfileDir, storeName), `${sentinel}\n`, { mode: 0o600 });
+      sentinels.push(sentinel);
+    }
+
+    const sentinelFileName = `forgegauge-default-profile-sentinel-${rootIndex}.txt`;
+    writeFileSync(resolve(defaultProfileDir, sentinelFileName), `${sentinelFileName}\n`, {
+      mode: 0o600,
+    });
+    sentinelFileNames.push(sentinelFileName);
+  }
+
+  return {
+    defaultRoots,
+    fakeHome,
+    sentinelFileNames,
+    sentinels,
+  };
+}
+
+function sidecarLaunchEnvironment(fakeHome) {
+  const env = {
+    ...process.env,
+    HOME: fakeHome,
+    XDG_CACHE_HOME: resolve(fakeHome, ".cache"),
+    XDG_CONFIG_HOME: resolve(fakeHome, ".config"),
+  };
+
+  if (!env.PLAYWRIGHT_BROWSERS_PATH) {
+    env.PLAYWRIGHT_BROWSERS_PATH = resolve(homedir(), ".cache/ms-playwright");
+  }
+
+  return env;
+}
+
+function verifyNoDefaultProfileImport(profileRoot, service, defaultProfileFixtures) {
+  for (const sentinelFileName of defaultProfileFixtures.sentinelFileNames) {
+    if (profileContainsFileName(profileRoot, sentinelFileName)) {
+      throw new Error(`${service} sidecar imported a default browser profile file`);
+    }
+  }
+
+  for (const storeName of defaultProfileStoreNames) {
+    const storePath = resolve(profileRoot, "Default", storeName);
+    if (fileContainsAnySentinel(storePath, defaultProfileFixtures.sentinels)) {
+      throw new Error(`${service} sidecar imported default browser ${storeName}`);
+    }
+  }
+}
+
+function profileContainsFileName(root, fileName) {
+  if (!existsSync(root)) {
+    return false;
+  }
+
+  for (const entry of readdirSync(root)) {
+    const entryPath = resolve(root, entry);
+    const stat = lstatSync(entryPath);
+
+    if (entry === fileName) {
+      return true;
+    }
+
+    if (stat.isDirectory() && profileContainsFileName(entryPath, fileName)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function fileContainsAnySentinel(filePath, sentinels) {
+  if (!existsSync(filePath)) {
+    return false;
+  }
+
+  const content = readFileSync(filePath);
+  return sentinels.some((sentinel) => content.includes(sentinel));
 }

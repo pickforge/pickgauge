@@ -44,7 +44,7 @@ Profile inspection progress, 2026-06-03: added a sanitized managed Chromium prof
 
 Profile isolation progress, 2026-06-04: canonical managed profile resolution now rejects identical, nested, and root-overlapping Codex/Claude profile paths before creating profile directories. This prevents configured overrides from sharing Chromium user-data-dir storage between services. Manual authenticated cookie/session validation remains unchecked.
 
-Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch while preserving disabled password/autofill preferences. Manual authenticated login flow and authenticated profile validation remain unchecked.
+Playwright backend decision progress, 2026-06-04: user approved the Playwright headed Chromium sidecar backend. Added an internal Playwright launch request contract that maps the existing managed Chromium launch policy to Playwright's persistent user-data-dir shape while keeping raw profile paths out of diagnostics. Added a tested sidecar JSON launch protocol and dry-run validation boundary that emits only sanitized status metadata, plus Rust serialization, sanitized response parsing, a backend-owned Tauri shell sidecar spawn path for the `launchLogin` request, Linux target-triple sidecar packaging verified through AppImage bundling, and local headed sidecar launch validation for both official URLs with temporary isolated profiles that persist across relaunch, preserve disabled password/autofill preferences, and avoid importing seeded fake default Chrome/Chromium profile data. Manual authenticated login flow and authenticated profile validation remain unchecked.
 
 Supersedes:
 
@@ -519,7 +519,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Generated Playwright sidecar launches both official URLs in headed mode with temporary isolated profiles.
 - [x] The chosen backend supports persistent isolated profiles per service.
   - [x] Generated Playwright sidecar relaunches Codex and Claude with distinct temporary profile directories and preserves profile sentinels across relaunch.
-- [ ] The chosen backend does not import default browser cookies, credentials, or profiles.
+- [x] The chosen backend does not import default browser cookies, credentials, or profiles.
+  - [x] Generated Playwright sidecar launches with seeded fake default Chrome/Chromium profiles under a temporary HOME and verifies cookie, credential, autofill, preference, and profile sentinels are absent from the generated `userDataDir`.
 - [x] The chosen backend can disable or avoid password saving/autofill prompts.
   - [x] Generated Playwright sidecar preserves disabled Chromium password/autofill preferences across real headed relaunch.
 - [x] Authenticated official pages are never loaded in the main Tauri webview.
@@ -718,7 +719,8 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
 - [ ] Validate persistent isolated profile on CachyOS KDE/Wayland.
 - [ ] Validate separate app-owned profile directories/cookie jars per service.
-- [ ] Prove there is no import from default browser profiles.
+- [x] Prove there is no import from default browser profiles.
+  - [x] Validate headed Playwright sidecar launches against fake default Chrome/Chromium profile sentinels without reading real browser profile contents.
 - [ ] Prove visible manual login works for both services.
 - [ ] Prove isolated session persistence survives app restart.
 - [ ] Prove each official URL exposes parseable visible fields for the snapshot contract.

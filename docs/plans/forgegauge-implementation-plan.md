@@ -53,7 +53,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Real local usage providers work without account credentials.
 - [ ] Opt-in web providers use dedicated browser profiles and never store passwords.
 - [ ] Provider failures degrade to `unknown` or lower-confidence estimates instead of crashing.
-- [ ] Merged usage values combine official web baselines with calibrated local deltas.
+- [x] Merged usage values combine official web baselines with calibrated local deltas.
 - [ ] Full KDE/Wayland tray smoke test is confirmed by the user.
 - [ ] Remote release workflow is verified after a mainline push.
 
@@ -123,7 +123,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [x] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
 - [x] Snapshot cache for latest provider results.
-- [ ] Calibrated local quota/window merge deltas.
+- [x] Calibrated local quota/window merge deltas.
 - [x] Config migration and atomic persistence layer.
 - [x] Browser profile path configuration, validation, and ownership markers.
 - [x] Browser profile cleanup guardrails.
@@ -131,7 +131,7 @@ The app combines local CLI-derived estimates with opt-in browser-based readings 
 - [ ] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
-- [ ] Merge engine for web baselines plus local deltas.
+- [x] Merge engine for web baselines plus local deltas.
 - [x] Autostart setting.
 - [x] Clear/delete actions for cached snapshots.
 - [x] Clear/delete actions for browser session data.
@@ -200,7 +200,7 @@ Build in this order to avoid rework:
    - [ ] Implement opt-in web providers and parser contracts.
 
 6. **Merge and release readiness**
-   - [ ] Implement merge engine.
+- [x] Implement merge engine.
    - [ ] Complete KDE smoke test.
    - [ ] Verify remote release workflow and platform artifacts.
 
@@ -747,24 +747,24 @@ Web providers are allowed only after the automation spike proves a safe backend.
 
 ### Phase 9 — Merge Engine
 
-- [ ] Merge web baseline with local deltas.
-- [ ] Detect stale web baselines.
-- [ ] Expose final per-service display state.
-- [ ] Explain source/confidence in popup.
-- [ ] Preserve baseline timestamp semantics.
-- [ ] Apply only post-baseline local deltas.
-- [ ] Avoid double-counting local deltas.
-- [ ] Clamp output percentages to `0..=100`.
-- [ ] Apply local deltas only when the provider reports a calibrated percentage delta for the relevant baseline window.
-- [ ] Keep web baseline unchanged with lower confidence/stale messaging when local deltas are unavailable or incompatible.
-- [ ] Add unit tests for web-only data.
-- [ ] Add unit tests for local-only data.
-- [ ] Add unit tests for web plus local delta.
-- [ ] Add unit tests for no double-count across refreshed baselines.
-- [ ] Add unit tests for stale web baseline behavior.
-- [ ] Add unit tests for unavailable `can_produce_percent_delta()` fallback.
-- [ ] Add unit tests for unknown data.
-- [ ] Ensure popup and tray use merged data consistently.
+- [x] Merge web baseline with local deltas.
+- [x] Detect stale web baselines.
+- [x] Expose final per-service display state.
+- [x] Explain source/confidence in popup.
+- [x] Preserve baseline timestamp semantics.
+- [x] Apply only post-baseline local deltas.
+- [x] Avoid double-counting local deltas.
+- [x] Clamp output percentages to `0..=100`.
+- [x] Apply local deltas only when the provider reports a calibrated percentage delta for the relevant baseline window.
+- [x] Keep web baseline unchanged with lower confidence/stale messaging when local deltas are unavailable or incompatible.
+- [x] Add unit tests for web-only data.
+- [x] Add unit tests for local-only data.
+- [x] Add unit tests for web plus local delta.
+- [x] Add unit tests for no double-count across refreshed baselines.
+- [x] Add unit tests for stale web baseline behavior.
+- [x] Add unit tests for unavailable `can_produce_percent_delta()` fallback.
+- [x] Add unit tests for unknown data.
+- [x] Ensure popup and tray use merged data consistently.
 
 ### Phase 10 — KDE Polish and Cross-Platform Packaging
 
@@ -883,9 +883,9 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Provider enable/disable scheduler behavior.
 - [ ] Provider parsing.
 - [x] Local quota/window calibration.
-- [ ] Merge logic.
-- [ ] Merge fallback when local providers cannot produce a percentage delta.
-- [ ] No-double-count and stale-baseline merge behavior.
+- [x] Merge logic.
+- [x] Merge fallback when local providers cannot produce a percentage delta.
+- [x] No-double-count and stale-baseline merge behavior.
 - [x] Stale data handling.
 - [x] Gauge state mapping.
 - [ ] Frontend display formatting.

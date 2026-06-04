@@ -154,7 +154,7 @@ pub struct UsageEngine {
 struct UsageEngineState {
     config: AppConfig,
     providers: Vec<Box<dyn UsageProvider>>,
-    snapshots: HashMap<Service, UsageSnapshot>,
+    snapshots: HashMap<String, UsageSnapshot>,
     active_provider_keys: HashSet<String>,
     provider_failures: HashMap<String, ProviderFailureState>,
     scheduled_provider_refreshes: HashMap<String, String>,
@@ -384,7 +384,7 @@ impl UsageEngine {
         state.providers = providers;
         state
             .snapshots
-            .retain(|service, _| config.service_enabled(*service));
+            .retain(|provider_key, _| provider_keys.contains(provider_key));
         state
             .active_provider_keys
             .retain(|key| provider_keys.contains(key));
@@ -433,21 +433,21 @@ impl UsageEngine {
     }
 
     fn refresh_all_with_policy(&self, policy: RefreshPolicy) -> Result<UsageDisplayState, String> {
-        let (providers, provider_services, config, scheduled_provider_refreshes) = {
+        let (providers, provider_keys, config, scheduled_provider_refreshes) = {
             let state = self.lock()?;
             let providers = state
                 .providers
                 .iter()
                 .map(|provider| provider_descriptor(provider.as_ref()))
                 .collect::<Vec<_>>();
-            let provider_services = providers
+            let provider_keys = providers
                 .iter()
-                .map(|provider| provider.service)
+                .map(|provider| provider.provider_key.clone())
                 .collect::<HashSet<_>>();
 
             (
                 providers,
-                provider_services,
+                provider_keys,
                 state.config.clone(),
                 state.scheduled_provider_refreshes.clone(),
             )
@@ -484,19 +484,19 @@ impl UsageEngine {
                 }
             };
             self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
-            refreshed.push(snapshot);
+            refreshed.push((provider.provider_key.clone(), snapshot));
             self.finish_refresh(&provider.provider_key)?;
         }
 
         let mut state = self.lock()?;
         state
             .snapshots
-            .retain(|service, _| provider_services.contains(service));
+            .retain(|provider_key, _| provider_keys.contains(provider_key));
 
         let refreshed_any = !refreshed.is_empty();
 
-        for snapshot in refreshed {
-            state.snapshots.insert(snapshot.service, snapshot);
+        for (provider_key, snapshot) in refreshed {
+            state.snapshots.insert(provider_key, snapshot);
         }
 
         if policy == RefreshPolicy::Manual || refreshed_any {
@@ -551,7 +551,7 @@ impl UsageEngine {
         self.finish_refresh(&provider.provider_key)?;
 
         let mut state = self.lock()?;
-        state.snapshots.insert(snapshot.service, snapshot);
+        state.snapshots.insert(provider.provider_key, snapshot);
         state.last_updated = now.clone();
         Ok(state.display_state(&now))
     }
@@ -723,7 +723,7 @@ impl UsageEngine {
 
 impl UsageEngineState {
     fn display_state(&self, now: &str) -> UsageDisplayState {
-        let mut snapshots = self.snapshots.values().cloned().collect::<Vec<_>>();
+        let mut snapshots = merged_display_snapshots(&self.snapshots, &self.config, now);
         for snapshot in &mut snapshots {
             add_stale_details(snapshot, &self.config, now);
         }
@@ -736,6 +736,183 @@ impl UsageEngineState {
             snapshots,
             updated_at: self.last_updated.clone(),
         }
+    }
+}
+
+fn merged_display_snapshots(
+    snapshots: &HashMap<String, UsageSnapshot>,
+    config: &AppConfig,
+    now: &str,
+) -> Vec<UsageSnapshot> {
+    [Service::Codex, Service::Claude]
+        .into_iter()
+        .filter(|service| config.service_enabled(*service))
+        .filter_map(|service| {
+            let service_snapshots = snapshots
+                .values()
+                .filter(|snapshot| snapshot.service == service)
+                .collect::<Vec<_>>();
+            merge_service_snapshots(service_snapshots, config, now)
+        })
+        .collect()
+}
+
+fn merge_service_snapshots(
+    snapshots: Vec<&UsageSnapshot>,
+    config: &AppConfig,
+    now: &str,
+) -> Option<UsageSnapshot> {
+    let web = latest_snapshot_with_source(&snapshots, UsageSource::Web);
+    let local = latest_snapshot_with_source(&snapshots, UsageSource::Local);
+    let fake = latest_snapshot_with_source(&snapshots, UsageSource::Fake);
+
+    if let Some(web) = web {
+        if web_baseline_stale(web, config, now) {
+            let mut snapshot = web.clone();
+            snapshot.confidence = lower_confidence(snapshot.confidence);
+            set_detail(&mut snapshot, "mergeStatus", "stale_web_baseline");
+            set_detail(&mut snapshot, "baselineAt", web.last_updated.clone());
+            set_detail(
+                &mut snapshot,
+                "lastOfficialCheckAt",
+                web.last_updated.clone(),
+            );
+            return Some(snapshot);
+        }
+
+        if let Some(local) = local {
+            if let Some(delta_percent) = local_delta_percent(local, &web.last_updated) {
+                return Some(merged_web_and_local_snapshot(web, local, delta_percent));
+            }
+
+            let mut snapshot = web.clone();
+            snapshot.confidence = lower_confidence(snapshot.confidence);
+            set_detail(&mut snapshot, "mergeStatus", "local_delta_unavailable");
+            set_detail(&mut snapshot, "baselineAt", web.last_updated.clone());
+            set_detail(
+                &mut snapshot,
+                "lastOfficialCheckAt",
+                web.last_updated.clone(),
+            );
+            return Some(snapshot);
+        }
+
+        let mut snapshot = web.clone();
+        set_detail(&mut snapshot, "mergeStatus", "web_only");
+        set_detail(&mut snapshot, "baselineAt", web.last_updated.clone());
+        set_detail(
+            &mut snapshot,
+            "lastOfficialCheckAt",
+            web.last_updated.clone(),
+        );
+        return Some(snapshot);
+    }
+
+    local.cloned().or_else(|| fake.cloned())
+}
+
+fn latest_snapshot_with_source<'a>(
+    snapshots: &'a [&'a UsageSnapshot],
+    source: UsageSource,
+) -> Option<&'a UsageSnapshot> {
+    snapshots
+        .iter()
+        .copied()
+        .filter(|snapshot| snapshot.source == source)
+        .max_by_key(|snapshot| parse_rfc3339(&snapshot.last_updated))
+}
+
+fn web_baseline_stale(snapshot: &UsageSnapshot, config: &AppConfig, now: &str) -> bool {
+    snapshot_age_seconds(&snapshot.last_updated, now)
+        .map(|age| age > provider_refresh_interval(config, UsageSource::Web).as_secs())
+        .unwrap_or(false)
+}
+
+fn local_delta_percent(local: &UsageSnapshot, baseline_at: &str) -> Option<f32> {
+    let details = local.details.as_object()?;
+    let delta_baseline_at = details.get("deltaBaselineAt")?.as_str()?;
+    let delta_unit = details.get("deltaUnit")?.as_str()?;
+    let calibration_status = details.get("calibrationStatus")?.as_str()?;
+
+    if delta_baseline_at != baseline_at
+        || delta_unit != "percent"
+        || calibration_status != "active"
+        || local.confidence == UsageConfidence::Unknown
+    {
+        return None;
+    }
+
+    if parse_rfc3339(&local.last_updated)? < parse_rfc3339(baseline_at)? {
+        return None;
+    }
+
+    local.used_percent
+}
+
+fn merged_web_and_local_snapshot(
+    web: &UsageSnapshot,
+    local: &UsageSnapshot,
+    delta_percent: f32,
+) -> UsageSnapshot {
+    let web_remaining = web.remaining_percent.unwrap_or(0.0);
+    let web_used = web.used_percent.unwrap_or(100.0 - web_remaining);
+    let used_percent = (web_used + delta_percent).clamp(0.0, 100.0);
+    let remaining_percent = (100.0 - used_percent).clamp(0.0, 100.0);
+    let mut details = serde_json::json!({
+        "status": "parsed",
+        "providerId": "merged",
+        "source": UsageSource::Merged.code(),
+        "mergeStatus": "web_plus_local_delta",
+        "baselineAt": web.last_updated.clone(),
+        "lastOfficialCheckAt": web.last_updated.clone(),
+        "localDeltaAt": local.last_updated.clone(),
+        "localDeltaPercent": delta_percent,
+        "webProviderId": web.details.get("providerId").cloned(),
+        "localProviderId": local.details.get("providerId").cloned(),
+    });
+
+    remove_null_details(&mut details);
+
+    UsageSnapshot {
+        service: web.service,
+        remaining_percent: Some(remaining_percent),
+        used_percent: Some(used_percent),
+        reset_at: web.reset_at.clone(),
+        source: UsageSource::Merged,
+        confidence: lower_confidence(web.confidence),
+        last_updated: latest_rfc3339(&web.last_updated, &local.last_updated),
+        details,
+    }
+}
+
+fn latest_rfc3339(first: &str, second: &str) -> String {
+    match (parse_rfc3339(first), parse_rfc3339(second)) {
+        (Some(first_time), Some(second_time)) if second_time > first_time => second.to_string(),
+        _ => first.to_string(),
+    }
+}
+
+fn lower_confidence(confidence: UsageConfidence) -> UsageConfidence {
+    match confidence {
+        UsageConfidence::High => UsageConfidence::Medium,
+        UsageConfidence::Medium => UsageConfidence::Low,
+        UsageConfidence::Low | UsageConfidence::Unknown => confidence,
+    }
+}
+
+fn set_detail(
+    snapshot: &mut UsageSnapshot,
+    key: impl Into<String>,
+    value: impl Into<serde_json::Value>,
+) {
+    if let Some(details) = snapshot.details.as_object_mut() {
+        details.insert(key.into(), value.into());
+    }
+}
+
+fn remove_null_details(details: &mut serde_json::Value) {
+    if let Some(object) = details.as_object_mut() {
+        object.retain(|_, value| !value.is_null());
     }
 }
 
@@ -1224,6 +1401,93 @@ mod tests {
         i64::try_from(timestamp.unix_timestamp_nanos() / 1_000_000).expect("timestamp fits")
     }
 
+    fn display_state_from_provider_snapshots(
+        config: AppConfig,
+        snapshots: Vec<(&str, UsageSnapshot)>,
+        now: &str,
+    ) -> UsageDisplayState {
+        UsageEngineState {
+            config: config.normalized(),
+            providers: Vec::new(),
+            snapshots: snapshots
+                .into_iter()
+                .map(|(key, snapshot)| (key.to_string(), snapshot))
+                .collect(),
+            active_provider_keys: HashSet::new(),
+            provider_failures: HashMap::new(),
+            scheduled_provider_refreshes: HashMap::new(),
+            manual_web_refreshes: HashMap::new(),
+            last_updated: now.to_string(),
+        }
+        .display_state(now)
+    }
+
+    fn web_snapshot(service: Service, remaining_percent: f32, last_updated: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            service,
+            remaining_percent: Some(remaining_percent),
+            used_percent: Some(100.0 - remaining_percent),
+            reset_at: Some("2026-06-04T00:00:00Z".to_string()),
+            source: UsageSource::Web,
+            confidence: UsageConfidence::High,
+            last_updated: last_updated.to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": UsageProviderId::for_service_source(service, UsageSource::Web)
+                    .expect("web provider id")
+                    .code(),
+                "source": UsageSource::Web.code(),
+            }),
+        }
+    }
+
+    fn local_delta_snapshot(
+        service: Service,
+        used_delta_percent: f32,
+        baseline_at: &str,
+        last_updated: &str,
+    ) -> UsageSnapshot {
+        UsageSnapshot {
+            service,
+            remaining_percent: Some(100.0 - used_delta_percent),
+            used_percent: Some(used_delta_percent),
+            reset_at: None,
+            source: UsageSource::Local,
+            confidence: UsageConfidence::Low,
+            last_updated: last_updated.to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": UsageProviderId::for_service_source(service, UsageSource::Local)
+                    .expect("local provider id")
+                    .code(),
+                "source": UsageSource::Local.code(),
+                "calibrationStatus": "active",
+                "deltaBaselineAt": baseline_at,
+                "deltaUnit": "percent",
+            }),
+        }
+    }
+
+    fn uncalibrated_local_snapshot(service: Service, last_updated: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            service,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            source: UsageSource::Local,
+            confidence: UsageConfidence::Low,
+            last_updated: last_updated.to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": UsageProviderId::for_service_source(service, UsageSource::Local)
+                    .expect("local provider id")
+                    .code(),
+                "source": UsageSource::Local.code(),
+                "calibrationStatus": "disabled",
+            }),
+        }
+    }
+
     #[test]
     fn fake_provider_refreshes_enabled_services() {
         let engine = UsageEngine::new(config_with_services(true, true));
@@ -1700,6 +1964,184 @@ mod tests {
             .as_str()
             .expect("updatedAt is a string")
             .contains('T'));
+    }
+
+    #[test]
+    fn display_state_uses_web_only_snapshot_when_no_local_delta_exists() {
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![(
+                "codex.web",
+                web_snapshot(Service::Codex, 82.0, "2026-06-03T23:00:00Z"),
+            )],
+            "2026-06-03T23:05:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(82.0));
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.details["mergeStatus"], "web_only");
+        assert_eq!(
+            snapshot.details["lastOfficialCheckAt"],
+            "2026-06-03T23:00:00Z"
+        );
+    }
+
+    #[test]
+    fn display_state_uses_local_only_snapshot_without_web_baseline() {
+        let display_state = display_state_from_provider_snapshots(
+            local_codex_config(),
+            vec![(
+                "codex.local",
+                uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:00:00Z"),
+            )],
+            "2026-06-03T23:05:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Local);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.details["providerId"], "codex.local");
+    }
+
+    #[test]
+    fn display_state_merges_web_baseline_with_matching_local_delta() {
+        let baseline_at = "2026-06-03T23:00:00Z";
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                ("codex.web", web_snapshot(Service::Codex, 80.0, baseline_at)),
+                (
+                    "codex.local",
+                    local_delta_snapshot(Service::Codex, 15.0, baseline_at, "2026-06-03T23:05:00Z"),
+                ),
+            ],
+            "2026-06-03T23:05:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Merged);
+        assert_eq!(snapshot.remaining_percent, Some(65.0));
+        assert_eq!(snapshot.used_percent, Some(35.0));
+        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
+        assert_eq!(snapshot.details["mergeStatus"], "web_plus_local_delta");
+        assert_eq!(snapshot.details["baselineAt"], baseline_at);
+        assert_eq!(snapshot.details["localDeltaPercent"], 15.0);
+    }
+
+    #[test]
+    fn display_state_does_not_double_count_delta_after_web_baseline_refresh() {
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                (
+                    "codex.web",
+                    web_snapshot(Service::Codex, 75.0, "2026-06-03T23:10:00Z"),
+                ),
+                (
+                    "codex.local",
+                    local_delta_snapshot(
+                        Service::Codex,
+                        15.0,
+                        "2026-06-03T23:00:00Z",
+                        "2026-06-03T23:11:00Z",
+                    ),
+                ),
+            ],
+            "2026-06-03T23:11:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(75.0));
+        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
+        assert_eq!(snapshot.details["mergeStatus"], "local_delta_unavailable");
+    }
+
+    #[test]
+    fn display_state_marks_stale_web_baseline_without_applying_local_delta() {
+        let baseline_at = "2026-06-03T23:00:00Z";
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                ("codex.web", web_snapshot(Service::Codex, 80.0, baseline_at)),
+                (
+                    "codex.local",
+                    local_delta_snapshot(Service::Codex, 15.0, baseline_at, "2026-06-03T23:20:00Z"),
+                ),
+            ],
+            "2026-06-03T23:31:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(80.0));
+        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
+        assert_eq!(snapshot.details["mergeStatus"], "stale_web_baseline");
+        assert_eq!(snapshot.details["stale"], true);
+    }
+
+    #[test]
+    fn display_state_clamps_merged_percentages() {
+        let baseline_at = "2026-06-03T23:00:00Z";
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                ("codex.web", web_snapshot(Service::Codex, 20.0, baseline_at)),
+                (
+                    "codex.local",
+                    local_delta_snapshot(Service::Codex, 50.0, baseline_at, "2026-06-03T23:05:00Z"),
+                ),
+            ],
+            "2026-06-03T23:05:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Merged);
+        assert_eq!(snapshot.remaining_percent, Some(0.0));
+        assert_eq!(snapshot.used_percent, Some(100.0));
+    }
+
+    #[test]
+    fn display_state_keeps_web_baseline_when_local_delta_is_unavailable() {
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                (
+                    "codex.web",
+                    web_snapshot(Service::Codex, 80.0, "2026-06-03T23:00:00Z"),
+                ),
+                (
+                    "codex.local",
+                    uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:05:00Z"),
+                ),
+            ],
+            "2026-06-03T23:05:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(80.0));
+        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
+        assert_eq!(snapshot.details["mergeStatus"], "local_delta_unavailable");
+    }
+
+    #[test]
+    fn display_state_preserves_unknown_local_snapshot_without_web_baseline() {
+        let mut snapshot = uncalibrated_local_snapshot(Service::Codex, "2026-06-03T23:00:00Z");
+        snapshot.confidence = UsageConfidence::Unknown;
+        snapshot.details["status"] = serde_json::json!("missing_data");
+        let display_state = display_state_from_provider_snapshots(
+            local_codex_config(),
+            vec![("codex.local", snapshot)],
+            "2026-06-03T23:05:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Local);
+        assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
+        assert_eq!(snapshot.details["status"], "missing_data");
     }
 
     #[test]

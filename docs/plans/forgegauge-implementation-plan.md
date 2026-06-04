@@ -46,6 +46,8 @@ KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a li
 
 KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show ForgeGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible ForgeGauge window, the tray menu `Show ForgeGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show ForgeGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or settings persistence.
 
+Browser session manager reconciliation progress, 2026-06-04: reconciled stale checklist state for the isolated browser session manager. `cargo test browser_session --lib` and `cargo test browser_profile --lib` verify app-owned marker-guarded profile roots, default app-owned profile paths, distinct/non-nested service profile paths, browser process tracking, shutdown/orphan recovery, Playwright persistent-context launch request construction, disabled password/autofill preferences, redacted diagnostics, sanitized profile inspection, and safe profile clearing. `npm run test:sidecar-launch` verifies headed Playwright launches to both official URLs with temporary isolated Codex/Claude profiles, profile persistence across relaunch, disabled storage preferences, no seeded default-profile import, sanitized stdout/stderr, and cleanup. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
+
 Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now registers fail-closed Codex and Claude web provider boundaries. Until a browser backend is selected and manually validated, official web refreshes return sanitized `login_required` web snapshots instead of `Provider is not configured`; local or fake display data remains visible when present, with the official web failure carried as sanitized `webStatus` and optional sanitized `webReason` metadata. Display merging is covered for login, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures. Real browser-backed provider launch, authenticated refresh, cookie/session validation, and password-manager validation remain unchecked.
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. The launch plan's debug output also redacts raw profile paths and raw `--user-data-dir` arguments. Real browser process launch integration, manual login flow, and authenticated profile validation remain unchecked.
@@ -163,7 +165,7 @@ Blocked: requires an explicit product decision for ccusage-style cost/block prec
 - [x] Browser profile path configuration, validation, and ownership markers.
 - [x] Browser profile cleanup guardrails.
 - [ ] Browser automation spike for official usage pages.
-- [ ] Isolated browser session manager.
+- [x] Isolated browser session manager.
 - [ ] Opt-in Codex web provider.
 - [ ] Opt-in Claude web provider.
 Blocked: requires manual authenticated profile/login validation before real web-provider refresh flows can be completed.
@@ -233,7 +235,7 @@ Build in this order to avoid rework:
 
 5. **Browser automation and web providers**
    - [ ] Complete automation spike and backend decision matrix.
-   - [ ] Implement isolated session manager.
+   - [x] Implement isolated session manager.
    - [ ] Implement opt-in web providers and parser contracts.
 
 6. **Merge and release readiness**
@@ -733,7 +735,10 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Compare Playwright, WebDriver, and lightweight browser-control alternatives.
 - [x] Record decision matrix scores for KDE/Wayland support, persistent profiles, packaging cost, parser access, security controls, and maintainability.
 - [ ] Validate persistent isolated profile on CachyOS KDE/Wayland.
+  - [x] `npm run test:sidecar-launch` validates headed Playwright profile persistence across relaunch for both official URLs with temporary isolated profiles in the current KDE/Wayland session.
 - [ ] Validate separate app-owned profile directories/cookie jars per service.
+  - [x] `cargo test browser_profile --lib` verifies app-owned default paths, ownership markers, restrictive permissions, default-browser path rejection, and distinct/non-nested service profile roots.
+  - [x] `cargo test browser_session --lib` verifies service launch plans use distinct profile paths/labels and profile storage inspection remains sanitized.
 - [x] Prove there is no import from default browser profiles.
   - [x] Validate headed Playwright sidecar launches against fake default Chrome/Chromium profile sentinels without reading real browser profile contents.
 - [ ] Prove visible manual login works for both services.

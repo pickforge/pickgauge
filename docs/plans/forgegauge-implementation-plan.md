@@ -638,6 +638,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [x] Inspect Claude Code statusline-compatible data if available.
 - [x] Support ccusage-compatible parsing where practical.
 - [ ] Parse timestamps, model, input/output/cache tokens, session blocks, estimated cost/usage, and rolling window activity.
+Blocked: current local Claude JSONL parsing covers timestamps, model/session counts, token classes, and calibrated rolling-window activity, but ccusage-style cost and billing-block output needs an explicit decision to add a pricing source, shell out to `ccusage`, or keep cost/block precision out of ForgeGauge.
 - [x] Define file scanning limits for large logs and many project directories.
 - [x] Define rotated/truncated file behavior.
 - [x] Define invalid JSONL line behavior.

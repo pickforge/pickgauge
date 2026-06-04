@@ -106,6 +106,19 @@ export type ClearedProviderProfile = {
   clearedAt: string;
 };
 
+export type ProviderProfileInspection = {
+  service: Service;
+  profileLabel: string;
+  profilePrepared: boolean;
+  credentialStoreFiles: number;
+  symlinkEntries: number;
+  passwordSavingEnabled: boolean;
+  autofillEnabled: boolean;
+  inspectedEntries: number;
+  entryLimitReached: boolean;
+  inspectedAt: string;
+};
+
 export type LogLocation = {
   path: string;
   exists: boolean;

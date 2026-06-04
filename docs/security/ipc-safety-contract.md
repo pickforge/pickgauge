@@ -14,6 +14,7 @@ Command return models:
 | `refresh_provider` | `UsageDisplayState` | Raw provider errors, raw local logs, raw page HTML/text |
 | `open_official_usage_page` | `OfficialUsagePage` | Authenticated page content and browser profile data |
 | `start_provider_login` | `ProviderLoginStart` | Authenticated page content, browser profile data, cookies, tokens, and account identifiers |
+| `inspect_provider_profile` | `ProviderProfileInspection` | Browser profile paths and contents, cookies, tokens, auth data, account identifiers, storage contents, and preference file contents |
 | `hide_main_window` | `WindowVisibility` | Usage data, browser profile data, cookies, tokens, and account identifiers |
 | `clear_cached_snapshots` | `UsageDisplayState` | Raw local logs, raw page HTML/text, account identifiers |
 | `clear_provider_profile` | `ClearedProviderProfile` | Browser profile paths and contents |
@@ -23,6 +24,8 @@ Command return models:
 Command errors use `CommandError` with stable `code` and sanitized `message` fields. Command errors must not include raw filesystem paths, raw browser errors, raw provider records, page HTML/text, account identifiers, cookies, tokens, or auth headers.
 
 Managed browser session failures are mapped to `browser_session_unavailable` before reaching the frontend. They must not expose process IDs, launch arguments, profile paths, raw process errors, cookies, tokens, account identifiers, or authenticated page content.
+
+Browser profile inspection failures are mapped to `browser_profile_inspection_unavailable` before reaching the frontend. They must not expose profile paths, raw filesystem errors, preference file contents, cookie databases, local storage, tokens, account identifiers, or authenticated page content.
 
 Rust IPC models use serde `camelCase` fields for structs and lowercase strings for enum values. The current stable string values are:
 

@@ -4,13 +4,20 @@ import {
   formatPercent,
   lastOfficialCheck,
   localActivitySummary,
+  profileInspectionSummary,
   profilePathFromInput,
   profilePathValue,
   serviceLabels,
   sourceLabels,
   webProviderControlState,
 } from "./display";
-import { defaultConfig, providerStatusMessage, type AppConfig, type UsageSnapshot } from "./usage";
+import {
+  defaultConfig,
+  providerStatusMessage,
+  type AppConfig,
+  type ProviderProfileInspection,
+  type UsageSnapshot,
+} from "./usage";
 
 function configWithWebEnabled(webEnabled: boolean): AppConfig {
   return {
@@ -32,6 +39,24 @@ function snapshot(partial: Partial<UsageSnapshot>): UsageSnapshot {
     confidence: "low",
     lastUpdated: "2026-06-03T12:00:00Z",
     details: {},
+    ...partial,
+  };
+}
+
+function profileInspection(
+  partial: Partial<ProviderProfileInspection>,
+): ProviderProfileInspection {
+  return {
+    service: "codex",
+    profileLabel: "codex-profile",
+    profilePrepared: true,
+    credentialStoreFiles: 0,
+    symlinkEntries: 0,
+    passwordSavingEnabled: false,
+    autofillEnabled: false,
+    inspectedEntries: 4,
+    entryLimitReached: false,
+    inspectedAt: "2026-06-04T00:00:00Z",
     ...partial,
   };
 }
@@ -179,5 +204,27 @@ describe("frontend web-provider opt-in disabled states", () => {
       officialRefreshDisabled: false,
       startLoginDisabled: false,
     });
+  });
+});
+
+describe("frontend profile inspection summaries", () => {
+  it("summarizes clean, unprepared, and suspicious profile states", () => {
+    expect(profileInspectionSummary(profileInspection({}))).toBe("Codex profile inspection clean");
+    expect(profileInspectionSummary(profileInspection({ profilePrepared: false }))).toBe(
+      "Codex profile is not prepared",
+    );
+    expect(
+      profileInspectionSummary(
+        profileInspection({
+          credentialStoreFiles: 2,
+          symlinkEntries: 1,
+          passwordSavingEnabled: true,
+          autofillEnabled: true,
+          entryLimitReached: true,
+        }),
+      ),
+    ).toBe(
+      "Codex profile inspection found 2 credential files, 1 symlink entry, password saving enabled, autofill enabled, inspection limit reached",
+    );
   });
 });

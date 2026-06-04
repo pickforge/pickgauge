@@ -1,4 +1,11 @@
-import type { AppConfig, Service, UsageConfidence, UsageSnapshot, UsageSource } from "./usage";
+import type {
+  AppConfig,
+  ProviderProfileInspection,
+  Service,
+  UsageConfidence,
+  UsageSnapshot,
+  UsageSource,
+} from "./usage";
 
 export const serviceLabels: Record<Service, string> = {
   codex: "Codex",
@@ -130,4 +137,51 @@ export function webProviderControlState(config: AppConfig): WebProviderControlSt
     officialRefreshDisabled: disabled,
     startLoginDisabled: disabled,
   };
+}
+
+export function profileInspectionSummary(inspection: ProviderProfileInspection) {
+  const serviceLabel = serviceLabels[inspection.service];
+
+  if (!inspection.profilePrepared) {
+    return `${serviceLabel} profile is not prepared`;
+  }
+
+  const issues = [];
+
+  if (inspection.credentialStoreFiles > 0) {
+    issues.push(
+      `${formatCount(inspection.credentialStoreFiles)} credential ${plural(
+        inspection.credentialStoreFiles,
+        "file",
+      )}`,
+    );
+  }
+
+  if (inspection.symlinkEntries > 0) {
+    issues.push(
+      `${formatCount(inspection.symlinkEntries)} symlink ${plural(
+        inspection.symlinkEntries,
+        "entry",
+        "entries",
+      )}`,
+    );
+  }
+
+  if (inspection.passwordSavingEnabled) {
+    issues.push("password saving enabled");
+  }
+
+  if (inspection.autofillEnabled) {
+    issues.push("autofill enabled");
+  }
+
+  if (inspection.entryLimitReached) {
+    issues.push("inspection limit reached");
+  }
+
+  if (issues.length > 0) {
+    return `${serviceLabel} profile inspection found ${issues.join(", ")}`;
+  }
+
+  return `${serviceLabel} profile inspection clean`;
 }

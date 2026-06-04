@@ -126,9 +126,12 @@ Profile inspection safety:
 
 - Added a sanitized managed Chromium profile storage inspector for future login validation.
 - The inspector reports only credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status.
+- Exposed the inspector through the `inspect_provider_profile` IPC command with a `ProviderProfileInspection` payload that omits raw paths and browser storage contents.
+- Added maintenance actions for inspecting the Codex and Claude dedicated browser profile state from the UI.
 - It reads Chromium `Default/Preferences` booleans but does not read cookie databases, token stores, browser storage, authenticated page content, screenshots, raw page text, or local profile contents.
 - Tests cover missing profiles, prepared disabled profiles, credential-store file detection, symlink detection without following symlinks, enabled preference detection, and malformed preference rejection without leaking raw paths or file contents.
-- Validation: targeted `cargo test browser_session --lib` passed with the new inspection tests.
+- Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`146 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed for the IPC/UI exposure slice.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, both profile inspection actions were visible, and the Codex inspect action returned the browser-preview desktop-only fallback without throwing.
 - Manual authenticated profile inspection remains unchecked.
 
 Web parser fallback coverage:

@@ -38,7 +38,7 @@ Fail-closed web boundary progress, 2026-06-03: explicit web-provider opt-in now 
 
 Browser launch policy progress, 2026-06-03: added a backend-agnostic Chromium launch plan helper that binds each service to a service-specific profile path, includes password-manager/autofill suppression flags and disabled storage preferences, initializes on-disk Chromium `Default/Preferences` with those disabled storage preferences during managed profile preparation and the fail-closed login-start boundary, and exposes only sanitized diagnostics with redacted `--user-data-dir` profile labels. Real browser backend selection, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
-Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. Manual authenticated profile inspection remains unchecked.
+Profile inspection progress, 2026-06-03: added a sanitized managed Chromium profile storage inspector for future login validation. It reports credential-store artifact counts, symlink counts, password/autofill preference booleans, inspected entry counts, and limit status without returning raw paths, cookies, browser storage, authenticated page content, or preference file contents. The inspector is exposed through sanitized IPC and maintenance UI actions for future validation. Manual authenticated profile inspection remains unchecked.
 
 Supersedes:
 
@@ -422,6 +422,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] `start_provider_login`
 - [x] `hide_main_window`
 - [x] `reset_provider_session`
+- [x] `inspect_provider_profile`
 - [x] `clear_cached_snapshots`
 - [x] `clear_provider_profile`
 - [x] `get_log_location`
@@ -443,6 +444,7 @@ Before real providers are wired, define and test the IPC boundary.
 - [x] IPC never returns raw local log contents.
 - [x] IPC never returns raw page HTML/text from authenticated pages.
 - [x] Every command has a stable error shape for frontend rendering.
+- [x] Profile inspection IPC returns only counts, booleans, timestamps, service values, and sanitized profile labels.
 
 ## Merge Strategy
 
@@ -741,6 +743,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Verify profile/cache paths use restrictive local permissions where supported.
 - [x] Add manual inspection checklist proving profile directories contain no saved credentials after login tests.
   - [x] Add sanitized managed-profile storage inspector for credential artifact and preference checks.
+  - [x] Expose sanitized profile inspection through IPC and maintenance UI.
 
 ### Phase 8 — Web Providers
 
@@ -862,6 +865,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Configure autostart.
 - [x] Reset browser session data.
 - [x] Clear cached usage data.
+- [x] Inspect dedicated browser profile state without exposing paths or contents.
 
 ## Testing Strategy
 
@@ -952,6 +956,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Dedicated profiles contain no saved credentials after login validation.
   - [x] Add sanitized credential-artifact and preference inspector for future login validation evidence.
 - [ ] No logging cookies, session tokens, auth headers, or sensitive page HTML.
+  - [x] Profile inspection IPC returns only sanitized counts, booleans, timestamps, service values, and profile labels.
 - [x] Browser profile is isolated from the main browser profile.
 - [x] Scheduler does not start web refreshes until explicit opt-in.
 - [x] Disabling a web provider cancels future scheduled reads.

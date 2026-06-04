@@ -14,6 +14,7 @@
     formatTimestamp,
     lastOfficialCheck,
     localActivitySummary,
+    profileInspectionSummary,
     profilePathFromInput,
     profilePathValue,
     serviceLabels,
@@ -32,6 +33,7 @@
     type LoginRequiredEvent,
     type LogLocation,
     type OfficialUsagePage,
+    type ProviderProfileInspection,
     type ProviderLoginStart,
     type Service,
     type UsageDisplayState,
@@ -46,6 +48,7 @@
   let refreshingOfficial = $state<Service | null>(null);
   let clearingSnapshots = $state(false);
   let clearingProfile = $state<Service | null>(null);
+  let inspectingProfile = $state<Service | null>(null);
   let locatingLogs = $state(false);
   let openingService = $state<Service | null>(null);
   let startingLogin = $state<Service | null>(null);
@@ -401,6 +404,29 @@
       clearingProfile = null;
     }
   }
+
+  async function inspectProviderProfile(service: Service) {
+    statusMessage = null;
+
+    if (!desktopApiAvailable()) {
+      showDesktopOnlyError(`${serviceLabels[service]} profile inspection runs in the desktop app`);
+      return;
+    }
+
+    inspectingProfile = service;
+
+    try {
+      const inspection = await invoke<ProviderProfileInspection>("inspect_provider_profile", {
+        service,
+      });
+      error = null;
+      statusMessage = profileInspectionSummary(inspection);
+    } catch (caught) {
+      error = formatError(caught, `Could not inspect ${serviceLabels[service]} profile`);
+    } finally {
+      inspectingProfile = null;
+    }
+  }
 </script>
 
 <main class="shell" style={`--brand-pattern: url(${patternUrl});`}>
@@ -727,6 +753,22 @@
         onclick={() => resetProviderSession("claude")}
       >
         {clearingProfile === "claude" ? "Resetting..." : "Reset Claude session"}
+      </button>
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={inspectingProfile === "codex"}
+        onclick={() => inspectProviderProfile("codex")}
+      >
+        {inspectingProfile === "codex" ? "Inspecting..." : "Inspect Codex profile"}
+      </button>
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={inspectingProfile === "claude"}
+        onclick={() => inspectProviderProfile("claude")}
+      >
+        {inspectingProfile === "claude" ? "Inspecting..." : "Inspect Claude profile"}
       </button>
     </div>
   </section>

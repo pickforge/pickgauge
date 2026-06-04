@@ -93,6 +93,21 @@ struct ClearedProviderProfile {
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ProviderProfileInspection {
+    service: Service,
+    profile_label: String,
+    profile_prepared: bool,
+    credential_store_files: usize,
+    symlink_entries: usize,
+    password_saving_enabled: bool,
+    autofill_enabled: bool,
+    inspected_entries: usize,
+    entry_limit_reached: bool,
+    inspected_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LogLocation {
     path: String,
     exists: bool,
@@ -157,6 +172,13 @@ fn map_browser_session_error(_: String) -> CommandError {
     command_error(
         "browser_session_unavailable",
         "Could not stop managed browser session",
+    )
+}
+
+fn map_browser_profile_inspection_error(_: String) -> CommandError {
+    command_error(
+        "browser_profile_inspection_unavailable",
+        "Could not inspect browser profile",
     )
 }
 
@@ -482,6 +504,83 @@ fn reset_provider_session(
     app.emit(SESSION_RESET_EVENT, &reset)
         .map_err(map_event_emit_error)?;
     Ok(reset)
+}
+
+#[tauri::command]
+fn inspect_provider_profile(
+    app: AppHandle,
+    engine: State<'_, UsageEngine>,
+    service: Service,
+) -> CommandResult<ProviderProfileInspection> {
+    let config = engine.config().map_err(map_usage_state_error)?;
+    let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
+    inspect_provider_profile_for_service(&config, &app_data_dir, service, usage::now_rfc3339())
+        .map_err(map_browser_profile_inspection_error)
+}
+
+fn inspect_provider_profile_for_service(
+    config: &config::AppConfig,
+    app_data_dir: &Path,
+    service: Service,
+    inspected_at: String,
+) -> Result<ProviderProfileInspection, String> {
+    let Some(paths) = prepare_managed_browser_profiles(config, app_data_dir)? else {
+        return Ok(provider_profile_inspection_report(
+            service,
+            false,
+            None,
+            inspected_at,
+        ));
+    };
+
+    let profile_path = match service {
+        Service::Codex => &paths.codex,
+        Service::Claude => &paths.claude,
+    };
+    let inspection = browser_session::inspect_chromium_profile_storage(profile_path)?;
+
+    Ok(provider_profile_inspection_report(
+        service,
+        true,
+        Some(inspection),
+        inspected_at,
+    ))
+}
+
+fn provider_profile_inspection_report(
+    service: Service,
+    profile_prepared: bool,
+    inspection: Option<browser_session::BrowserProfileStorageInspection>,
+    inspected_at: String,
+) -> ProviderProfileInspection {
+    let inspection = inspection.unwrap_or(browser_session::BrowserProfileStorageInspection {
+        credential_store_files: 0,
+        symlink_entries: 0,
+        password_saving_enabled: false,
+        autofill_enabled: false,
+        inspected_entries: 0,
+        entry_limit_reached: false,
+    });
+
+    ProviderProfileInspection {
+        service,
+        profile_label: provider_profile_label(service).to_string(),
+        profile_prepared,
+        credential_store_files: inspection.credential_store_files,
+        symlink_entries: inspection.symlink_entries,
+        password_saving_enabled: inspection.password_saving_enabled,
+        autofill_enabled: inspection.autofill_enabled,
+        inspected_entries: inspection.inspected_entries,
+        entry_limit_reached: inspection.entry_limit_reached,
+        inspected_at,
+    }
+}
+
+fn provider_profile_label(service: Service) -> &'static str {
+    match service {
+        Service::Codex => "codex-profile",
+        Service::Claude => "claude-profile",
+    }
 }
 
 fn clear_provider_profile_for_service(
@@ -860,6 +959,7 @@ pub fn run() {
             get_log_location,
             get_usage_snapshots,
             hide_main_window,
+            inspect_provider_profile,
             open_official_usage_page,
             refresh_provider,
             refresh_usage,
@@ -992,6 +1092,94 @@ mod tests {
         assert_preference_false(&codex_preferences, &["autofill", "credit_card_enabled"]);
         assert_preference_false(&claude_preferences, &["credentials_enable_service"]);
         assert_preference_false(&claude_preferences, &["autofill", "enabled"]);
+    }
+
+    #[test]
+    fn inspect_provider_profile_for_service_reports_unprepared_default_profiles_without_paths() {
+        let dir = TestDir::new();
+        let config = config::AppConfig::default();
+
+        let report = inspect_provider_profile_for_service(
+            &config,
+            &dir.path,
+            Service::Claude,
+            "2026-06-04T00:00:00Z".to_string(),
+        )
+        .expect("profile inspection succeeds");
+        let value = serde_json::to_value(&report).expect("report serializes");
+
+        assert_eq!(report.service, Service::Claude);
+        assert_eq!(report.profile_label, "claude-profile");
+        assert!(!report.profile_prepared);
+        assert_eq!(report.credential_store_files, 0);
+        assert_eq!(report.symlink_entries, 0);
+        assert!(!report.password_saving_enabled);
+        assert!(!report.autofill_enabled);
+        assert_eq!(value["profileLabel"], "claude-profile");
+        assert!(value.get("path").is_none());
+        assert!(value.get("profilePath").is_none());
+        assert!(!format!("{value:?}").contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn inspect_provider_profile_for_service_reports_enabled_web_profile_state() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+
+        let report = inspect_provider_profile_for_service(
+            &config,
+            &dir.path,
+            Service::Codex,
+            "2026-06-04T00:05:00Z".to_string(),
+        )
+        .expect("profile inspection succeeds");
+
+        assert_eq!(report.service, Service::Codex);
+        assert_eq!(report.profile_label, "codex-profile");
+        assert!(report.profile_prepared);
+        assert_eq!(report.credential_store_files, 0);
+        assert_eq!(report.symlink_entries, 0);
+        assert!(!report.password_saving_enabled);
+        assert!(!report.autofill_enabled);
+        assert!(report.inspected_entries > 0);
+        assert!(!report.entry_limit_reached);
+    }
+
+    #[test]
+    fn provider_profile_inspection_serializes_to_sanitized_ipc_shape() {
+        let report = provider_profile_inspection_report(
+            Service::Codex,
+            true,
+            Some(browser_session::BrowserProfileStorageInspection {
+                credential_store_files: 2,
+                symlink_entries: 1,
+                password_saving_enabled: true,
+                autofill_enabled: false,
+                inspected_entries: 7,
+                entry_limit_reached: false,
+            }),
+            "2026-06-04T00:10:00Z".to_string(),
+        );
+        let value = serde_json::to_value(report).expect("report serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "service": "codex",
+                "profileLabel": "codex-profile",
+                "profilePrepared": true,
+                "credentialStoreFiles": 2,
+                "symlinkEntries": 1,
+                "passwordSavingEnabled": true,
+                "autofillEnabled": false,
+                "inspectedEntries": 7,
+                "entryLimitReached": false,
+                "inspectedAt": "2026-06-04T00:10:00Z"
+            })
+        );
+        assert!(value.get("path").is_none());
+        assert!(value.get("raw").is_none());
     }
 
     fn read_preferences(path: impl Into<PathBuf>) -> serde_json::Value {

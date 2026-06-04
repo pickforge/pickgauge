@@ -4,6 +4,13 @@
 
 Branch: `forgegauge-implementation`
 
+Synthetic web fail-closed smoke:
+
+- Added `npm run test:synthetic-fail-closed`, which starts a temporary local HTTPS server, generates a temporary certificate, and runs the real headless Playwright sidecar against synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages.
+- The smoke covers both Codex and Claude profile labels, keeps `visibleBrowserRequired = false`, verifies sanitized sidecar output, and removes temporary profiles/server material after the run.
+- Validation: `node --check scripts/validate-playwright-synthetic-fail-closed.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, `npm run test:official-fail-closed`, `npm run test:synthetic-fail-closed`, and `git diff --check` passed.
+- Remaining caveat: this is browser-backed synthetic page proof; real official authenticated page fields and real official interruption pages still require logged-in app-owned profiles.
+
 Sidecar visible-state classifier coverage:
 
 - Added Node unit tests for Playwright sidecar visible usage extraction and synthetic page-state classification without real authenticated page content.

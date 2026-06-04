@@ -88,6 +88,8 @@ Visible login launch guard progress, 2026-06-04: the `Start login` command now o
 
 Sidecar visible-state coverage progress, 2026-06-04: added direct Node unit coverage for the Playwright sidecar's visible usage extraction and page-state classifier with synthetic page objects. The tests cover percent/reset/plan/window field extraction, closest-label pairing for remaining versus used percentages, and fail-closed classification for logged-out, CAPTCHA/bot-check, MFA, auth-gate, no-cookie logged-out, usage, and unexpected-UI states without real authenticated page content.
 
+Synthetic web fail-closed smoke progress, 2026-06-04: added `npm run test:synthetic-fail-closed`, which starts a temporary local HTTPS server and runs the real headless Playwright sidecar against synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages for both Codex and Claude profile labels. The smoke validates `visibleBrowserRequired = false`, sanitized sidecar output, and temporary profile/server cleanup without real account data. Real official authenticated page fields and real provider interruption pages remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -588,7 +590,8 @@ Web providers are allowed only after the automation spike proves a safe backend.
   - [x] Display merge keeps local data visible and carries sanitized `webStatus`/`webReason` metadata for fail-closed web states.
   - [x] Real headless Playwright official refresh smoke validates blank Codex/Claude profiles return sanitized `logged_out` fail-closed states without opening a visible browser.
   - [x] Real headless Playwright official refresh smoke validates a forced network failure returns sanitized `network_unavailable` without opening a visible browser.
-Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
+  - [x] Synthetic browser-backed HTTPS smoke validates headless usage, logged-out, MFA, CAPTCHA/bot-check, and authenticated unexpected-UI page states for both service profile labels without visible browser launch.
+Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [x] Web refreshes never run until the user explicitly enables experimental web providers.
 
 ## Logging and Diagnostics Policy
@@ -805,7 +808,8 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
   - [x] Display merge and browser-preview fixtures keep local data visible and surface sanitized fail-closed web status notes without horizontal overflow.
   - [x] `npm run test:official-fail-closed` validates real headless Playwright official refreshes for blank Codex/Claude profiles return sanitized `logged_out` states without opening a visible browser.
   - [x] `npm run test:official-fail-closed` validates a real headless Playwright official refresh with a forced dead proxy returns sanitized `network_unavailable` without opening a visible browser.
-Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
+  - [x] `npm run test:synthetic-fail-closed` validates browser-backed headless Playwright responses for synthetic logged-out, MFA, CAPTCHA/bot-check, usage, and authenticated unexpected-UI pages for both service labels without opening a visible browser.
+Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-UI validation still requires authenticated/manual provider smoke tests.
 - [ ] Confirm no saved credentials are present in dedicated profiles after login tests.
   - [x] Add `npm run smoke:auth-profile -- --require-no-credential-store-files` strict mode to fail sanitized future post-login checks when Chromium credential-store files are present.
   - [x] Add `npm run smoke:auth-profile -- --require-no-autofill-store-files` strict mode to fail sanitized future post-login checks when Chromium autofill-store files are present.
@@ -1023,6 +1027,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Frontend/Svelte | `npm run lint`, `npm run check`, `npm run build` |
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
+| Synthetic web fail-closed smoke | `npm run test:synthetic-fail-closed` |
 | Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --codex-profile <profile> --claude-profile <profile> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
@@ -1066,6 +1071,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 - [x] Playwright sidecar visible usage extraction and page-state classifier tests.
+- [x] Synthetic browser-backed Playwright fail-closed smoke for usage, logged-out, MFA, CAPTCHA/bot-check, and unexpected-UI states.
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
 - [x] KDE StatusNotifier tray registration, DBusMenu quit, XWayland show/close/reopen, and isolated packaged-restart config-persistence smoke command for AppImage launch validation.
 - [x] Sanitized authenticated-profile smoke helper for future post-login headless refresh and marker-owned dedicated-profile evidence.
@@ -1094,6 +1100,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
   - [x] Browser-preview fixture renders `Login required` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Provider interruption states.
   - [x] Browser-preview fixtures render `MFA required`, `Additional verification required`, `Unexpected usage page`, `Usage refresh timed out`, and `Usage data could not be parsed` notes for both services at desktop and mobile widths without horizontal overflow.
+  - [x] Synthetic browser-backed smoke validates headless Playwright sidecar classification for MFA, CAPTCHA/bot-check, and authenticated unexpected-UI pages for both service labels.
 - [ ] Provider unavailable/blocked states.
   - [x] Browser-preview fixtures render `Stale data`, `Provider unavailable`, `Usage data is not readable`, `Profile path blocked`, and `Provider disabled` notes for both services at desktop and mobile widths without horizontal overflow.
 - [ ] Quit behavior.

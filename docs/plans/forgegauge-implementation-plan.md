@@ -730,7 +730,7 @@ Web providers are allowed only after the automation spike proves a safe backend.
 - [ ] Implement documented visible-data parser contract for each provider.
 - [ ] Return `unknown` or lower-confidence snapshot for partial/no visible usage data.
 - [ ] Avoid inventing precision on parse failures.
-- [ ] Surface parse failures in UI without crashing.
+- [x] Surface parse failures in UI without crashing.
 - [x] Add manual "Refresh official usage" action.
 - [ ] Add sanitized parser fixtures for every implemented web provider.
 - [ ] Add fixture update workflow based on explicit user-consented manual captures.

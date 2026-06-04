@@ -2,7 +2,17 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +24,7 @@ const appImagePath = resolve(
 );
 const itemTimeoutMs = 12_000;
 const menuTimeoutMs = 5_000;
+const configTimeoutMs = 5_000;
 const stopTimeoutMs = 3_000;
 
 if (process.platform !== "linux") {
@@ -46,36 +57,22 @@ assert.notEqual(statSync(appImagePath).mode & 0o111, 0, "ForgeGauge AppImage mus
 
 const beforeItems = registeredStatusNotifierItems();
 const isolatedRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-kde-tray-smoke-"));
-const child = spawn(appImagePath, [], {
-  detached: true,
-  env: {
-    ...process.env,
-    XDG_CACHE_HOME: resolve(isolatedRoot, "cache"),
-    XDG_CONFIG_HOME: resolve(isolatedRoot, "config"),
-    XDG_DATA_HOME: resolve(isolatedRoot, "data"),
-    XDG_STATE_HOME: resolve(isolatedRoot, "state"),
-  },
-  stdio: ["ignore", "pipe", "pipe"],
-});
-let stdout = "";
-let stderr = "";
-
-child.stdout.setEncoding("utf8");
-child.stderr.setEncoding("utf8");
-child.stdout.on("data", (chunk) => {
-  stdout += chunk;
-});
-child.stderr.on("data", (chunk) => {
-  stderr += chunk;
-});
+let child = launchAppImage(isolatedRoot);
 
 try {
   const item = await waitForForgeGaugeTrayItem(beforeItems, child);
   const menuItems = await waitForTrayMenuItems(item);
+  const initialConfig = await waitForPersistedConfig(isolatedRoot);
   const window = await validateTrayWindowLifecycle(item, child, menuItems);
   const menu = await validateTrayMenuQuit(item, child, menuItems);
+  const initialStdout = child.stdoutText();
+  const initialStderr = child.stderrText();
+  const settingsPersistence = await validateSettingsPersistence({
+    configPath: initialConfig.path,
+    isolatedRoot,
+  });
 
-  assertSanitizedProcessOutput(stdout, stderr);
+  assertSanitizedProcessOutput(initialStdout, initialStderr, child.stdoutText(), child.stderrText());
 
   const result = {
     generatedAt: new Date().toISOString(),
@@ -94,6 +91,7 @@ try {
       itemStatus: item.status,
       itemTitle: item.title,
       menu,
+      settingsPersistence,
       window,
     },
     isolatedXdgDirs: true,
@@ -105,6 +103,35 @@ try {
 } finally {
   await stopProcess(child);
   await removeTempDir(isolatedRoot);
+}
+
+function launchAppImage(isolatedRoot) {
+  const launched = spawn(appImagePath, [], {
+    detached: true,
+    env: {
+      ...process.env,
+      XDG_CACHE_HOME: resolve(isolatedRoot, "cache"),
+      XDG_CONFIG_HOME: resolve(isolatedRoot, "config"),
+      XDG_DATA_HOME: resolve(isolatedRoot, "data"),
+      XDG_STATE_HOME: resolve(isolatedRoot, "state"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+
+  launched.stdout.setEncoding("utf8");
+  launched.stderr.setEncoding("utf8");
+  launched.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  launched.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  launched.stdoutText = () => stdout;
+  launched.stderrText = () => stderr;
+
+  return launched;
 }
 
 async function waitForForgeGaugeTrayItem(beforeItems, child) {
@@ -294,6 +321,107 @@ async function validateTrayMenuQuit(item, child, menuItems) {
     showItemLabel: showItem.label,
     trayItemUnregisteredAfterQuit: true,
   };
+}
+
+async function validateSettingsPersistence({ configPath, isolatedRoot }) {
+  const firstConfig = readConfig(configPath);
+
+  assert.equal(firstConfig.version, 4, "Default persisted config must use current schema version");
+  assert.equal(firstConfig.enabledServices.codex, true, "Default config must enable Codex");
+  assert.equal(firstConfig.enabledServices.claude, true, "Default config must enable Claude");
+
+  const updatedConfig = {
+    ...firstConfig,
+    enabledServices: {
+      ...firstConfig.enabledServices,
+      codex: false,
+      claude: true,
+    },
+    intervals: {
+      ...firstConfig.intervals,
+      gaugeSwitchSeconds: 5,
+    },
+  };
+
+  writeFileSync(configPath, `${JSON.stringify(updatedConfig, null, 2)}\n`, { mode: 0o600 });
+
+  const beforeRestartItems = registeredStatusNotifierItems();
+
+  child = launchAppImage(isolatedRoot);
+
+  try {
+    const item = await waitForForgeGaugeTrayItem(beforeRestartItems, child);
+    const menuItems = await waitForTrayMenuItems(item);
+    const restartedConfig = await waitForPersistedConfig(isolatedRoot);
+
+    assert.deepEqual(
+      restartedConfig.config.enabledServices,
+      updatedConfig.enabledServices,
+      "Restarted app must preserve persisted service toggles",
+    );
+    assert.equal(
+      restartedConfig.config.intervals.gaugeSwitchSeconds,
+      updatedConfig.intervals.gaugeSwitchSeconds,
+      "Restarted app must preserve persisted gauge interval",
+    );
+    await validateTrayMenuQuit(item, child, menuItems);
+    assertSanitizedProcessOutput(child.stdoutText(), child.stderrText());
+
+    return {
+      configCreatedOnFirstLaunch: true,
+      persistedServiceTogglesPreservedAfterRestart: true,
+      persistedGaugeIntervalPreservedAfterRestart: true,
+      persistedConfigSurvivesPackagedRestart: true,
+    };
+  } finally {
+    await stopProcess(child);
+  }
+}
+
+async function waitForPersistedConfig(isolatedRoot) {
+  const started = Date.now();
+
+  while (Date.now() - started < configTimeoutMs) {
+    const path = findConfigFile(resolve(isolatedRoot, "config"));
+
+    if (path) {
+      const config = readConfig(path);
+
+      if (config?.enabledServices && config?.intervals) {
+        return { config, path };
+      }
+    }
+
+    await delay(100);
+  }
+
+  throw new Error("Timed out waiting for ForgeGauge to persist config");
+}
+
+function findConfigFile(root) {
+  if (!existsSync(root)) {
+    return null;
+  }
+
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = resolve(root, entry.name);
+
+    if (entry.isDirectory()) {
+      const found = findConfigFile(path);
+
+      if (found) {
+        return found;
+      }
+    } else if (entry.isFile() && entry.name === "config.json") {
+      return path;
+    }
+  }
+
+  return null;
+}
+
+function readConfig(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
 }
 
 function triggerTrayMenuItem(item, menuItem) {

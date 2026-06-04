@@ -44,7 +44,9 @@ Manual smoke preflight progress, 2026-06-04: added `npm run smoke:preflight`, a 
 
 KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies ForgeGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, dispatches the tray `Quit` menu event, confirms the AppImage exits successfully and unregisters the tray item, then removes temporary dirs. This proves D-Bus tray registration and tray-menu quit handling in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or visual quit-menu interaction.
 
-KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show ForgeGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible ForgeGauge window, the tray menu `Show ForgeGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show ForgeGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or settings persistence.
+KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show ForgeGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible ForgeGauge window, the tray menu `Show ForgeGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show ForgeGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or human-visible settings-form persistence.
+
+KDE settings persistence smoke progress, 2026-06-04: `npm run smoke:kde-tray` now restarts the packaged AppImage with isolated XDG directories, verifies ForgeGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval settings into that isolated config, restarts the AppImage from the same isolated root, and verifies those persisted settings survive the packaged restart before tray `Quit` cleanup. This proves packaged config persistence across an isolated restart, but not a human-visible settings-form save inside the KDE webview.
 
 Browser session manager reconciliation progress, 2026-06-04: reconciled stale checklist state for the isolated browser session manager. `cargo test browser_session --lib` and `cargo test browser_profile --lib` verify app-owned marker-guarded profile roots, default app-owned profile paths, distinct/non-nested service profile paths, browser process tracking, shutdown/orphan recovery, Playwright persistent-context launch request construction, disabled password/autofill preferences, redacted diagnostics, sanitized profile inspection, and safe profile clearing. `npm run test:sidecar-launch` now emits sanitized CachyOS/KDE/Wayland JSON evidence while verifying headed Playwright launches to both official URLs with temporary isolated Codex/Claude profiles, profile persistence across relaunch, disabled storage preferences, no seeded default-profile import, sanitized stdout/stderr, process-group cleanup, and temporary profile root removal. Authenticated cookie/session contents, saved-credential absence after login, and real authenticated page parsing remain unchecked.
 
@@ -593,6 +595,7 @@ Blocked: real browser-backed MFA, CAPTCHA, authenticated-expiry, and unexpected-
   - [x] KDE/XWayland smoke verifies a close request does not exit the app and `Show ForgeGauge` can reopen/recreate the window afterward.
 - [ ] Confirm popup/window position is acceptable on single-monitor and multi-monitor KDE setups.
 - [ ] Confirm settings persist after restart.
+  - [x] KDE/AppImage smoke verifies current-schema config creation and persisted service-toggle/gauge-interval values survive an isolated packaged restart.
 - [ ] Confirm quit behavior.
   - [x] KDE DBusMenu smoke verifies the tray `Quit` item exits the isolated AppImage process and unregisters the tray item.
 - [x] Document runtime packages and packaging prerequisites discovered during testing.
@@ -1007,7 +1010,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [x] Frontend browser-preview status fixtures for missing local data, network unavailable, expired login, MFA, CAPTCHA/bot-check, unexpected UI, timeout, parse failure, stale data, provider unavailable, permission denied, unsafe profile path, and disabled-provider states.
 - [x] Repeatable Playwright browser-preview validation script for desktop/mobile preview states, status notes, overflow, and web-control fallback behavior.
 - [x] Sanitized manual-smoke preflight command for future KDE/auth/platform evidence metadata.
-- [x] KDE StatusNotifier tray registration, DBusMenu quit, and XWayland show/close/reopen smoke command for isolated AppImage launch validation.
+- [x] KDE StatusNotifier tray registration, DBusMenu quit, XWayland show/close/reopen, and isolated packaged-restart config-persistence smoke command for AppImage launch validation.
 
 ### Manual Tests To Complete
 
@@ -1016,6 +1019,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 - [ ] Popup position and dismissal behavior.
   - [x] KDE/XWayland smoke verifies tray `Show ForgeGauge` opens a visible window, close removes it without exiting, and `Show ForgeGauge` reopens/recreates it.
 - [ ] Settings persistence after restart.
+  - [x] KDE/AppImage smoke verifies isolated config creation and persisted service-toggle/gauge-interval values survive packaged restart.
 - [ ] Dedicated browser login.
 - [ ] Official Codex page refresh.
 - [ ] Official Claude usage page refresh.

@@ -7,7 +7,7 @@ This contract defines the parser boundary for future Codex and Claude official w
 Parser input is a provider-specific structured state object with these fields:
 
 - `service`: `codex` or `claude`.
-- `pageState`: `usage`, `logged_out`, `mfa_required`, `captcha_or_bot_check`, or `unexpected_ui`.
+- `pageState`: `usage`, `logged_out`, `mfa_required`, `captcha_or_bot_check`, `network_unavailable`, `timed_out`, or `unexpected_ui`.
 - `remainingPercent`: number from a visible remaining-percent field, or `null`.
 - `usedPercent`: number from a visible used-percent field, or `null`.
 - `resetAt`: RFC3339 timestamp derived from visible reset text, or `null`.
@@ -40,6 +40,8 @@ At least one of `remaining_percent` or `used_percent` is required for a successf
 - If the page is logged out, return `login_required` with unknown confidence.
 - If MFA is required, return `mfa_required` with unknown confidence.
 - If CAPTCHA or bot checks appear, return `captcha_or_bot_check` with unknown confidence.
+- If the network is unavailable, return `network_unavailable` with unknown confidence.
+- If parsing or page loading times out, return `timed_out` with unknown confidence.
 - If the UI is unexpected, return `unexpected_ui` with unknown confidence.
 - If required visible percentage fields are absent, return `missing_data` with unknown confidence.
 - If visible percentage fields are inconsistent, out of range, or non-finite, return `parse_failed` with unknown confidence.

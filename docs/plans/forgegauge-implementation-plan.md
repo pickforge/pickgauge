@@ -28,6 +28,8 @@ Codex local provider progress, 2026-06-03: added an injectable Codex local data 
 
 Local provider policy progress, 2026-06-03: hardened local-provider edge cases for malformed and truncated records. Claude scans only exact `.jsonl` files, ignores `.jsonl.1` style rotations, counts truncated lines as sanitized invalid records, and reports source RFC3339 timestamp metadata. Codex reads only `state_5.sqlite`, treats corrupt or schema-incompatible databases as sanitized parse failures, counts malformed token rows without leaking row data, and reports Unix epoch millisecond metadata. Without active calibration, both local providers keep machine-local activity clearly uncalibrated and avoid inferring rolling-window percentages.
 
+Web parser fallback progress, 2026-06-03: extended the sanitized visible-state parser contract and fixtures to fail closed for `network_unavailable` and `timed_out` states, in addition to logged-out, MFA, CAPTCHA/bot-check, unexpected UI, missing visible data, parse failure, invalid reset timestamps, and unsupported visible fields. Real browser-backed provider launch, authenticated refresh, and network/manual smoke tests remain unchecked.
+
 Supersedes:
 
 - `docs/specs/codex-claude-usage-tray-spec.md`
@@ -745,6 +747,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 - [x] Add parser tests for partial visible data.
 - [x] Add parser tests for logged-out page.
 - [x] Add parser tests for MFA/CAPTCHA/interruption page.
+- [x] Add parser tests for network-unavailable and timeout states.
 - [x] Add parser tests for unexpected UI.
 - [x] Add parser tests for parse failure.
 - [x] Add fixture sanitization tests or review checks.

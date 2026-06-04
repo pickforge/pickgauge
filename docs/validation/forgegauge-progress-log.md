@@ -83,6 +83,12 @@ Managed browser session safety:
 - Startup recovery reads a restrictive app-data registry, keeps only marker-verified orphaned browser processes, discards stale/unverified entries, and can stop verified orphans before profile deletion.
 - Backend selection, password-manager controls, and authenticated login validation remain separate unchecked gates.
 
+Web parser fallback coverage:
+
+- Sanitized visible-state inputs now include `network_unavailable` and `timed_out`.
+- Parser fixtures and tests cover logged-out, MFA, CAPTCHA/bot-check, network unavailable, timeout, unexpected UI, partial visible data, parse failure, and unsupported visible fields.
+- This is parser-contract coverage only; real browser-backed provider launch and authenticated network/manual smoke tests remain deferred.
+
 Deferred evidence:
 
 - KDE/Wayland tray checks require user-visible desktop interaction.

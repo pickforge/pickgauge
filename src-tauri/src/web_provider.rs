@@ -37,6 +37,8 @@ pub enum VisiblePageState {
     LoggedOut,
     MfaRequired,
     CaptchaOrBotCheck,
+    NetworkUnavailable,
+    TimedOut,
     UnexpectedUi,
 }
 
@@ -84,6 +86,20 @@ pub fn parse_visible_usage(input: VisibleUsageInput, observed_at: &str) -> Usage
             UsageProviderError::CaptchaOrBotCheck,
             observed_at,
             serde_json::json!({ "reason": "captcha_or_bot_check" }),
+        ),
+        VisiblePageState::NetworkUnavailable => unknown_web_snapshot(
+            input.service,
+            provider_id,
+            UsageProviderError::NetworkUnavailable,
+            observed_at,
+            serde_json::json!({ "reason": "network_unavailable" }),
+        ),
+        VisiblePageState::TimedOut => unknown_web_snapshot(
+            input.service,
+            provider_id,
+            UsageProviderError::TimedOut,
+            observed_at,
+            serde_json::json!({ "reason": "timed_out" }),
         ),
         VisiblePageState::UnexpectedUi => unknown_web_snapshot(
             input.service,
@@ -272,6 +288,10 @@ mod tests {
             "logged-out" => include_str!("../tests/fixtures/web-visible/logged-out.json"),
             "mfa-required" => include_str!("../tests/fixtures/web-visible/mfa-required.json"),
             "captcha" => include_str!("../tests/fixtures/web-visible/captcha.json"),
+            "network-unavailable" => {
+                include_str!("../tests/fixtures/web-visible/network-unavailable.json")
+            }
+            "timed-out" => include_str!("../tests/fixtures/web-visible/timed-out.json"),
             "unexpected-ui" => include_str!("../tests/fixtures/web-visible/unexpected-ui.json"),
             "parse-failure" => include_str!("../tests/fixtures/web-visible/parse-failure.json"),
             "unsanitized-field" => {
@@ -344,6 +364,24 @@ mod tests {
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "captcha_or_bot_check");
+    }
+
+    #[test]
+    fn network_unavailable_returns_network_unavailable_snapshot() {
+        let snapshot = parse_visible_usage(fixture("network-unavailable"), OBSERVED_AT);
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
+        assert_eq!(snapshot.details["status"], "network_unavailable");
+        assert_eq!(snapshot.details["reason"], "network_unavailable");
+    }
+
+    #[test]
+    fn timed_out_returns_timed_out_snapshot() {
+        let snapshot = parse_visible_usage(fixture("timed-out"), OBSERVED_AT);
+
+        assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
+        assert_eq!(snapshot.details["status"], "timed_out");
+        assert_eq!(snapshot.details["reason"], "timed_out");
     }
 
     #[test]

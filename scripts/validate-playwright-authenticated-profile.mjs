@@ -24,6 +24,7 @@ const sidecarPath = resolve(
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
 const profileInspectionEntryLimit = 4_096;
+const logInspectionByteLimit = 2 * 1024 * 1024;
 const profileMarkerFileName = ".forgegauge-profile.json";
 const profileMarkerSchemaVersion = 1;
 const appIdentifier = "com.pickforge.forgegauge";
@@ -57,6 +58,13 @@ const failClosedStates = new Set([
   "timed_out",
   "unexpected_ui",
 ]);
+const sensitiveOutputPatterns = [
+  /\b(?:set-cookie|cookie|authorization)\s*:|\bbearer\s+[A-Za-z0-9._~+/-]+=*/iu,
+  /\b(access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?(id|token)|csrf)\b/iu,
+  /\bsk-[A-Za-z0-9]{20,}\b/u,
+  /<!doctype|<html|<body|<script/iu,
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/iu,
+];
 
 try {
   await main();
@@ -92,6 +100,8 @@ async function main() {
     results.push(await validateAuthenticatedProfile(request, options));
   }
 
+  const logInspection = inspectSanitizedLogFile(options, requests);
+
   const output = JSON.stringify(
     {
       generatedAt: new Date().toISOString(),
@@ -102,6 +112,7 @@ async function main() {
       },
       os: osReleaseSummary(),
       targetTriple,
+      logInspection,
       services: results,
     },
     null,
@@ -208,8 +219,10 @@ function parseOptions(args) {
     requireNoAutofillStoreFiles: false,
     requireNoCredentialStoreFiles: false,
     requireNoDefaultProfileReferences: false,
+    requireSanitizedLogFile: false,
     requireSessionStorageArtifacts: false,
     requireUsage: false,
+    logPath: process.env.FORGEGAUGE_AUTH_LOG_PATH || null,
     allowUnmarkedTestProfile: false,
   };
 
@@ -251,8 +264,25 @@ function parseOptions(args) {
       continue;
     }
 
+    if (arg === "--require-sanitized-log-file") {
+      options.requireSanitizedLogFile = true;
+      continue;
+    }
+
     if (arg === "--allow-unmarked-test-profile") {
       options.allowUnmarkedTestProfile = true;
+      continue;
+    }
+
+    if (arg === "--log-file") {
+      const value = args[index + 1];
+
+      if (!value || value.startsWith("--")) {
+        throw new Error("--log-file requires an absolute log file path");
+      }
+
+      options.logPath = value;
+      index += 1;
       continue;
     }
 
@@ -277,18 +307,20 @@ function parseOptions(args) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --require-usage --require-session-storage-artifacts --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --log-file /absolute/forgegauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
 
 Environment:
   FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
   FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT=/absolute/profile
+  FORGEGAUGE_AUTH_LOG_PATH=/absolute/forgegauge.log
 
 The command runs headless refresh checks only. Profile roots must contain ForgeGauge
 ownership markers unless --allow-unmarked-test-profile is used for disposable tests.
 Use npm --silent or environment variables for real profile paths so npm does not echo
 CLI arguments before the helper starts. The helper emits sanitized JSON without
 profile paths, official URLs, cookies, tokens, auth headers, browser storage
-contents, or page markup.`);
+contents, or page markup. Use --require-sanitized-log-file with a normal app log
+file to prove authenticated smoke runs did not log sensitive auth or page content.`);
 }
 
 function validateProfileRoot({ profileRoot, service }) {
@@ -538,6 +570,76 @@ function inspectDefaultProfileReferences(profileRoot) {
   };
 }
 
+function inspectSanitizedLogFile(options, requests) {
+  if (!options.logPath) {
+    if (options.requireSanitizedLogFile) {
+      throw new Error("normal app log file is required for authenticated smoke");
+    }
+
+    return {
+      provided: false,
+      inspected: false,
+      required: options.requireSanitizedLogFile,
+      sensitiveContentAbsent: null,
+      sizeBytes: null,
+      sizeLimitBytes: logInspectionByteLimit,
+    };
+  }
+
+  if (!isAbsolute(options.logPath)) {
+    throw new Error("normal app log file path must be absolute");
+  }
+
+  const logPath = resolve(options.logPath);
+
+  if (!existsSync(logPath)) {
+    throw new Error("normal app log file does not exist");
+  }
+
+  let stat;
+
+  try {
+    stat = lstatSync(logPath);
+  } catch {
+    throw new Error("normal app log file could not be inspected");
+  }
+
+  if (stat.isSymbolicLink()) {
+    throw new Error("normal app log file must not be a symlink");
+  }
+
+  if (!stat.isFile()) {
+    throw new Error("normal app log file must be a file");
+  }
+
+  if (stat.size > logInspectionByteLimit) {
+    throw new Error("normal app log file is too large to inspect safely");
+  }
+
+  let rawLog;
+
+  try {
+    rawLog = readFileSync(logPath, "utf8");
+  } catch {
+    throw new Error("normal app log file could not be inspected");
+  }
+
+  assertNoSensitiveFragments(rawLog, requests);
+
+  if (sensitiveOutputPatterns.some((pattern) => pattern.test(rawLog))) {
+    throw new Error("normal app log file leaked sensitive auth or page material");
+  }
+
+  return {
+    provided: true,
+    inspected: true,
+    required: options.requireSanitizedLogFile,
+    sensitiveContentAbsent: true,
+    sizeBytes: stat.size,
+    sizeLimitBytes: logInspectionByteLimit,
+  };
+}
+
 function preferenceAtPath(preferences, path) {
   return path.reduce((value, key) => value?.[key], preferences);
 }
@@ -621,11 +723,7 @@ function verifySanitizedSidecarOutput({ profileRoot, service, stderr, stdout, ur
     }
   }
 
-  if (
-    /\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|access[_-]?token|refresh[_-]?token|session[_-]?(id|token)|csrf)\b/iu.test(
-      output,
-    )
-  ) {
+  if (sensitiveOutputPatterns.some((pattern) => pattern.test(output))) {
     throw new Error(`${service} authenticated-profile refresh output leaked auth material`);
   }
 
@@ -648,6 +746,10 @@ function printSanitizedFailure(error) {
       ["autofill_store_detected", /autofill store files/u],
       ["default_profile_reference_detected", /preferences reference a default browser profile/u],
       ["session_artifacts_missing", /session state or storage artifacts are missing/u],
+      ["log_file_missing", /normal app log file (is required|does not exist)/u],
+      ["invalid_log_file", /normal app log file (path must be absolute|could not be inspected|must not be a symlink|must be a file)/u],
+      ["log_file_too_large", /normal app log file is too large/u],
+      ["sensitive_log_detected", /normal app log file leaked|output leaked sensitive launch data|output leaked the home directory path/u],
       ["profile_inspection_failed", /profile inspection/u],
       ["unsupported_page_state", /unsupported page state/u],
       ["sidecar_timeout", /Timed out/u],

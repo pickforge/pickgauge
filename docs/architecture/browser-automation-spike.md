@@ -2,7 +2,7 @@
 
 Date: 2026-06-03
 
-Scope: compare browser automation backends for future opt-in official usage providers. Backend selection was approved on 2026-06-04: ForgeGauge will proceed with the Playwright headed Chromium sidecar path, with real web-provider implementation still gated on manual KDE/Wayland login/profile validation.
+Scope: compare browser automation backends for future opt-in official usage providers. Backend selection was approved on 2026-06-04: PickGauge will proceed with the Playwright headed Chromium sidecar path, with real web-provider implementation still gated on manual KDE/Wayland login/profile validation.
 
 Docs checked through Context7:
 
@@ -12,7 +12,7 @@ Docs checked through Context7:
 
 ## Decision Matrix
 
-Scores are 1-5, where 5 is strongest for ForgeGauge's constraints.
+Scores are 1-5, where 5 is strongest for PickGauge's constraints.
 
 | Backend | KDE/Wayland | Persistent app profiles | Packaging cost | Parser access | Security controls | Maintainability | Notes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |

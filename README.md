@@ -1,16 +1,12 @@
-# ForgeGauge
+# PickGauge
 
-### The Pickforge AI Usage Tray
+### Local AI usage visibility from the tray
 
-![ForgeGauge brand preview](assets/branding/social-card.png)
+![PickGauge brand preview](assets/branding/social-card.png)
 
-ForgeGauge is a privacy-conscious Linux tray app concept for tracking remaining AI usage across Codex and Claude Code. It is designed to keep quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
+PickGauge is a privacy-conscious Linux tray app for tracking remaining AI usage across Codex and Claude Code. It keeps quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
 
 > **Status:** early Tauri/Svelte MVP scaffold with fake usage data, persisted settings, branded tray wiring, app icons, and release automation.
-
-## Why this name?
-
-**ForgeGauge** is my recommended name: it ties naturally to **Pickforge**, describes the tray gauge experience, and feels more brandable than the purely descriptive “AI Usage Tray.” The repository can still keep `ai-usage-tray` for discoverability.
 
 ## What it will do
 
@@ -74,7 +70,7 @@ Privacy boundary
 
 ## Branding
 
-Brand assets live in `assets/branding/`. The app currently uses:
+Brand assets live in `assets/branding/`. The app uses the Pickforge Studio v2 dark/ember system:
 
 - `logo-mark.svg` and `logo-lockup-on-dark.svg` in the popup UI.
 - `brand-pattern.svg` and `hero-art.png` for the app surface.
@@ -96,7 +92,7 @@ npm run tauri -- icon assets/branding/app-icon.svg
 
 ## Why Tauri?
 
-ForgeGauge needs a real desktop shell: a persistent tray icon, native windows, local filesystem access for CLI usage data, isolated browser/session handling, and packaged installers. Tauri gives the app a Rust backend for the privacy-sensitive work while keeping the popup/settings UI lightweight with Svelte instead of shipping a full Electron runtime.
+PickGauge needs a real desktop shell: a persistent tray icon, native windows, local filesystem access for CLI usage data, isolated browser/session handling, and packaged installers. Tauri gives the app a Rust backend for the privacy-sensitive work while keeping the popup/settings UI lightweight with Svelte instead of shipping a full Electron runtime.
 
 ## Releases and platform support
 
@@ -107,7 +103,7 @@ GitHub Actions is configured to create queued releases from `main` pushes once t
 - macOS Intel builds
 - macOS Apple Silicon builds
 
-ForgeGauge is still **Linux/KDE-first**. Windows and macOS builds are produced automatically, but they are currently **untested**. If you try them, personal experience reports, issues, and pull requests are very welcome so cross-platform support can improve.
+PickGauge is still **Linux/KDE-first**. Windows and macOS builds are produced automatically, but they are currently **untested**. If you try them, personal experience reports, issues, and pull requests are very welcome so cross-platform support can improve.
 
 On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:
 
@@ -138,4 +134,4 @@ npm run test:sidecar-launch
 
 ## Project documents
 
-- [`docs/plans/forgegauge-implementation-plan.md`](docs/plans/forgegauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.
+- [`docs/plans/pickgauge-implementation-plan.md`](docs/plans/pickgauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.

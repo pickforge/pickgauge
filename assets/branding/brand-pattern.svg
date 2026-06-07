@@ -1,28 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
-  <title id="title">ForgeGauge brand pattern</title>
-  <desc id="desc">Subtle split gauge pattern for backgrounds.</desc>
-  <rect width="1200" height="600" fill="#f6f7fb"/>
-  <defs>
-    <g id="gauge">
-      <circle cx="0" cy="0" r="52" fill="none" stroke="#d8dee9" stroke-width="10"/>
-      <path d="M-36 38A52 52 0 0 1-36-38" fill="none" stroke="#2563eb" stroke-width="10" stroke-linecap="round"/>
-      <path d="M36-38A52 52 0 0 1 36 38" fill="none" stroke="#c75b12" stroke-width="10" stroke-linecap="round"/>
-      <circle cx="0" cy="0" r="18" fill="#ffffff" stroke="#cbd3df" stroke-width="4"/>
-    </g>
-  </defs>
-  <g opacity="0.16">
-    <use href="#gauge" x="120" y="110"/>
-    <use href="#gauge" x="360" y="240"/>
-    <use href="#gauge" x="620" y="120"/>
-    <use href="#gauge" x="900" y="250"/>
-    <use href="#gauge" x="1120" y="95"/>
-    <use href="#gauge" x="220" y="500"/>
-    <use href="#gauge" x="530" y="455"/>
-    <use href="#gauge" x="810" y="520"/>
-    <use href="#gauge" x="1080" y="455"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">PickGauge brand pattern</title>
+  <desc id="desc">A quiet Pickforge Studio grid pattern for PickGauge app surfaces.</desc>
+  <rect width="360" height="360" fill="#0A0A0B"/>
+  <g stroke="#F2F2F3" stroke-opacity="0.06" stroke-width="1">
+    <path d="M0 60H360M0 120H360M0 180H360M0 240H360M0 300H360"/>
+    <path d="M60 0V360M120 0V360M180 0V360M240 0V360M300 0V360"/>
   </g>
-  <g fill="none" stroke="#647084" stroke-width="3" opacity="0.12">
-    <path d="M0 420c130-70 220-70 350-10s235 60 380 0 280-64 470 8"/>
-    <path d="M0 190c110 54 220 50 330-12s225-58 360-2 280 60 510-8"/>
+  <g stroke="#F2F2F3" stroke-opacity="0.22" stroke-width="2" stroke-linecap="square">
+    <path d="M28 48V28H48"/>
+    <path d="M28 312V332H48"/>
+    <path d="M312 28H332V48"/>
+    <path d="M312 332H332V312"/>
   </g>
+  <circle cx="270" cy="90" r="5" fill="#FF7A1A"/>
 </svg>

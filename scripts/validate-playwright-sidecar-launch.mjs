@@ -22,7 +22,7 @@ const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
 const sidecarPath = resolve(
   repoRoot,
   "src-tauri/binaries",
-  `forgegauge-playwright-sidecar-${targetTriple}`,
+  `pickgauge-playwright-sidecar-${targetTriple}`,
 );
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
@@ -58,7 +58,7 @@ const sensitiveOutputPatterns = [
     pattern: /<!doctype|<html|<body|<script/iu,
   },
 ];
-const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-sidecar-profiles-"));
+const validationRoot = mkdtempSync(resolve(tmpdir(), "pickgauge-sidecar-profiles-"));
 let validationRootCleanupFailed = false;
 
 try {
@@ -137,7 +137,7 @@ async function validateLaunch({ service, url, profileLabel, profileRoot, default
   verifyDisabledStoragePreferences(profileRoot, service, defaultProfileFixtures.defaultRoots);
   verifyNoDefaultProfileImport(profileRoot, service, defaultProfileFixtures);
 
-  const sentinelPath = resolve(profileRoot, "forgegauge-profile-sentinel.txt");
+  const sentinelPath = resolve(profileRoot, "pickgauge-profile-sentinel.txt");
   writeFileSync(sentinelPath, `${service}\n`);
 
   await runLaunch({ service, url, profileLabel, profileRoot, defaultProfileFixtures });
@@ -418,12 +418,12 @@ function prepareDefaultBrowserProfileFixtures(fakeHome) {
     mkdirSync(defaultProfileDir, { recursive: true, mode: 0o700 });
 
     for (const storeName of defaultProfileStoreNames) {
-      const sentinel = `forgegauge-default-profile-sentinel-${rootIndex}-${storeName}`;
+      const sentinel = `pickgauge-default-profile-sentinel-${rootIndex}-${storeName}`;
       writeFileSync(resolve(defaultProfileDir, storeName), `${sentinel}\n`, { mode: 0o600 });
       sentinels.push(sentinel);
     }
 
-    const sentinelFileName = `forgegauge-default-profile-sentinel-${rootIndex}.txt`;
+    const sentinelFileName = `pickgauge-default-profile-sentinel-${rootIndex}.txt`;
     writeFileSync(resolve(defaultProfileDir, sentinelFileName), `${sentinelFileName}\n`, {
       mode: 0o600,
     });

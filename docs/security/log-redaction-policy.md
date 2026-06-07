@@ -1,6 +1,6 @@
 # Log Redaction Policy
 
-ForgeGauge logs must be safe to show to the app user and safe to attach to a bug report after review.
+PickGauge logs must be safe to show to the app user and safe to attach to a bug report after review.
 
 Allowed log fields:
 

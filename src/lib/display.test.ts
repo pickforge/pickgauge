@@ -369,12 +369,12 @@ describe("browser preview state fixtures", () => {
 describe("frontend settings form behavior", () => {
   it("shows empty profile path inputs for default paths", () => {
     expect(profilePathValue(null)).toBe("");
-    expect(profilePathValue("/tmp/forgegauge/codex")).toBe("/tmp/forgegauge/codex");
+    expect(profilePathValue("/tmp/pickgauge/codex")).toBe("/tmp/pickgauge/codex");
   });
 
   it("normalizes blank profile path input back to default null", () => {
     expect(profilePathFromInput("  ")).toBeNull();
-    expect(profilePathFromInput(" /tmp/forgegauge/profile ")).toBe("/tmp/forgegauge/profile");
+    expect(profilePathFromInput(" /tmp/pickgauge/profile ")).toBe("/tmp/pickgauge/profile");
   });
 });
 

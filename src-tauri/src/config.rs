@@ -454,7 +454,7 @@ mod tests {
                 .map(|duration| duration.as_nanos())
                 .unwrap_or_default();
             let path = std::env::temp_dir().join(format!(
-                "forgegauge-config-test-{}-{timestamp}-{id}",
+                "pickgauge-config-test-{}-{timestamp}-{id}",
                 std::process::id()
             ));
 
@@ -759,9 +759,9 @@ mod tests {
         let path = dir.config_path();
         let config = AppConfig {
             browser_profiles: BrowserProfileSettings {
-                root_path: Some("/tmp/forgegauge/browser".to_string()),
-                codex_path: Some("/tmp/forgegauge/codex".to_string()),
-                claude_path: Some("/tmp/forgegauge/claude".to_string()),
+                root_path: Some("/tmp/pickgauge/browser".to_string()),
+                codex_path: Some("/tmp/pickgauge/codex".to_string()),
+                claude_path: Some("/tmp/pickgauge/claude".to_string()),
             },
             ..AppConfig::default()
         };

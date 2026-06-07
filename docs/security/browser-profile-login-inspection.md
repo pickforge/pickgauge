@@ -5,12 +5,12 @@ Use this checklist after a future managed browser login test. Record only saniti
 ## Preconditions
 
 - [ ] The browser automation backend has been selected and approved.
-- [ ] The test uses the current ForgeGauge build or AppImage path.
+- [ ] The test uses the current PickGauge build or AppImage path.
 - [ ] Experimental web providers are enabled explicitly by the user.
 - [ ] The Codex and Claude profiles are app-owned and marker-guarded.
 - [ ] The Codex and Claude profiles are separate directories under the configured profile root.
 - [ ] The default system browser profile is closed or ignored and is not imported.
-- [ ] The normal ForgeGauge app log path is available from the app log-location UI or `get_log_location` IPC result.
+- [ ] The normal PickGauge app log path is available from the app log-location UI or `get_log_location` IPC result.
 
 ## Login Run
 
@@ -20,13 +20,13 @@ Use this checklist after a future managed browser login test. Record only saniti
 - [ ] Launch the managed login flow for Claude using the app-owned Claude profile.
 - [ ] Complete only normal manual login steps. Do not bypass MFA, CAPTCHA, bot checks, or interstitials.
 - [ ] Quit the managed browser through the app flow.
-- [ ] Restart ForgeGauge and verify both services still use their own app-owned profile directories.
+- [ ] Restart PickGauge and verify both services still use their own app-owned profile directories.
 
 ## Saved-Credential Inspection
 
 Inspect only file names, directory names, metadata, and browser preference keys needed to prove password saving is not present. Do not open, print, or copy cookie/session databases, local storage, IndexedDB values, token stores, account IDs, or authenticated page content.
 
-- [ ] Run `npm --silent run smoke:auth-profile -- --profile-root <browser-profiles-root> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` or the equivalent per-service/environment-variable form, and record only the sanitized JSON result.
+- [ ] Run `npm --silent run smoke:auth-profile -- --profile-root <browser-profiles-root> --log-file <pickgauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` or the equivalent per-service/environment-variable form, and record only the sanitized JSON result.
 - [ ] Codex profile contains no password-store database such as `Login Data`.
 - [ ] Codex profile contains no password-store journal or sidecar file.
 - [ ] Codex profile contains no autofill-store database such as `Web Data`.
@@ -53,7 +53,7 @@ Inspect only file names, directory names, metadata, and browser preference keys 
 - [ ] Run `npm run smoke:preflight` and keep only the sanitized JSON output with the manual smoke notes.
 - [ ] Date and local session type.
 - [ ] OS and desktop session.
-- [ ] ForgeGauge commit and artifact/build path.
+- [ ] PickGauge commit and artifact/build path.
 - [ ] Selected browser automation backend and browser version.
 - [ ] Sanitized profile labels for Codex and Claude.
 - [ ] Pass/fail result for each checklist group.

@@ -41,7 +41,7 @@ Parser implications:
 - Do not persist or surface `content`, `cwd`, `gitBranch`, raw IDs, tool payloads, or debug text.
 - Return `remaining_percent = None` until manual calibration maps local token activity to a plan/window.
 - Missing or unreadable roots should produce `unknown` snapshots with stable status codes.
-- `ccusage` compatibility is practical for the shared source and aggregate field families: current `ccusage` docs show it reads Claude Code project JSONL roots and can emit JSON reports with input, output, cache, total token, model, session, cost, and block fields. ForgeGauge directly parses the same project JSONL roots and exposes token/model/session/window aggregates plus a numeric `server_tool_use` aggregate without shelling out to `ccusage`; cost and block reports remain deferred because no local cost fields were observed in the raw Claude Code JSONL scan.
+- `ccusage` compatibility is practical for the shared source and aggregate field families: current `ccusage` docs show it reads Claude Code project JSONL roots and can emit JSON reports with input, output, cache, total token, model, session, cost, and block fields. PickGauge directly parses the same project JSONL roots and exposes token/model/session/window aggregates plus a numeric `server_tool_use` aggregate without shelling out to `ccusage`; cost and block reports remain deferred because no local cost fields were observed in the raw Claude Code JSONL scan.
 - No Claude Code usage statusline data was configured on the inspected machine. The only statusline-like file found was a plugin badge script, not a usage source.
 
 ## Codex

@@ -1,3 +1,3 @@
 fn main() {
-    forgegauge_lib::run();
+    pickgauge_lib::run();
 }

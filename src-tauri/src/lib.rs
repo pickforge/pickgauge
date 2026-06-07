@@ -42,20 +42,20 @@ const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_availa
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
-const PLAYWRIGHT_SIDECAR_NAME: &str = "forgegauge-playwright-sidecar";
+const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
 const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
-const LOG_FILE_NAME: &str = "forgegauge.log";
+const LOG_FILE_NAME: &str = "pickgauge.log";
 const LOG_REDACTION_POLICY_PATH: &str = "docs/security/log-redaction-policy.md";
 const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
 const TRAY_ICON_SIZE: u32 = 64;
 const TRAY_ICON_CENTER: f32 = 32.0;
 const TRAY_ICON_OUTER_RADIUS: f32 = 30.0;
 const TRAY_ICON_INNER_RADIUS: f32 = 21.0;
-const TRAY_CODEX_ACCENT: [u8; 4] = [37, 99, 235, 255];
-const TRAY_CLAUDE_ACCENT: [u8; 4] = [199, 91, 18, 255];
-const TRAY_LOW_ACCENT: [u8; 4] = [192, 38, 38, 255];
-const TRAY_TRACK: [u8; 4] = [100, 112, 132, 112];
-const TRAY_SURFACE: [u8; 4] = [246, 247, 251, 255];
+const TRAY_CODEX_ACCENT: [u8; 4] = [242, 242, 243, 255];
+const TRAY_CLAUDE_ACCENT: [u8; 4] = [255, 122, 26, 255];
+const TRAY_LOW_ACCENT: [u8; 4] = [194, 65, 12, 255];
+const TRAY_TRACK: [u8; 4] = [110, 110, 117, 112];
+const TRAY_SURFACE: [u8; 4] = [15, 15, 17, 255];
 const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 const POPUP_ANCHOR_GAP: i32 = 10;
 
@@ -282,12 +282,12 @@ fn map_autostart_error() -> CommandError {
 
 fn startup_warning_message(warning: StartupWarning) -> &'static str {
     match warning {
-        StartupWarning::AutostartSync => "ForgeGauge startup warning: autostart sync failed",
+        StartupWarning::AutostartSync => "PickGauge startup warning: autostart sync failed",
         StartupWarning::BrowserSessionRecovery => {
-            "ForgeGauge startup warning: managed browser recovery failed"
+            "PickGauge startup warning: managed browser recovery failed"
         }
         StartupWarning::InitialUsageRefresh => {
-            "ForgeGauge startup warning: initial usage refresh failed"
+            "PickGauge startup warning: initial usage refresh failed"
         }
     }
 }
@@ -1357,7 +1357,7 @@ fn start_gauge_rotation(tray: TrayIcon, app: AppHandle) {
 fn main_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main").or_else(|| {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-            .title("ForgeGauge")
+            .title("PickGauge")
             .inner_size(420.0, 640.0)
             .min_inner_size(360.0, 520.0)
             .resizable(true)
@@ -1559,7 +1559,7 @@ fn hide_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let show_item = MenuItem::with_id(app, "show", "Show ForgeGauge", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "Show PickGauge", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
     let app_handle = app.handle().clone();
@@ -1579,7 +1579,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     };
 
     let tray = TrayIconBuilder::with_id("main")
-        .tooltip("ForgeGauge")
+        .tooltip("PickGauge")
         .icon(tray_icon_for(initial_state, config.low_usage_threshold))
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -1673,7 +1673,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building ForgeGauge")
+        .expect("error while building PickGauge")
         .run(|app_handle, event| match event {
             tauri::RunEvent::WindowEvent { label, event, .. } if label == "main" => match event {
                 WindowEvent::CloseRequested { api, .. } => {
@@ -1709,7 +1709,7 @@ mod tests {
     impl TestDir {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "forgegauge-lib-test-{}-{}",
+                "pickgauge-lib-test-{}-{}",
                 std::process::id(),
                 NEXT_TEST_DIR_ID.fetch_add(1, Ordering::Relaxed)
             ));
@@ -2542,7 +2542,7 @@ mod tests {
     #[test]
     fn log_location_serializes_to_ipc_shape() {
         let location = LogLocation {
-            path: "/tmp/forgegauge.log".to_string(),
+            path: "/tmp/pickgauge.log".to_string(),
             exists: false,
             redaction_policy: LOG_REDACTION_POLICY_PATH.to_string(),
             updated_at: "2026-06-03T00:00:00Z".to_string(),
@@ -2552,7 +2552,7 @@ mod tests {
         assert_eq!(
             value,
             serde_json::json!({
-                "path": "/tmp/forgegauge.log",
+                "path": "/tmp/pickgauge.log",
                 "exists": false,
                 "redactionPolicy": "docs/security/log-redaction-policy.md",
                 "updatedAt": "2026-06-03T00:00:00Z"

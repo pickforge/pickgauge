@@ -13,7 +13,7 @@ const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
 const sidecarPath = resolve(
   repoRoot,
   "src-tauri/binaries",
-  `forgegauge-playwright-sidecar-${targetTriple}`,
+  `pickgauge-playwright-sidecar-${targetTriple}`,
 );
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
@@ -36,7 +36,7 @@ const disabledStoragePreferences = {
     password_manager_enabled: false,
   },
 };
-const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-official-fail-closed-"));
+const validationRoot = mkdtempSync(resolve(tmpdir(), "pickgauge-official-fail-closed-"));
 const validFailClosedStates = new Set([
   "logged_out",
   "mfa_required",

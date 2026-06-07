@@ -1,8 +1,8 @@
-# ForgeGauge Progress Validation Log
+# PickGauge Progress Validation Log
 
 ## 2026-06-04 America/Sao_Paulo
 
-Branch: `forgegauge-implementation`
+Branch: `pickgauge-implementation`
 
 Manual-gate blocker note reconciliation:
 
@@ -17,7 +17,7 @@ Implementation-readiness note reconciliation:
 
 Current-branch browser/auth/preflight validation:
 
-- Reran the browser/auth validation gates on current `forgegauge-implementation` commit `2c13b47`.
+- Reran the browser/auth validation gates on current `pickgauge-implementation` commit `2c13b47`.
 - `npm run test:official-fail-closed` passed for Codex and Claude blank-profile `logged_out` plus forced `network_unavailable` states, all with `headlessRefresh = true`, `visibleBrowserRequired = false`, and sanitized output.
 - `npm run test:synthetic-fail-closed` passed for synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and unexpected-UI page states for Codex and Claude.
 - `npm run test:auth-profile-helper` passed, covering strict disposable profile safety, session-artifact requirements, and sanitized log inspection failure paths.
@@ -32,8 +32,8 @@ Plan blocker reconciliation:
 Current-branch packaged KDE smoke revalidation:
 
 - Rebuilt the current branch AppImage with `npm run build:appimage` after the latest login-preflight hardening commit.
-- Reran `npm run smoke:kde-tray` against `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`.
-- Evidence from the smoke: KDE/Wayland StatusNotifier host registered, ForgeGauge tray item active, initial visible window count was `0`, `Show ForgeGauge` opened a visible window, close kept the process and tray registered, `Show ForgeGauge` reopened the window, focus loss hid the popup, utility-window hints were present, tray icon rotation observed both `Codex` and `Claude Code`, isolated packaged settings persisted after restart, and tray `Quit` exited and unregistered the item.
+- Reran `npm run smoke:kde-tray` against `src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage`.
+- Evidence from the smoke: KDE/Wayland StatusNotifier host registered, PickGauge tray item active, initial visible window count was `0`, `Show PickGauge` opened a visible window, close kept the process and tray registered, `Show PickGauge` reopened the window, focus loss hid the popup, utility-window hints were present, tray icon rotation observed both `Codex` and `Claude Code`, isolated packaged settings persisted after restart, and tray `Quit` exited and unregistered the item.
 - Validation: `npm run build:appimage` and `npm run smoke:kde-tray` passed.
 - Remaining caveat: this is automated D-Bus/XWayland evidence; user-visible tray placement, physical tray click behavior, and human-observed KDE confirmation remain unchecked.
 
@@ -113,7 +113,7 @@ Authenticated helper shared-root safety:
 
 Authenticated helper shared-root input:
 
-- Added `--profile-root` and `FORGEGAUGE_AUTH_PROFILE_ROOT` to `npm run smoke:auth-profile`, deriving `codex` and `claude` child profile paths from one browser-profile root.
+- Added `--profile-root` and `PICKGAUGE_AUTH_PROFILE_ROOT` to `npm run smoke:auth-profile`, deriving `codex` and `claude` child profile paths from one browser-profile root.
 - Extended `npm run test:auth-profile-helper` to validate CLI and environment shared-root input, per-service override precedence, sanitized output, and relative-root rejection with `invalid_profile_root`.
 - Validation: `node --check scripts/validate-playwright-authenticated-profile.mjs`, `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run test:auth-profile-helper`, `npm run check`, `npm test`, `npm run build`, `npm run test:browser-preview`, and `git diff --check` passed.
 - Remaining caveat: this improves the future manual authenticated smoke command; real authenticated profile persistence and log cleanliness still require logged-in app-owned profiles.
@@ -163,7 +163,7 @@ Official fail-closed report sanitization:
 Authenticated helper environment-input coverage:
 
 - Extended `npm run test:auth-profile-helper` to validate the environment-variable input path for real-profile smoke runs.
-- The validator now supplies disposable Codex and Claude profile roots plus the log path through `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `FORGEGAUGE_AUTH_LOG_PATH`, then asserts sanitized dual-service output without exposing temporary paths, official URLs, or the home directory.
+- The validator now supplies disposable Codex and Claude profile roots plus the log path through `PICKGAUGE_AUTH_CODEX_PROFILE_ROOT`, `PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `PICKGAUGE_AUTH_LOG_PATH`, then asserts sanitized dual-service output without exposing temporary paths, official URLs, or the home directory.
 - Validation: `node --check scripts/validate-playwright-auth-profile-helper.mjs`, `npm run lint`, `npm run check`, `npm test`, `npm run build`, `npm run test:auth-profile-helper`, `npm run test:browser-preview`, and `git diff --check` passed.
 - Remaining caveat: this proves disposable profile helper input handling; real authenticated profile persistence, saved-credential absence, and authenticated log cleanliness still require logged-in app-owned profiles.
 
@@ -266,34 +266,34 @@ Headless official refresh and visible-browser suppression:
 Authenticated profile smoke helper:
 
 - Added `npm run smoke:auth-profile`, a manual post-login helper for future authenticated validation of app-owned Codex and Claude Playwright profiles.
-- The helper accepts `--codex-profile`, `--claude-profile`, `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, or `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, requires the same ForgeGauge `.forgegauge-profile.json` ownership marker used by the app unless `--allow-unmarked-test-profile` is explicitly passed, then performs headless `refreshUsage` checks against those existing profile roots. It never launches a visible browser.
+- The helper accepts `--codex-profile`, `--claude-profile`, `PICKGAUGE_AUTH_CODEX_PROFILE_ROOT`, or `PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, requires the same PickGauge `.pickgauge-profile.json` ownership marker used by the app unless `--allow-unmarked-test-profile` is explicitly passed, then performs headless `refreshUsage` checks against those existing profile roots. It never launches a visible browser.
 - It emits sanitized JSON with stable service/profile labels, visible field names if `usage` is reached, fail-closed page state when not authenticated, profile marker booleans, profile storage artifact counts, symlink counts, disabled preference booleans, desktop/session metadata, and `visibleBrowserRequired = false`.
 - It verifies its own stdout/stderr/output do not include raw profile paths, official URLs, launch args, cookies, tokens, auth headers, browser storage contents, page markup, or raw page content. Real profile runs should use `npm --silent run` or environment variables so npm does not echo CLI path arguments before the helper starts. Strict `--require-usage`, `--require-session-storage-artifacts`, `--require-disabled-storage-preferences`, `--require-no-credential-store-files`, `--require-no-autofill-store-files`, `--require-no-default-profile-references`, and `--require-sanitized-log-file` flags are available for real post-login checks. Failures emit sanitized JSON codes instead of Node stacks.
 - Evidence: `npm run smoke:auth-profile -- --help` passed without launching a browser. A missing-marker profile failed with sanitized `missing_profile_marker` output and no raw profile path from the helper. A temporary marker-owned blank Codex profile run with `npm --silent run smoke:auth-profile -- --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` passed and returned sanitized `logged_out`, `headlessRefresh = true`, `visibleBrowserRequired = false`, `credentialStoreFilesAbsent = true`, `autofillStoreFilesAbsent = true`, default-profile-reference absence, marker booleans, profile storage counts, and no raw profile path or official URL in helper output. Marker-owned disposable profiles containing fake `Default/Login Data`, `Default/Web Data`, or a default-browser path in `Default/Preferences` failed with sanitized `credential_store_detected`, `autofill_store_detected`, or `default_profile_reference_detected` output and no raw profile path.
 - Evidence: the new `--require-session-storage-artifacts` mode fails sanitized future post-login checks unless the headless refresh reaches `usage` and the app-owned profile inspection reports cookie-store or site-storage artifacts. Normal output also reports `authenticatedSessionEvidencePresent` for the combined usage-plus-storage condition. A disposable marker-owned blank profile returned sanitized `session_artifacts_missing` rather than raw profile paths, URLs, browser output, or page content.
-- Evidence: the new `--log-file`, `FORGEGAUGE_AUTH_LOG_PATH`, and `--require-sanitized-log-file` path scans the normal app log after the headless profile refresh. A disposable marker-owned blank Codex profile accepted a safe app-style log and rejected a log containing auth/page material with sanitized `sensitive_log_detected` output; neither run exposed temporary profile or log paths.
-- The future manual browser-profile login inspection checklist now requires the same strict authenticated smoke command, including a normal ForgeGauge log file and `logInspection.sensitiveContentAbsent = true` evidence.
+- Evidence: the new `--log-file`, `PICKGAUGE_AUTH_LOG_PATH`, and `--require-sanitized-log-file` path scans the normal app log after the headless profile refresh. A disposable marker-owned blank Codex profile accepted a safe app-style log and rejected a log containing auth/page material with sanitized `sensitive_log_detected` output; neither run exposed temporary profile or log paths.
+- The future manual browser-profile login inspection checklist now requires the same strict authenticated smoke command, including a normal PickGauge log file and `logInspection.sensitiveContentAbsent = true` evidence.
 - Remaining caveat: this adds the repeatable authenticated smoke workflow but does not prove real authenticated profile persistence, parseable official usage fields, saved-credential absence after login, or authenticated refresh logging until run against real logged-in dedicated profiles and the normal app log.
 
 Packaged settings persistence smoke:
 
 - `npm run smoke:kde-tray` now validates packaged config persistence in addition to KDE StatusNotifier registration, DBusMenu show/quit, and XWayland close/reopen behavior.
-- The smoke launches the AppImage with isolated XDG directories, verifies ForgeGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval values into that isolated config, restarts the AppImage from the same isolated root, verifies those persisted values survive restart, dispatches tray `Quit`, and removes the isolated directories.
-- Evidence from the passing smoke: `currentDesktop = KDE`, `xdgSessionType = wayland`, AppImage path reported repo-relatively as `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`, `configCreatedOnFirstLaunch = true`, `persistedServiceTogglesPreservedAfterRestart = true`, `persistedGaugeIntervalPreservedAfterRestart = true`, and `persistedConfigSurvivesPackagedRestart = true`.
-- Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `git diff --check`, `npm run check`, `npm run smoke:kde-tray`, and cleanup checks for leftover ForgeGauge processes and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
+- The smoke launches the AppImage with isolated XDG directories, verifies PickGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval values into that isolated config, restarts the AppImage from the same isolated root, verifies those persisted values survive restart, dispatches tray `Quit`, and removes the isolated directories.
+- Evidence from the passing smoke: `currentDesktop = KDE`, `xdgSessionType = wayland`, AppImage path reported repo-relatively as `src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage`, `configCreatedOnFirstLaunch = true`, `persistedServiceTogglesPreservedAfterRestart = true`, `persistedGaugeIntervalPreservedAfterRestart = true`, and `persistedConfigSurvivesPackagedRestart = true`.
+- Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `git diff --check`, `npm run check`, `npm run smoke:kde-tray`, and cleanup checks for leftover PickGauge processes and `/tmp/pickgauge-kde-tray-smoke-*` dirs passed.
 - Remaining caveat: this proves packaged config survival across an isolated restart, but not a human-visible settings-form save inside the KDE webview or physical tray placement/click behavior.
 
 KDE gauge rotation smoke:
 
 - `npm run smoke:kde-tray` now validates packaged tray icon rotation through KDE StatusNotifier D-Bus before the settings-persistence restart.
-- The smoke restarts the AppImage with deterministic local providers disabled, polls ForgeGauge StatusNotifier `IconName` updates, decodes the exported tray PNGs, and passes only after observing both the `Codex` and `Claude Code` service accent colors. It reports only sanitized service labels and booleans in the JSON evidence.
+- The smoke restarts the AppImage with deterministic local providers disabled, polls PickGauge StatusNotifier `IconName` updates, decodes the exported tray PNGs, and passes only after observing both the `Codex` and `Claude Code` service accent colors. It reports only sanitized service labels and booleans in the JSON evidence.
 - Validation: `node --check scripts/validate-kde-tray-registration.mjs`, `npm run smoke:kde-tray`, `npm run check`, and `git diff --check` passed.
 - Remaining caveat: this proves D-Bus icon updates and rendered service-color rotation in the current KDE/Wayland session, but not physical tray placement, visible icon animation, physical tray click behavior, or tooltip text exposure.
 
 KDE popup utility-window smoke:
 
 - The main popup now applies skip-taskbar and always-on-top hints when created or shown, hides on focus loss, and left tray click toggles visibility instead of only showing the popup.
-- `npm run smoke:kde-tray` now requires `xprop` and `xmessage`, validates the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` and an above/stays-on-top window state after tray-menu `Show ForgeGauge`, moves focus to a throwaway X11 window, and verifies focus loss hides the ForgeGauge popup while the process and tray item remain alive.
+- `npm run smoke:kde-tray` now requires `xprop` and `xmessage`, validates the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` and an above/stays-on-top window state after tray-menu `Show PickGauge`, moves focus to a throwaway X11 window, and verifies focus loss hides the PickGauge popup while the process and tray item remain alive.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test --lib`, `cargo clippy -- -D warnings`, `npm run check`, `npm run build:appimage`, `node --check scripts/validate-kde-tray-registration.mjs`, `npm run smoke:kde-tray`, and `git diff --check` passed.
 - Remaining caveat: this proves utility-window hints and focus-loss dismissal in the current KDE/Wayland XWayland path, but not physical tray-click behavior, exact tray-relative placement, focus-loss behavior under every compositor path, or multi-monitor placement.
 
@@ -307,11 +307,11 @@ Browser session manager status reconciliation:
 KDE tray registration smoke:
 
 - Added `npm run smoke:kde-tray`, which requires a Linux user session with `qdbus`, `gdbus`, `xdotool`, `xprop`, `xmessage`, and an active KDE StatusNotifier host.
-- The smoke launches the built AppImage with temporary isolated XDG config/data/cache/state directories, waits for a new ForgeGauge `org.kde.StatusNotifierItem`, verifies title `forgegauge`, id `tray-icon tray app main`, status `Active`, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, verifies `Show ForgeGauge` opens a visible XWayland window, verifies a window-close request removes the visible window while the process and tray item remain alive, verifies `Show ForgeGauge` reopens or recreates the window, dispatches the tray `Quit` menu event, confirms the process exits successfully, confirms the tray item unregisters, and then removes temporary dirs.
+- The smoke launches the built AppImage with temporary isolated XDG config/data/cache/state directories, waits for a new PickGauge `org.kde.StatusNotifierItem`, verifies title `pickgauge`, id `tray-icon tray app main`, status `Active`, verifies the DBusMenu exposes `Show PickGauge` and `Quit`, verifies `Show PickGauge` opens a visible XWayland window, verifies a window-close request removes the visible window while the process and tray item remain alive, verifies `Show PickGauge` reopens or recreates the window, dispatches the tray `Quit` menu event, confirms the process exits successfully, confirms the tray item unregisters, and then removes temporary dirs.
 - The main Tauri window is now configured non-closable where supported, implicit all-windows-closed exits are prevented, and the tray Show path recreates the main webview if KDE/XWayland destroyed it after close.
 - Tray-click popup opening now positions near provided click coordinates and clamps to the active monitor work area when the platform supplies tray coordinates. Rust tests cover bottom-right tray anchors, top-edge fallback, negative-origin monitor layouts, and constrained work areas; KDE DBusMenu smoke continues to cover the packaged fallback path.
 - This proves AppImage tray registration, tray-menu show/quit handling, automated XWayland close/reopen fallback through KDE's StatusNotifier/DBusMenu interfaces, and coordinate-based popup placement rules in the current code, but not visual tray placement, physical tray-click behavior, human-visible single/multi-monitor popup position, or visual quit-menu interaction.
-- Validation: `npm run smoke:kde-tray`, `npm run build:appimage`, `npm run check`, `npm test`, `cargo fmt --check`, `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `git diff --check`, and cleanup checks for leftover ForgeGauge processes, ForgeGauge tray registrations, visible ForgeGauge windows, and `/tmp/forgegauge-kde-tray-smoke-*` dirs passed.
+- Validation: `npm run smoke:kde-tray`, `npm run build:appimage`, `npm run check`, `npm test`, `cargo fmt --check`, `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `git diff --check`, and cleanup checks for leftover PickGauge processes, PickGauge tray registrations, visible PickGauge windows, and `/tmp/pickgauge-kde-tray-smoke-*` dirs passed.
 
 Manual smoke preflight:
 
@@ -346,29 +346,29 @@ Playwright sidecar runtime launch:
 
 - Added the Playwright npm package as the local runtime dependency for the Node sidecar.
 - Added `npm run test:sidecar-launch`, which launches the generated sidecar against the Codex and Claude official URLs with `headless: false`, distinct temporary isolated profiles under `/tmp`, sanitized stdout-only response checks, relaunch persistence checks for each service profile, launch-time disabled password/autofill preference checks, seeded fake default Chrome/Chromium profile import checks, and stdout/stderr privacy checks.
-- Validation: `npm test`, `npm run test:sidecar-launch`, `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed. `npm run test:sidecar-launch` passed for both services, preserved profile sentinel files and disabled password/autofill preferences across relaunch, verified seeded fake default browser profile sentinels were not imported, verified sidecar stdout/stderr omitted raw launch data, fake profile sentinels, auth/cookie-looking material, and page markup, removed the temporary profile directories afterward, and left no ForgeGauge sidecar processes running.
-- Packaging evidence: `npm run build:appimage` produced `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage` (`106M`) with `ForgeGauge.AppDir/usr/bin/forgegauge-playwright-sidecar` still present.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- Validation: `npm test`, `npm run test:sidecar-launch`, `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed. `npm run test:sidecar-launch` passed for both services, preserved profile sentinel files and disabled password/autofill preferences across relaunch, verified seeded fake default browser profile sentinels were not imported, verified sidecar stdout/stderr omitted raw launch data, fake profile sentinels, auth/cookie-looking material, and page markup, removed the temporary profile directories afterward, and left no PickGauge sidecar processes running.
+- Packaging evidence: `npm run build:appimage` produced `src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage` (`106M`) with `PickGauge.AppDir/usr/bin/pickgauge-playwright-sidecar` still present.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
 - This proves the local sidecar can start headed Playwright sessions for both official URLs with distinct persistent temporary profiles, preserved disabled password/autofill preferences, no import from seeded fake default browser profiles, and sanitized sidecar launch output, but it does not prove authenticated login, app-owned profile persistence, saved-credential absence after login, parseable authenticated fields, authenticated refresh logging, or AppImage runtime behavior outside the source workspace.
 
 Playwright Linux sidecar packaging:
 
-- Added a Linux-only Tauri config that registers `binaries/forgegauge-playwright-sidecar` as an `externalBin`.
-- Added `scripts/prepare-playwright-sidecar.mjs` to generate `src-tauri/binaries/forgegauge-playwright-sidecar-x86_64-unknown-linux-gnu` from the checked-in sidecar source and keep it executable.
+- Added a Linux-only Tauri config that registers `binaries/pickgauge-playwright-sidecar` as an `externalBin`.
+- Added `scripts/prepare-playwright-sidecar.mjs` to generate `src-tauri/binaries/pickgauge-playwright-sidecar-x86_64-unknown-linux-gnu` from the checked-in sidecar source and keep it executable.
 - Added package validation to `npm test` that checks the generated sidecar is current, executable, accepts the dry-run `launchLogin` protocol, and does not echo raw `userDataDir` or launch args.
 - Validation: `npm test` (`16` Vitest tests, `4` Node sidecar protocol tests, and generated sidecar dry-run passed), `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, and `npm run build:appimage` passed.
-- Packaging evidence: `npm run build:appimage` produced `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage` (`106M`) and included `ForgeGauge.AppDir/usr/bin/forgegauge-playwright-sidecar`.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- Packaging evidence: `npm run build:appimage` produced `src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage` (`106M`) and included `PickGauge.AppDir/usr/bin/pickgauge-playwright-sidecar`.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
 - The generated sidecar is still Node-based; real headed Playwright login requires an available Node/Playwright runtime and manual authenticated CachyOS KDE/Wayland validation.
 
 Playwright sidecar process boundary:
 
 - Added `tauri-plugin-shell` and wired `start_provider_login` to attempt a Rust-owned Playwright sidecar launch when managed web profiles are enabled.
-- The launch path stops any existing managed process for the service, resolves the sidecar name `forgegauge-playwright-sidecar`, writes the serialized `launchLogin` JSON payload to stdin, waits for one sanitized stdout acknowledgment, validates a `launched` response against the original request, and tracks the child through the existing browser session manager.
+- The launch path stops any existing managed process for the service, resolves the sidecar name `pickgauge-playwright-sidecar`, writes the serialized `launchLogin` JSON payload to stdin, waits for one sanitized stdout acknowledgment, validates a `launched` response against the original request, and tracks the child through the existing browser session manager.
 - If the sidecar binary is missing, does not acknowledge launch, or rejects the request, the command fails closed to sanitized `login_required` status and emits `login://required` with reason `sidecar_unavailable`; raw paths, raw `userDataDir`, launch args, process errors, and Playwright errors remain excluded from IPC.
 - Tests cover sanitized sidecar response parsing, mismatch/rejection handling without echoing raw paths, sidecar request planning without exposing paths to login-start IPC, web-disabled fallback, and the new login-required reason.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`168 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
 - Tauri `externalBin` registration is now covered by the Linux sidecar packaging entry above. Manual login and authenticated profile validation remain unchecked.
 
 Playwright sidecar request serialization:
@@ -377,7 +377,7 @@ Playwright sidecar request serialization:
 - Raw `userDataDir` is serialized only for the future sidecar stdin payload; debug output and diagnostics use the profile label placeholder, hide launch args, and skip diagnostics from JSON serialization.
 - Tests cover the protocol JSON shape, redaction of raw paths and launch flags from debug output, and HTTPS-only login URL rejection without echoing rejected URLs.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`162 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, service-specific Start login actions, and both profile inspection actions visible.
 - Real Tauri sidecar process spawning, `externalBin` packaging, manual login, and authenticated profile validation remain unchecked.
 
 Playwright backend approval and launch contract:
@@ -387,7 +387,7 @@ Playwright backend approval and launch contract:
 - Added an internal `PlaywrightLaunchRequest` contract that maps the existing Chromium launch policy to Playwright's persistent user-data-dir shape: raw `userDataDir` stays internal, Playwright args exclude `--user-data-dir`, headed mode is explicit, and diagnostics/debug output uses only profile labels.
 - Tests cover persistent-context request construction and redaction of raw profile paths from Playwright launch diagnostics.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`157 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles and both profile inspection actions visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles and both profile inspection actions visible.
 - Real Playwright sidecar packaging, process launch integration, manual login flow, and authenticated profile validation remain unchecked.
 
 Playwright login-start metadata:
@@ -396,7 +396,7 @@ Playwright login-start metadata:
 - The login-start IPC payload still excludes raw profile paths, raw `userDataDir`, launch arguments, cookies, tokens, and authenticated page content.
 - Tests cover sanitized IPC serialization, prepared profile metadata, and the web-disabled unprepared profile path.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`159 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
 - Real Playwright sidecar process launch and manual login remain unchecked.
 
 Playwright sidecar protocol:
@@ -406,7 +406,7 @@ Playwright sidecar protocol:
 - The protocol rejects invalid actions, unsupported services/backends, non-HTTPS URLs, headless mode, non-string args, and `--user-data-dir` launch args because Playwright receives the user data directory separately.
 - `npm test` now runs Vitest plus Node sidecar protocol tests.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`159 passed`), `cargo clippy -- -D warnings`, `npm test` (`16` Vitest tests and `4` Node sidecar tests passed), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles, Start login actions, and both profile inspection actions visible.
 - Tauri `externalBin` registration and real Playwright sidecar process launch remain unchecked until a target-triple sidecar binary exists under `src-tauri/binaries`.
 
 Profile autofill-store inspection:
@@ -415,7 +415,7 @@ Profile autofill-store inspection:
 - The sanitized `ProviderProfileInspection` IPC payload exposes only the aggregate `autofillStoreFiles` count, and the frontend summary reports autofill store artifacts separately from password credential files.
 - Tests cover autofill-store artifact detection, sanitized IPC serialization, and frontend profile-inspection summary copy.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`155 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles and both profile inspection actions visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage articles and both profile inspection actions visible.
 - Manual authenticated saved-credential and autofill-store validation remains unchecked until a browser backend and login flow are selected and tested.
 
 Profile storage isolation:
@@ -424,7 +424,7 @@ Profile storage isolation:
 - This prevents configured browser profile overrides from sharing one Chromium `--user-data-dir` between services or making one service profile contain the other service's session storage.
 - Tests cover shared service paths, nested service paths, profile root inside a service path, and profile root equal to a service path.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`150 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
 - Manual authenticated cookie/session validation remains unchecked until a browser backend and login flow are selected and tested.
 
 Browser launch logging redaction:
@@ -433,14 +433,14 @@ Browser launch logging redaction:
 - The log redaction policy now requires browser launch diagnostics and debug output to use sanitized profile labels.
 - Tests cover both sanitized diagnostics and full launch-plan debug output.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`151 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, and the maintenance controls remained visible.
 
 Frontend unavailable status note:
 
 - Frontend provider status-note mapping now recognizes the backend `unavailable` status emitted by local providers for unreadable data roots.
 - Vitest coverage confirms `unavailable` renders as `Provider unavailable` instead of being hidden as an unsupported raw status.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`151 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
 
 Fail-closed web merge coverage:
 
@@ -449,7 +449,7 @@ Fail-closed web merge coverage:
 - Rust tests cover local-data fallback for login required, MFA, CAPTCHA/bot-check, unexpected UI, parse failure, network unavailable, and timeout web failures.
 - Real browser-backed provider failure validation remains unchecked until the backend/login flow exists.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`153 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
 
 Claude server-tool usage aggregation:
 
@@ -459,11 +459,11 @@ Claude server-tool usage aggregation:
 - Raw server-tool field names, payloads, content, IDs, cost, and block data remain excluded from snapshot details.
 - The broader Claude cost/block decision remains blocked.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`154 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, with two usage cards and the maintenance controls visible.
 
 ## 2026-06-03 America/Sao_Paulo
 
-Branch: `forgegauge-implementation`
+Branch: `pickgauge-implementation`
 
 Recent evidence commits:
 
@@ -505,7 +505,7 @@ Additional browser-preview validation on 2026-06-03:
 - Hide-to-tray returned `Popup hides to tray in the desktop app` in browser preview.
 - Mobile `390x900` DOM overflow check found `scrollWidth == clientWidth == 390` and zero overflowing elements.
 - Mobile snapshot showed usage cards, enabled web controls, profile inputs, local calibration controls, and maintenance actions fitting inside the viewport.
-- Captured viewport screenshot through Playwright MCP as `forgegauge-validation-mobile.png`.
+- Captured viewport screenshot through Playwright MCP as `pickgauge-validation-mobile.png`.
 
 Frontend status-note test coverage:
 
@@ -524,7 +524,7 @@ Fail-closed web boundary validation:
 
 Local artifact:
 
-- `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`
+- `src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage`
 - Size: `105M`
 - Local timestamp: `Jun 3 23:16`
 
@@ -537,23 +537,23 @@ Runtime and packaging prerequisites observed:
 
 Remote release workflow evidence:
 
-- GitHub Actions run: <https://github.com/pickforge/ai-usage-tray/actions/runs/26882140665>
+- GitHub Actions run: <https://github.com/pickforge/pickgauge/actions/runs/26882140665>
 - Event: `push` on `main`
 - Head commit: `4861da642752be3e0ea61282d45bf8b850bb5170`
 - Conclusion: `success`
-- Release tag: `forgegauge-v0.1.0-4.1`
-- Release URL: <https://github.com/pickforge/ai-usage-tray/releases/tag/forgegauge-v0.1.0-4.1>
+- Release tag: `pickgauge-v0.1.0-4.1`
+- Release URL: <https://github.com/pickforge/pickgauge/releases/tag/pickgauge-v0.1.0-4.1>
 - Release state: published, not draft, not prerelease
 - Uploaded assets:
-  - `linux-appimage-ForgeGauge_0.1.0_amd64.AppImage`
-  - `windows-ForgeGauge_0.1.0_x64-setup.exe`
-  - `windows-ForgeGauge_0.1.0_x64_en-US.msi`
-  - `macos-intel-ForgeGauge_0.1.0_x64.dmg`
-  - `macos-apple-silicon-ForgeGauge_0.1.0_aarch64.dmg`
+  - `linux-appimage-PickGauge_0.1.0_amd64.AppImage`
+  - `windows-PickGauge_0.1.0_x64-setup.exe`
+  - `windows-PickGauge_0.1.0_x64_en-US.msi`
+  - `macos-intel-PickGauge_0.1.0_x64.dmg`
+  - `macos-apple-silicon-PickGauge_0.1.0_aarch64.dmg`
 - Jobs `Preflight`, `Create draft release`, `Build linux-appimage`, `Build windows`, `Build macos-intel`, `Build macos-apple-silicon`, and `Publish release` all completed successfully.
 - `Publish release` started after the last build matrix job completed and used `gh release edit "$RELEASE_TAG" --draft=false`.
 - No failing runner labels, action versions, package dependencies, or upload paths were observed in this successful run.
-- Scope caveat: this verifies remote `main` at `4861da6`, not feature branch `forgegauge-implementation` at `096e7c1`, and it verifies uploads/build success rather than Windows or macOS install/runtime behavior.
+- Scope caveat: this verifies remote `main` at `4861da6`, not feature branch `pickgauge-implementation` at `096e7c1`, and it verifies uploads/build success rather than Windows or macOS install/runtime behavior.
 
 Phase 4 architecture review:
 
@@ -580,7 +580,7 @@ Browser launch policy safety:
 - The fail-closed `start_provider_login` boundary now prepares managed browser profiles and Chromium preferences before returning the existing login-required response.
 - Sanitized launch diagnostics redact raw profile paths to service profile labels such as `codex-profile` and `claude-profile`.
 - Validation: targeted `cargo test browser_session --lib` and `cargo test prepare_managed_browser_profiles --lib` passed with launch-policy, preference-initialization, and profile-preparation wiring tests.
-- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow after the launch-policy, preference-initialization, profile-preparation wiring, login-start preparation, and profile-inspection changes.
+- Browser-preview smoke: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow after the launch-policy, preference-initialization, profile-preparation wiring, login-start preparation, and profile-inspection changes.
 - Real backend selection, process launch integration, manual login flow, and authenticated profile inspection remain unchecked.
 
 Profile inspection safety:
@@ -592,7 +592,7 @@ Profile inspection safety:
 - It reads Chromium `Default/Preferences` booleans but does not read cookie databases, token stores, browser storage, authenticated page content, screenshots, raw page text, or local profile contents.
 - Tests cover missing profiles, prepared disabled profiles, credential-store file detection, autofill-store file detection, symlink detection without following symlinks, enabled preference detection, and malformed preference rejection without leaking raw paths or file contents.
 - Validation: `cargo fmt --check`, `cargo check`, `cargo test` (`146 passed`), `cargo clippy -- -D warnings`, `npm test` (`16 passed`), `npm run check`, `npm run build`, and `git diff --check` passed for the IPC/UI exposure slice.
-- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `ForgeGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, both profile inspection actions were visible, and the Codex inspect action returned the browser-preview desktop-only fallback without throwing.
+- Browser-preview validation: Vite at `http://127.0.0.1:1420/` loaded with title `PickGauge`; Playwright desktop `1280x900` and mobile `390x900` checks found no horizontal overflow, both profile inspection actions were visible, and the Codex inspect action returned the browser-preview desktop-only fallback without throwing.
 - Manual authenticated profile inspection remains unchecked.
 
 Web parser fallback coverage:

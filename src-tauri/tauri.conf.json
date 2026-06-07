@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ForgeGauge",
+  "productName": "PickGauge",
   "version": "0.1.0",
-  "identifier": "com.pickforge.forgegauge",
+  "identifier": "com.pickforge.pickgauge",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "ForgeGauge",
+        "title": "PickGauge",
         "width": 420,
         "height": 640,
         "minWidth": 360,
@@ -34,7 +34,7 @@
     "copyright": "Copyright © 2026 Pickforge",
     "publisher": "Pickforge",
     "shortDescription": "Pickforge AI usage tray",
-    "longDescription": "ForgeGauge tracks Codex and Claude Code usage from a lightweight desktop tray app.",
+    "longDescription": "PickGauge tracks Codex and Claude Code usage from a lightweight desktop tray app.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

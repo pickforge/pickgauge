@@ -1469,7 +1469,7 @@ mod tests {
         fn new() -> Self {
             let id = TEST_ID.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir()
-                .join(format!("forgegauge-usage-test-{}-{id}", std::process::id()));
+                .join(format!("pickgauge-usage-test-{}-{id}", std::process::id()));
 
             fs::create_dir_all(&path).expect("test directory is created");
             Self { path }

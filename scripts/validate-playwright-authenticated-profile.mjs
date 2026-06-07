@@ -19,15 +19,15 @@ const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
 const sidecarPath = resolve(
   repoRoot,
   "src-tauri/binaries",
-  `forgegauge-playwright-sidecar-${targetTriple}`,
+  `pickgauge-playwright-sidecar-${targetTriple}`,
 );
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
 const profileInspectionEntryLimit = 4_096;
 const logInspectionByteLimit = 2 * 1024 * 1024;
-const profileMarkerFileName = ".forgegauge-profile.json";
+const profileMarkerFileName = ".pickgauge-profile.json";
 const profileMarkerSchemaVersion = 1;
-const appIdentifier = "com.pickforge.forgegauge";
+const appIdentifier = "com.pickforge.pickgauge";
 const launchArgs = [
   "--disable-save-password-bubble",
   "--disable-password-manager-reauthentication",
@@ -37,14 +37,14 @@ const launchArgs = [
 const serviceDefinitions = [
   {
     argName: "--codex-profile",
-    envName: "FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT",
+    envName: "PICKGAUGE_AUTH_CODEX_PROFILE_ROOT",
     profileLabel: "codex-profile",
     service: "codex",
     url: "https://chatgpt.com/codex/cloud/settings/analytics",
   },
   {
     argName: "--claude-profile",
-    envName: "FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
+    envName: "PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
     profileLabel: "claude-profile",
     service: "claude",
     url: "https://claude.ai/new#settings/usage",
@@ -92,7 +92,7 @@ async function main() {
 
   if (requests.length === 0) {
     throw new Error(
-      "Provide at least one authenticated profile root with --profile-root, --codex-profile, --claude-profile, FORGEGAUGE_AUTH_PROFILE_ROOT, FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT, or FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
+      "Provide at least one authenticated profile root with --profile-root, --codex-profile, --claude-profile, PICKGAUGE_AUTH_PROFILE_ROOT, PICKGAUGE_AUTH_CODEX_PROFILE_ROOT, or PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT",
     );
   }
 
@@ -243,7 +243,7 @@ function parseOptions(args) {
   const profileRoots = new Map();
   const options = {
     help: false,
-    profileRoot: process.env.FORGEGAUGE_AUTH_PROFILE_ROOT || null,
+    profileRoot: process.env.PICKGAUGE_AUTH_PROFILE_ROOT || null,
     profileRoots,
     requireDisabledPreferences: false,
     requireNoAutofillStoreFiles: false,
@@ -252,7 +252,7 @@ function parseOptions(args) {
     requireSanitizedLogFile: false,
     requireSessionStorageArtifacts: false,
     requireUsage: false,
-    logPath: process.env.FORGEGAUGE_AUTH_LOG_PATH || null,
+    logPath: process.env.PICKGAUGE_AUTH_LOG_PATH || null,
     allowUnmarkedTestProfile: false,
   };
 
@@ -353,7 +353,7 @@ function parseOptions(args) {
 
 function profileRootForService(definition, options) {
   if (options.profileRoot && !isAbsolute(options.profileRoot)) {
-    throw new Error("FORGEGAUGE_AUTH_PROFILE_ROOT must be an absolute browser profile root path");
+    throw new Error("PICKGAUGE_AUTH_PROFILE_ROOT must be an absolute browser profile root path");
   }
 
   return (
@@ -395,16 +395,16 @@ function validateSharedProfileRoot(profileRoot) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --profile-root /absolute/browser-profiles --log-file /absolute/forgegauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --log-file /absolute/forgegauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
+  npm --silent run smoke:auth-profile -- --profile-root /absolute/browser-profiles --log-file /absolute/pickgauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
+  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --log-file /absolute/pickgauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
 
 Environment:
-  FORGEGAUGE_AUTH_PROFILE_ROOT=/absolute/browser-profiles
-  FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
-  FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT=/absolute/profile
-  FORGEGAUGE_AUTH_LOG_PATH=/absolute/forgegauge.log
+  PICKGAUGE_AUTH_PROFILE_ROOT=/absolute/browser-profiles
+  PICKGAUGE_AUTH_CODEX_PROFILE_ROOT=/absolute/profile
+  PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT=/absolute/profile
+  PICKGAUGE_AUTH_LOG_PATH=/absolute/pickgauge.log
 
-The command runs headless refresh checks only. Profile roots must contain ForgeGauge
+The command runs headless refresh checks only. Profile roots must contain PickGauge
 ownership markers unless --allow-unmarked-test-profile is used for disposable tests.
 Use npm --silent or environment variables for real profile paths so npm does not echo
 CLI arguments before the helper starts. The helper emits sanitized JSON without
@@ -451,7 +451,7 @@ function inspectProfileMarker({ profileRoot, service }, options) {
       };
     }
 
-    throw new Error(`${service} profile root is missing the ForgeGauge ownership marker`);
+    throw new Error(`${service} profile root is missing the PickGauge ownership marker`);
   }
 
   const markerStat = lstatSync(markerPath);
@@ -472,7 +472,7 @@ function inspectProfileMarker({ profileRoot, service }, options) {
     serviceMatches;
 
   if (!appOwned) {
-    throw new Error(`${service} profile ownership marker does not match ForgeGauge`);
+    throw new Error(`${service} profile ownership marker does not match PickGauge`);
   }
 
   return {
@@ -826,7 +826,7 @@ function printSanitizedFailure(error) {
   const message = typeof error?.message === "string" ? error.message : "";
   const code =
     [
-      ["missing_profile_marker", /missing the ForgeGauge ownership marker/u],
+      ["missing_profile_marker", /missing the PickGauge ownership marker/u],
       ["invalid_profile_marker", /ownership marker/u],
       ["default_browser_profile", /must not be a default browser profile/u],
       ["invalid_profile_root", /profile root/u],

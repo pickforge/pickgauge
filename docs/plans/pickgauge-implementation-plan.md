@@ -1,8 +1,8 @@
-# ForgeGauge Implementation Plan
+# PickGauge Implementation Plan
 
 ## Status
 
-This is the canonical consolidated plan for ForgeGauge. It merges the previous product spec and phased implementation plan into one checklist-driven document.
+This is the canonical consolidated plan for PickGauge. It merges the previous product spec and phased implementation plan into one checklist-driven document.
 
 Current app state: **early Tauri/Svelte MVP with fake fallback data, local Claude/Codex providers with optional manual calibration, persisted settings, branded tray wiring, app icons, AppImage build support, and a verified release workflow on remote `main`.**
 
@@ -12,7 +12,7 @@ Latest progress, 2026-06-03: completed the Phase 4 core data plumbing milestone 
 
 Tray/window progress, 2026-06-03: decided on tray-first startup for normal runtime, configured the Tauri `main` window to start hidden, added close-to-tray handling for normal window close requests, kept the tray menu `Quit` action as the explicit full-exit path, and rebuilt the AppImage successfully. Full KDE/Wayland tray visibility, tray-click, close-button, and quit-behavior confirmation remains unchecked.
 
-Release workflow progress, 2026-06-03: verified successful GitHub Actions release run `26882140665` on remote `main` commit `4861da642752be3e0ea61282d45bf8b850bb5170`. The run created tag `forgegauge-v0.1.0-4.1`, uploaded Linux AppImage, Windows installer/MSI, macOS Intel DMG, and macOS Apple Silicon DMG assets, then published the release after all build matrix jobs succeeded. This verifies the remote mainline workflow and asset uploads, but not the current feature branch or Windows/macOS install behavior.
+Release workflow progress, 2026-06-03: verified successful GitHub Actions release run `26882140665` on remote `main` commit `4861da642752be3e0ea61282d45bf8b850bb5170`. The run created tag `pickgauge-v0.1.0-4.1`, uploaded Linux AppImage, Windows installer/MSI, macOS Intel DMG, and macOS Apple Silicon DMG assets, then published the release after all build matrix jobs succeeded. This verifies the remote mainline workflow and asset uploads, but not the current feature branch or Windows/macOS install behavior.
 
 Config progress, 2026-06-03: added a raw JSON config load boundary, default filling before typed deserialization, future-version rejection, atomic temp-file/fsync/rename persistence, restrictive config-file permissions on Unix, startup config-error surfacing, a manual web-refresh cooldown settings control, `v1 -> v2` migration support, browser profile root/override config fields, browser profile path UI controls, browser profile path validation with ownership markers, and path-level tests for missing/current/partial/malformed/future configs, write-failure preservation, failed migration rollback, web-provider opt-out, interval/cooldown clamping, v1 migration, and safe/unsafe browser profile paths. Validation passed with `npm run check`, `npm run build`, `cargo fmt --check`, `cargo check`, `cargo clippy -- -D warnings`, `cargo test`, and `npm run build:appimage`. Playwright browser-preview checks covered desktop/mobile settings layout and overflow after the browser profile controls were added.
 
@@ -46,15 +46,15 @@ Manual evidence template progress, 2026-06-04: extended `npm run smoke:preflight
 
 Manual preflight report sanitization progress, 2026-06-04: `npm run smoke:preflight` now self-checks its emitted JSON report before printing it, rejecting home-directory paths, the repo root, full local artifact paths, official usage URLs, auth-looking material, and page markup. Repo-relative artifact paths and sanitized manual-observation templates remain allowed. Manual observed-behavior and authenticated-profile evidence remains unchecked.
 
-KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies ForgeGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, verifies the DBusMenu exposes `Show ForgeGauge` and `Quit`, dispatches the tray `Quit` menu event, confirms the AppImage exits successfully and unregisters the tray item, then removes temporary dirs. This proves D-Bus tray registration and tray-menu quit handling in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or visual quit-menu interaction.
+KDE tray registration progress, 2026-06-04: added `npm run smoke:kde-tray`, a limited KDE/Wayland StatusNotifier smoke that launches the AppImage with isolated XDG directories, verifies PickGauge registers an active `org.kde.StatusNotifierItem` through KDE's watcher, verifies the DBusMenu exposes `Show PickGauge` and `Quit`, dispatches the tray `Quit` menu event, confirms the AppImage exits successfully and unregisters the tray item, then removes temporary dirs. This proves D-Bus tray registration and tray-menu quit handling in the current session, but not user-visible tray placement, tray click behavior, popup open/close, settings persistence, or visual quit-menu interaction.
 
-KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show ForgeGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible ForgeGauge window, the tray menu `Show ForgeGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show ForgeGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or human-visible settings-form persistence.
+KDE window lifecycle progress, 2026-06-04: the main Tauri window is now configured as non-closable where supported, the run loop prevents implicit all-windows-closed exits while preserving explicit tray `Quit`, and tray `Show PickGauge` recreates the main webview if KDE/XWayland destroys it after a close request. `npm run smoke:kde-tray` now also verifies the AppImage starts with no visible PickGauge window, the tray menu `Show PickGauge` event opens a visible window, an XWayland window-close request removes the visible window while the process and tray item remain alive, `Show PickGauge` can reopen/recreate the window afterward, and tray `Quit` still exits cleanly. This proves an automated XWayland close/reopen fallback, but not user-visible tray placement, physical tray click behavior, popup positioning, or human-visible settings-form persistence.
 
-KDE popup utility-window progress, 2026-06-04: the popup window now applies skip-taskbar and always-on-top hints when created or shown, hides on focus loss, and left tray click toggles visibility instead of only showing an already-visible popup. `npm run smoke:kde-tray` now requires `xprop` and `xmessage`, verifies the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` plus an above/stays-on-top state, moves focus to a throwaway X11 window, and verifies focus loss hides the ForgeGauge popup while the process and tray item remain alive. This proves automated utility-window hints and focus-loss dismissal for the packaged popup, but not physical tray-click behavior, exact tray-relative placement, focus-loss behavior under every compositor path, or multi-monitor placement.
+KDE popup utility-window progress, 2026-06-04: the popup window now applies skip-taskbar and always-on-top hints when created or shown, hides on focus loss, and left tray click toggles visibility instead of only showing an already-visible popup. `npm run smoke:kde-tray` now requires `xprop` and `xmessage`, verifies the packaged XWayland popup exposes `_NET_WM_STATE_SKIP_TASKBAR` plus an above/stays-on-top state, moves focus to a throwaway X11 window, and verifies focus loss hides the PickGauge popup while the process and tray item remain alive. This proves automated utility-window hints and focus-loss dismissal for the packaged popup, but not physical tray-click behavior, exact tray-relative placement, focus-loss behavior under every compositor path, or multi-monitor placement.
 
 KDE popup positioning progress, 2026-06-04: tray-click popup opening now positions the window near the tray interaction point when the platform provides click coordinates, prefers above/right-aligned placement, and clamps the popup inside the active monitor work area with a primary-monitor fallback. Rust tests cover bottom-right tray anchors, top-edge fallback, negative-origin monitor layouts, and work areas smaller than the popup. The rebuilt AppImage still passes `npm run smoke:kde-tray`, preserving the KDE DBusMenu fallback path. Physical tray-click behavior and human-visible single/multi-monitor placement remain unchecked.
 
-KDE settings persistence smoke progress, 2026-06-04: `npm run smoke:kde-tray` now restarts the packaged AppImage with isolated XDG directories, verifies ForgeGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval settings into that isolated config, restarts the AppImage from the same isolated root, and verifies those persisted settings survive the packaged restart before tray `Quit` cleanup. This proves packaged config persistence across an isolated restart, but not a human-visible settings-form save inside the KDE webview.
+KDE settings persistence smoke progress, 2026-06-04: `npm run smoke:kde-tray` now restarts the packaged AppImage with isolated XDG directories, verifies PickGauge creates a current-schema config on first launch, writes sanitized non-secret service-toggle and gauge-interval settings into that isolated config, restarts the AppImage from the same isolated root, and verifies those persisted settings survive the packaged restart before tray `Quit` cleanup. This proves packaged config persistence across an isolated restart, but not a human-visible settings-form save inside the KDE webview.
 
 KDE gauge rotation smoke progress, 2026-06-04: `npm run smoke:kde-tray` now also restarts the packaged AppImage with deterministic local providers disabled, observes StatusNotifier `IconName` updates over D-Bus, decodes the exported tray PNGs, and verifies the rendered icon rotation includes both the `Codex` and `Claude Code` service accent colors. The smoke records only sanitized service labels and booleans, not raw D-Bus payloads, icon paths, or screen captures. This proves automated packaged tray icon rotation for enabled services under deterministic data, but not physical tray placement or human-visible icon animation.
 
@@ -78,11 +78,11 @@ Official network fail-closed coverage progress, 2026-06-04: extended `npm run te
 
 Official fail-closed report sanitization progress, 2026-06-04: `npm run test:official-fail-closed` now self-checks its emitted JSON report before printing it, rejecting temporary profile roots, official URLs, Chromium launch flags, the home directory, auth-looking material, and page markup. This extends the existing sidecar stdout/stderr sanitization to the smoke artifact itself. Real authenticated refresh logging proof remains unchecked.
 
-Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:auth-profile`, a manual post-login validation helper that accepts user-supplied dedicated Codex/Claude profile roots through CLI args or environment variables, requires ForgeGauge app-owned profile markers by default, performs only headless Playwright `refreshUsage` checks, inspects profile storage counts and disabled preference booleans without reading browser storage contents, and emits sanitized JSON without profile paths, official URLs, cookies, tokens, auth headers, page markup, or raw page content. Real profile runs should use `npm --silent run` or environment variables so npm does not echo CLI path arguments before the helper starts. The helper supports strict `--require-usage`, `--require-disabled-storage-preferences`, `--require-no-credential-store-files`, `--require-no-autofill-store-files`, `--require-no-default-profile-references`, and `--require-sanitized-log-file` modes for future authenticated validation. A temporary marker-owned blank Codex profile run validated the command path and returned sanitized `logged_out` with `visibleBrowserRequired: false`; a missing-marker profile fails with sanitized `missing_profile_marker` output; marker-owned profiles containing `Login Data`, `Web Data`, or a default-browser profile reference fail with sanitized `credential_store_detected`, `autofill_store_detected`, or `default_profile_reference_detected` output. Real authenticated profile evidence remains unchecked.
+Authenticated profile smoke helper progress, 2026-06-04: added `npm run smoke:auth-profile`, a manual post-login validation helper that accepts user-supplied dedicated Codex/Claude profile roots through CLI args or environment variables, requires PickGauge app-owned profile markers by default, performs only headless Playwright `refreshUsage` checks, inspects profile storage counts and disabled preference booleans without reading browser storage contents, and emits sanitized JSON without profile paths, official URLs, cookies, tokens, auth headers, page markup, or raw page content. Real profile runs should use `npm --silent run` or environment variables so npm does not echo CLI path arguments before the helper starts. The helper supports strict `--require-usage`, `--require-disabled-storage-preferences`, `--require-no-credential-store-files`, `--require-no-autofill-store-files`, `--require-no-default-profile-references`, and `--require-sanitized-log-file` modes for future authenticated validation. A temporary marker-owned blank Codex profile run validated the command path and returned sanitized `logged_out` with `visibleBrowserRequired: false`; a missing-marker profile fails with sanitized `missing_profile_marker` output; marker-owned profiles containing `Login Data`, `Web Data`, or a default-browser profile reference fail with sanitized `credential_store_detected`, `autofill_store_detected`, or `default_profile_reference_detected` output. Real authenticated profile evidence remains unchecked.
 
 Authenticated session-artifact smoke progress, 2026-06-04: extended `npm run smoke:auth-profile` with strict `--require-session-storage-artifacts` mode for future post-login persistence validation. The mode requires the headless refresh to reach `usage` and the sanitized profile inspection to report cookie-store or site-storage artifact counts; logged-out or artifact-empty profiles fail with sanitized `session_artifacts_missing` output. Normal helper output also reports `authenticatedSessionEvidencePresent` so storage artifacts created by a logged-out page are not mistaken for authenticated persistence. This adds a repeatable future evidence gate but does not prove real authenticated persistence until run against logged-in app-owned profiles.
 
-Authenticated log sanitization smoke progress, 2026-06-04: extended `npm run smoke:auth-profile` with `--log-file`, `FORGEGAUGE_AUTH_LOG_PATH`, and strict `--require-sanitized-log-file` mode. The helper scans the normal app log after headless profile refresh, emits only sanitized log-inspection booleans/counts, and fails with stable sanitized codes for missing, invalid, symlinked, oversized, or sensitive logs. Disposable marker-owned blank-profile smoke accepted a safe app-style log and rejected a log containing auth/page material with `sensitive_log_detected` without exposing temporary profile or log paths. Real authenticated app-log proof remains unchecked until run against logged-in app-owned profiles.
+Authenticated log sanitization smoke progress, 2026-06-04: extended `npm run smoke:auth-profile` with `--log-file`, `PICKGAUGE_AUTH_LOG_PATH`, and strict `--require-sanitized-log-file` mode. The helper scans the normal app log after headless profile refresh, emits only sanitized log-inspection booleans/counts, and fails with stable sanitized codes for missing, invalid, symlinked, oversized, or sensitive logs. Disposable marker-owned blank-profile smoke accepted a safe app-style log and rejected a log containing auth/page material with `sensitive_log_detected` without exposing temporary profile or log paths. Real authenticated app-log proof remains unchecked until run against logged-in app-owned profiles.
 
 Authenticated helper report sanitization progress, 2026-06-04: `npm run smoke:auth-profile` now self-checks its emitted JSON report before printing it, rejecting raw profile paths, official URLs, the home directory, Chromium launch flags, auth-looking material, and page markup. `npm run test:auth-profile-helper` exercises this through disposable marker-owned profiles. Real authenticated profile evidence remains unchecked.
 
@@ -90,9 +90,9 @@ Authenticated helper fail-fast progress, 2026-06-04: strict authenticated-profil
 
 Authenticated helper dual-service progress, 2026-06-04: extended `npm run test:auth-profile-helper` so the strict blank-profile success path passes both Codex and Claude marker-owned disposable profiles in the same helper run. The validator now asserts sanitized results for both services and a marker-service mismatch failure path without exposing temporary profile paths, log paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
 
-Authenticated helper environment-input progress, 2026-06-04: extended `npm run test:auth-profile-helper` to validate the environment-variable form recommended for real profile paths. Disposable Codex and Claude marker-owned profile roots plus the app log path are supplied through `FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT`, `FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `FORGEGAUGE_AUTH_LOG_PATH`, while strict sanitized-log and storage-preference checks remain enabled and output is verified not to expose those paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
+Authenticated helper environment-input progress, 2026-06-04: extended `npm run test:auth-profile-helper` to validate the environment-variable form recommended for real profile paths. Disposable Codex and Claude marker-owned profile roots plus the app log path are supplied through `PICKGAUGE_AUTH_CODEX_PROFILE_ROOT`, `PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT`, and `PICKGAUGE_AUTH_LOG_PATH`, while strict sanitized-log and storage-preference checks remain enabled and output is verified not to expose those paths, official URLs, or the home directory. Real authenticated profile evidence remains unchecked.
 
-Authenticated helper shared-root input progress, 2026-06-04: `npm run smoke:auth-profile` now accepts `--profile-root` and `FORGEGAUGE_AUTH_PROFILE_ROOT` to derive `codex` and `claude` profile roots from one browser-profile root while still letting per-service profile inputs override the derived path. `npm run test:auth-profile-helper` validates both CLI and environment shared-root forms with disposable marker-owned profiles, per-service override precedence, relative shared-root rejection with sanitized `invalid_profile_root`, and output sanitization for the shared root, derived profile paths, override profile paths, log path, official URLs, and home directory. Real authenticated profile evidence remains unchecked.
+Authenticated helper shared-root input progress, 2026-06-04: `npm run smoke:auth-profile` now accepts `--profile-root` and `PICKGAUGE_AUTH_PROFILE_ROOT` to derive `codex` and `claude` profile roots from one browser-profile root while still letting per-service profile inputs override the derived path. `npm run test:auth-profile-helper` validates both CLI and environment shared-root forms with disposable marker-owned profiles, per-service override precedence, relative shared-root rejection with sanitized `invalid_profile_root`, and output sanitization for the shared root, derived profile paths, override profile paths, log path, official URLs, and home directory. Real authenticated profile evidence remains unchecked.
 
 Authenticated helper shared-root safety progress, 2026-06-04: `npm run smoke:auth-profile` now fail-fast validates supplied shared profile roots before deriving service paths, rejecting missing, non-directory, symlinked, and relative roots with sanitized `invalid_profile_root` failures, and known-default-browser roots with sanitized `default_browser_profile` failures. `npm run test:auth-profile-helper` validates missing, non-directory, symlink, and default-browser shared-root rejection without exposing raw root paths. Real authenticated profile evidence remains unchecked.
 
@@ -114,9 +114,9 @@ Login visibility preflight evidence progress, 2026-06-04: `npm run smoke:preflig
 
 Login preflight fail-soft progress, 2026-06-04: `Start login` now derives the headed-launch decision directly from the headless preflight page state before attempting to record the preflight snapshot. The snapshot/event update remains best-effort, so snapshot parsing, cache, or event failures cannot change an authenticated/no-launch or unavailable/no-launch decision into visible browser churn. Rust coverage verifies a `usage` preflight with unusable visible percentages still returns `already_authenticated` without headed launch, and `npm run smoke:preflight` reports sanitized booleans for the best-effort recording guard and outcome-before-parse regression. Real authenticated profile evidence remains unchecked.
 
-Current-branch packaged KDE smoke revalidation progress, 2026-06-04: rebuilt the current `forgegauge-implementation` AppImage with `npm run build:appimage`, then reran `npm run smoke:kde-tray` successfully. The smoke verified KDE/Wayland StatusNotifier registration, no initial visible window, tray-menu show/close/reopen behavior, focus-loss hiding, skip-taskbar and stays-above hints, tray icon rotation between Codex and Claude Code colors, isolated packaged settings persistence, tray quit cleanup, and sanitized isolated XDG execution. Human-visible tray placement, physical tray click behavior, and real user-observed KDE confirmation remain unchecked.
+Current-branch packaged KDE smoke revalidation progress, 2026-06-04: rebuilt the current `pickgauge-implementation` AppImage with `npm run build:appimage`, then reran `npm run smoke:kde-tray` successfully. The smoke verified KDE/Wayland StatusNotifier registration, no initial visible window, tray-menu show/close/reopen behavior, focus-loss hiding, skip-taskbar and stays-above hints, tray icon rotation between Codex and Claude Code colors, isolated packaged settings persistence, tray quit cleanup, and sanitized isolated XDG execution. Human-visible tray placement, physical tray click behavior, and real user-observed KDE confirmation remain unchecked.
 
-Current-branch browser/auth validation revalidation progress, 2026-06-04: reran the current `forgegauge-implementation` browser and auth-helper gates. `npm run test:official-fail-closed` verified Codex and Claude blank-profile `logged_out` and forced `network_unavailable` states remain headless with sanitized output and no visible browser requirement. `npm run test:synthetic-fail-closed` verified synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and unexpected-UI states for both services. `npm run test:auth-profile-helper` verified strict disposable profile/session/log safety paths, `npm run test:browser-preview` verified desktop/mobile rendered states, and `npm run smoke:preflight` emitted sanitized current-branch evidence templates. Real authenticated profile and human-visible KDE/platform evidence remain unchecked.
+Current-branch browser/auth validation revalidation progress, 2026-06-04: reran the current `pickgauge-implementation` browser and auth-helper gates. `npm run test:official-fail-closed` verified Codex and Claude blank-profile `logged_out` and forced `network_unavailable` states remain headless with sanitized output and no visible browser requirement. `npm run test:synthetic-fail-closed` verified synthetic usage, logged-out, MFA, CAPTCHA/bot-check, and unexpected-UI states for both services. `npm run test:auth-profile-helper` verified strict disposable profile/session/log safety paths, `npm run test:browser-preview` verified desktop/mobile rendered states, and `npm run smoke:preflight` emitted sanitized current-branch evidence templates. Real authenticated profile and human-visible KDE/platform evidence remain unchecked.
 
 Refresh visibility regression progress, 2026-06-04: added a Rust app-boundary regression test proving the official web refresh sidecar request builder emits `refreshUsage` with `headless: true`, uses the service-specific app-owned profile label, omits `--user-data-dir` from Chromium args, and redacts the raw profile root from request debug diagnostics. This guards against future refresh paths accidentally opening headed Chromium; manual login remains the only headed sidecar action.
 
@@ -191,7 +191,7 @@ Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing that ca
 - [x] Tauri v2 + Svelte app scaffold created.
 - [x] Rust backend and Svelte frontend wiring added.
 - [x] Tauri capabilities file added.
-- [x] ForgeGauge product naming, bundle identifier, and app metadata configured.
+- [x] PickGauge product naming, bundle identifier, and app metadata configured.
 - [x] `assets/branding/` added with app icon, logo, lockups, tray icons, hero, social card, palette, favicon, and pattern assets.
 - [x] Platform app icons generated from `assets/branding/app-icon.svg`.
 - [x] Branded popup UI added with fake Codex and Claude Code snapshots.
@@ -211,7 +211,7 @@ Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing that ca
 - [x] GitHub Actions release workflow added for queued Linux AppImage, Windows, macOS Intel, and macOS Apple Silicon artifacts.
 - [x] Release notes include Windows/macOS untested caveats and invite reports/issues/PRs.
 - [x] README updated with branding, Tauri rationale, release support, AppImage workaround, and current MVP behavior.
-- [x] AppImage built successfully locally at `src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage`.
+- [x] AppImage built successfully locally at `src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage`.
 - [x] AppImage launched manually once from the generated artifact.
 
 ### Verified Previously
@@ -238,7 +238,7 @@ Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing outside
 - [ ] macOS Apple Silicon artifact testing.
 Blocked: requires access to Windows and macOS runtime environments or user-provided platform smoke results.
 - [ ] Claude Code local provider calibration/statusline/ccusage completion.
-Blocked: requires an explicit product decision for ccusage-style cost/block precision: embedded pricing source, shell out to `ccusage`, or keep cost/block precision out of ForgeGauge.
+Blocked: requires an explicit product decision for ccusage-style cost/block precision: embedded pricing source, shell out to `ccusage`, or keep cost/block precision out of PickGauge.
 - [x] Codex local provider calibration/statusline/fixture completion.
 - [x] Provider registry with scheduled refresh, backoff, and event streaming.
 - [x] Shared display-state cache used by both tray rotation and frontend snapshots.
@@ -263,7 +263,7 @@ Blocked: requires authenticated Claude profile validation before claiming the re
 
 ## Core Concept
 
-ForgeGauge uses two data sources and one display pipeline:
+PickGauge uses two data sources and one display pipeline:
 
 1. Local providers
    - Read local Claude Code and Codex CLI/session data.
@@ -679,20 +679,20 @@ Blocked: real official-page MFA, CAPTCHA, authenticated-expiry, and unexpected-U
 - [ ] Confirm tray icon visibility on CachyOS KDE/Wayland.
 Blocked: requires user-visible KDE tray observation.
 - [ ] Confirm tray click opens popup.
-  - [x] KDE DBusMenu smoke verifies `Show ForgeGauge` opens a visible ForgeGauge window.
+  - [x] KDE DBusMenu smoke verifies `Show PickGauge` opens a visible PickGauge window.
 Blocked: requires physical tray-click observation.
 - [ ] Confirm popup closes reliably or has acceptable fallback behavior.
   - [x] KDE/XWayland smoke verifies a window close request removes the visible window while keeping the process and tray item alive.
   - [x] KDE/XWayland smoke verifies focus loss hides the popup while keeping the process and tray item alive.
 Blocked: requires user-visible popup close/focus behavior confirmation.
 - [ ] Confirm app can run as tray-first utility without an always-visible main window.
-  - [x] KDE/XWayland smoke verifies the isolated AppImage starts with no visible ForgeGauge window before `Show ForgeGauge`.
+  - [x] KDE/XWayland smoke verifies the isolated AppImage starts with no visible PickGauge window before `Show PickGauge`.
 Blocked: requires user-visible tray-first runtime confirmation.
 - [ ] Confirm tray gauge alternates between enabled services.
   - [x] KDE StatusNotifier smoke verifies the AppImage tray `IconName` updates and exported PNG colors rotate between `Codex` and `Claude Code` with deterministic enabled services.
 Blocked: requires human-visible tray gauge observation.
 - [ ] Confirm close button either hides to tray or exits only when explicitly intended.
-  - [x] KDE/XWayland smoke verifies a close request does not exit the app and `Show ForgeGauge` can reopen/recreate the window afterward.
+  - [x] KDE/XWayland smoke verifies a close request does not exit the app and `Show PickGauge` can reopen/recreate the window afterward.
 Blocked: requires user-visible close-button behavior confirmation.
 - [ ] Confirm popup/window position is acceptable on single-monitor and multi-monitor KDE setups.
   - [x] KDE/XWayland smoke verifies the popup requests skip-taskbar and above/stays-on-top window-manager hints.
@@ -813,7 +813,7 @@ Blocked: requires human-visible KDE tray/popup observation.
 - [x] Support ccusage-compatible parsing where practical.
 - [ ] Parse timestamps, model, input/output/cache tokens, session blocks, estimated cost/usage, and rolling window activity.
   - [x] Aggregate numeric Claude `server_tool_use` usage counts without exposing raw server-tool fields.
-Blocked: current local Claude JSONL parsing covers timestamps, model/session counts, token classes, and calibrated rolling-window activity, but ccusage-style cost and billing-block output needs an explicit decision to add a pricing source, shell out to `ccusage`, or keep cost/block precision out of ForgeGauge.
+Blocked: current local Claude JSONL parsing covers timestamps, model/session counts, token classes, and calibrated rolling-window activity, but ccusage-style cost and billing-block output needs an explicit decision to add a pricing source, shell out to `ccusage`, or keep cost/block precision out of PickGauge.
 - [x] Define file scanning limits for large logs and many project directories.
 - [x] Define rotated/truncated file behavior.
 - [x] Define invalid JSONL line behavior.
@@ -865,7 +865,7 @@ Blocked: current local Claude JSONL parsing covers timestamps, model/session cou
 Blocked: requires user-completed Codex and Claude login in the managed headed browser profiles.
 - [ ] Prove isolated session persistence survives app restart.
   - [x] Add `npm run smoke:auth-profile -- --require-session-storage-artifacts` strict mode to fail sanitized future post-login checks when usage is not reached or no cookie/site-storage artifacts are present.
-Blocked: requires logged-in app-owned profiles and a ForgeGauge restart before strict authenticated smoke can prove persistence.
+Blocked: requires logged-in app-owned profiles and a PickGauge restart before strict authenticated smoke can prove persistence.
 - [ ] Prove each official URL exposes parseable visible fields for the snapshot contract.
 Blocked: requires authenticated access to the real Codex and Claude official usage pages.
 - [x] Define parser contract and partial/no-data fallback behavior.
@@ -1039,7 +1039,7 @@ Blocked: requires logged-in app-owned Codex and Claude profiles plus sanitized n
 Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing.
 - [x] Verify queued release workflow runs on mainline push.
 - [x] Run or trigger release workflow on `main` or through `workflow_dispatch`.
-- [x] Confirm draft release is created with expected `forgegauge-v<version>-<run>.<attempt>` tag.
+- [x] Confirm draft release is created with expected `pickgauge-v<version>-<run>.<attempt>` tag.
 - [x] Verify Linux AppImage artifact uploads.
 - [x] Verify Windows artifact uploads.
 - [x] Verify macOS Intel artifact uploads.
@@ -1124,7 +1124,7 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 | Browser preview/UI smoke | `npm run test:browser-preview` |
 | Headless official web smoke | `npm run test:official-fail-closed` |
 | Synthetic web fail-closed smoke | `npm run test:synthetic-fail-closed` |
-| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --profile-root <browser-profiles-root> --log-file <forgegauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
+| Authenticated profile smoke | `npm --silent run smoke:auth-profile -- --profile-root <browser-profiles-root> --log-file <pickgauge-log> --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references` |
 | Authenticated helper validation | `npm run test:auth-profile-helper` |
 | Manual smoke preflight | `npm run smoke:preflight` |
 | KDE tray D-Bus registration/menu/window smoke | `npm run smoke:kde-tray` |
@@ -1190,9 +1190,9 @@ Use the smallest relevant set during iteration, then run the milestone set befor
 ### Manual Tests To Complete
 
 - [ ] KDE tray visibility.
-  - [x] KDE StatusNotifier smoke verifies the AppImage registers an active ForgeGauge tray item over D-Bus with isolated XDG dirs.
+  - [x] KDE StatusNotifier smoke verifies the AppImage registers an active PickGauge tray item over D-Bus with isolated XDG dirs.
 - [ ] Popup position and dismissal behavior.
-  - [x] KDE/XWayland smoke verifies tray `Show ForgeGauge` opens a visible window, close removes it without exiting, and `Show ForgeGauge` reopens/recreates it.
+  - [x] KDE/XWayland smoke verifies tray `Show PickGauge` opens a visible window, close removes it without exiting, and `Show PickGauge` reopens/recreates it.
   - [x] KDE/XWayland smoke verifies the popup requests skip-taskbar and above/stays-on-top window-manager hints.
   - [x] KDE/XWayland smoke verifies focus loss hides the popup while keeping the process and tray item alive.
   - [x] Rust tests cover tray-anchor popup placement and work-area clamping when tray click coordinates are available.

@@ -853,7 +853,7 @@ mod tests {
         fn new() -> Self {
             let id = TEST_ID.fetch_add(1, Ordering::Relaxed);
             let path = env::temp_dir().join(format!(
-                "forgegauge-claude-local-test-{}-{id}",
+                "pickgauge-claude-local-test-{}-{id}",
                 std::process::id()
             ));
 

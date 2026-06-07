@@ -464,8 +464,8 @@
   <section class="hero">
     <div class="hero-top">
       <div class="brand-row">
-        <img class="brand-mark" src={logoUrl} alt="ForgeGauge logo mark" />
-        <img class="brand-lockup" src={lockupUrl} alt="ForgeGauge, Pickforge AI Usage Tray" />
+        <img class="brand-mark" src={logoUrl} alt="PickGauge logo mark" />
+        <img class="brand-lockup" src={lockupUrl} alt="PickGauge, Pickforge AI usage tray" />
       </div>
       <button
         class="window-action"
@@ -479,7 +479,7 @@
       </button>
     </div>
     <p class="summary">Track Codex and Claude Code usage from a privacy-conscious desktop tray.</p>
-    <img class="hero-art" src={heroArtUrl} alt="Abstract ForgeGauge usage gauge artwork" />
+    <img class="hero-art" src={heroArtUrl} alt="Abstract PickGauge usage gauge artwork" />
   </section>
 
   <section class="cards" aria-label="Usage snapshots">
@@ -807,7 +807,7 @@
   </section>
 
   {#if loading}
-    <p class="status">Loading local ForgeGauge state…</p>
+    <p class="status">Loading local PickGauge state…</p>
   {:else if statusMessage}
     <p class="status">{statusMessage}</p>
   {:else if error}

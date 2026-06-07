@@ -17,7 +17,7 @@ const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
 const sidecarPath = resolve(
   repoRoot,
   "src-tauri/binaries",
-  `forgegauge-playwright-sidecar-${targetTriple}`,
+  `pickgauge-playwright-sidecar-${targetTriple}`,
 );
 const mode = statSync(sidecarPath).mode;
 
@@ -32,7 +32,7 @@ const request = {
   service: "codex",
   url: "https://chatgpt.com/codex/cloud/settings/analytics",
   profileLabel: "codex-profile",
-  userDataDir: "/tmp/forgegauge-sidecar-validation/codex",
+  userDataDir: "/tmp/pickgauge-sidecar-validation/codex",
   headless: false,
   args: [
     "--disable-save-password-bubble",

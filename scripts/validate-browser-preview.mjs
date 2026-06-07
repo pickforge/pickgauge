@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const port = Number(process.env.FORGEGAUGE_BROWSER_PREVIEW_PORT ?? 1420);
+const port = Number(process.env.PICKGAUGE_BROWSER_PREVIEW_PORT ?? 1420);
 const baseUrl = `http://127.0.0.1:${port}/`;
 const viewports = [
   { label: "desktop", width: 1280, height: 900 },
@@ -120,7 +120,7 @@ async function validatePreviewState(browser, viewport, previewState) {
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.locator("article.usage-card").first().waitFor();
 
-    assert.equal(await page.title(), "ForgeGauge");
+    assert.equal(await page.title(), "PickGauge");
     assert.equal(
       await page.locator("article.usage-card").count(),
       2,

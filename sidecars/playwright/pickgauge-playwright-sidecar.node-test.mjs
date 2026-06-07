@@ -8,7 +8,7 @@ import {
   runLaunchRequest,
   sanitizedAcceptedResponse,
   validateLaunchRequest,
-} from "./forgegauge-playwright-sidecar.mjs";
+} from "./pickgauge-playwright-sidecar.mjs";
 
 function request(overrides = {}) {
   return {
@@ -25,7 +25,7 @@ function request(overrides = {}) {
     protocolVersion: PROTOCOL_VERSION,
     service: "codex",
     url: "https://chatgpt.com/codex/cloud/settings/analytics",
-    userDataDir: "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex",
+    userDataDir: "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex",
     ...overrides,
   };
 }
@@ -52,7 +52,7 @@ test("accepts sanitized headless Playwright usage refresh requests", () => {
 });
 
 test("dry-run response omits raw user data directory and launch args", async () => {
-  const rawPath = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+  const rawPath = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/claude";
   const result = await runLaunchRequest(
     request({
       profileLabel: "claude-profile",

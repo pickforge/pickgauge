@@ -21,7 +21,7 @@ import { inflateSync } from "node:zlib";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appImagePath = resolve(
   repoRoot,
-  "src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage",
+  "src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage",
 );
 const itemTimeoutMs = 12_000;
 const menuTimeoutMs = 5_000;
@@ -69,15 +69,15 @@ if (!statusNotifierHostRegistered()) {
   process.exit(0);
 }
 
-assert.equal(existsSync(appImagePath), true, "ForgeGauge AppImage must exist");
-assert.notEqual(statSync(appImagePath).mode & 0o111, 0, "ForgeGauge AppImage must be executable");
+assert.equal(existsSync(appImagePath), true, "PickGauge AppImage must exist");
+assert.notEqual(statSync(appImagePath).mode & 0o111, 0, "PickGauge AppImage must be executable");
 
 const beforeItems = registeredStatusNotifierItems();
-const isolatedRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-kde-tray-smoke-"));
+const isolatedRoot = mkdtempSync(resolve(tmpdir(), "pickgauge-kde-tray-smoke-"));
 let child = launchAppImage(isolatedRoot);
 
 try {
-  const item = await waitForForgeGaugeTrayItem(beforeItems, child);
+  const item = await waitForPickGaugeTrayItem(beforeItems, child);
   const menuItems = await waitForTrayMenuItems(item);
   const initialConfig = await waitForPersistedConfig(isolatedRoot);
   const window = await validateTrayWindowLifecycle(item, child, menuItems);
@@ -156,12 +156,12 @@ function launchAppImage(isolatedRoot) {
   return launched;
 }
 
-async function waitForForgeGaugeTrayItem(beforeItems, child) {
+async function waitForPickGaugeTrayItem(beforeItems, child) {
   const started = Date.now();
 
   while (Date.now() - started < itemTimeoutMs) {
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error("ForgeGauge exited before registering a tray item");
+      throw new Error("PickGauge exited before registering a tray item");
     }
 
     for (const itemAddress of registeredStatusNotifierItems()) {
@@ -171,7 +171,7 @@ async function waitForForgeGaugeTrayItem(beforeItems, child) {
 
       const item = inspectStatusNotifierItem(itemAddress);
 
-      if (isForgeGaugeItem(item)) {
+      if (isPickGaugeItem(item)) {
         return item;
       }
     }
@@ -179,7 +179,7 @@ async function waitForForgeGaugeTrayItem(beforeItems, child) {
     await delay(250);
   }
 
-  throw new Error("Timed out waiting for ForgeGauge StatusNotifier tray registration");
+  throw new Error("Timed out waiting for PickGauge StatusNotifier tray registration");
 }
 
 function registeredStatusNotifierItems() {
@@ -220,10 +220,10 @@ function qdbusProperty(service, objectPath, property) {
   ]);
 }
 
-function isForgeGaugeItem(item) {
+function isPickGaugeItem(item) {
   const haystack = `${item.id} ${item.objectPath} ${item.title}`.toLowerCase();
 
-  return haystack.includes("forgegauge") || haystack.includes("tray app main");
+  return haystack.includes("pickgauge") || haystack.includes("tray app main");
 }
 
 async function validateTrayGaugeRotation({ configPath, isolatedRoot }) {
@@ -251,7 +251,7 @@ async function validateTrayGaugeRotation({ configPath, isolatedRoot }) {
   child = launchAppImage(isolatedRoot);
 
   try {
-    const item = await waitForForgeGaugeTrayItem(beforeRestartItems, child);
+    const item = await waitForPickGaugeTrayItem(beforeRestartItems, child);
     const menuItems = await waitForTrayMenuItems(item);
     const observedServices = await waitForTrayIconServices(item);
 
@@ -467,52 +467,52 @@ function qdbus(args) {
 }
 
 async function validateTrayWindowLifecycle(item, child, menuItems) {
-  const showItem = findMenuItem(menuItems, "Show ForgeGauge");
+  const showItem = findMenuItem(menuItems, "Show PickGauge");
 
-  assert.ok(showItem, "Tray menu must expose Show ForgeGauge");
+  assert.ok(showItem, "Tray menu must expose Show PickGauge");
 
-  const visibleBeforeShow = visibleForgeGaugeWindowIds();
+  const visibleBeforeShow = visiblePickGaugeWindowIds();
 
   assert.equal(
     visibleBeforeShow.length,
     0,
-    "Isolated AppImage launch must start without a visible ForgeGauge window",
+    "Isolated AppImage launch must start without a visible PickGauge window",
   );
 
   triggerTrayMenuItem(item, showItem);
 
-  const firstWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeShow);
+  const firstWindowId = await waitForVisiblePickGaugeWindow(visibleBeforeShow);
   const firstWindowTitle = xdotool(["getwindowname", firstWindowId]);
   const windowHints = validatePopupWindowHints(firstWindowId);
 
-  assert.equal(firstWindowTitle, "ForgeGauge", "Show menu item must open ForgeGauge window");
+  assert.equal(firstWindowTitle, "PickGauge", "Show menu item must open PickGauge window");
 
   await validateFocusLossHidesPopup(firstWindowId);
-  assert.equal(child.exitCode, null, "Focus loss must not exit ForgeGauge");
-  assert.equal(child.signalCode, null, "Focus loss must not signal ForgeGauge");
+  assert.equal(child.exitCode, null, "Focus loss must not exit PickGauge");
+  assert.equal(child.signalCode, null, "Focus loss must not signal PickGauge");
   assert.equal(
     await waitForTrayItemRegistered(item.address),
     true,
     "Tray item must remain registered after focus loss",
   );
 
-  const visibleBeforeCloseCheck = visibleForgeGaugeWindowIds();
+  const visibleBeforeCloseCheck = visiblePickGaugeWindowIds();
 
   assert.equal(
     visibleBeforeCloseCheck.length,
     0,
-    "Focus loss must leave no visible ForgeGauge window before close-check reshow",
+    "Focus loss must leave no visible PickGauge window before close-check reshow",
   );
 
   triggerTrayMenuItem(item, showItem);
 
-  const closeCheckWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeCloseCheck);
+  const closeCheckWindowId = await waitForVisiblePickGaugeWindow(visibleBeforeCloseCheck);
   const closeCheckWindowTitle = xdotool(["getwindowname", closeCheckWindowId]);
 
   assert.equal(
     closeCheckWindowTitle,
-    "ForgeGauge",
-    "Show menu item must reopen ForgeGauge window after focus loss",
+    "PickGauge",
+    "Show menu item must reopen PickGauge window after focus loss",
   );
 
   xdotool(["windowclose", closeCheckWindowId]);
@@ -520,30 +520,30 @@ async function validateTrayWindowLifecycle(item, child, menuItems) {
   assert.equal(
     await waitForWindowHidden(closeCheckWindowId),
     true,
-    "Window close request must remove the visible ForgeGauge window",
+    "Window close request must remove the visible PickGauge window",
   );
-  assert.equal(child.exitCode, null, "Window close request must not exit ForgeGauge");
-  assert.equal(child.signalCode, null, "Window close request must not signal ForgeGauge");
+  assert.equal(child.exitCode, null, "Window close request must not exit PickGauge");
+  assert.equal(child.signalCode, null, "Window close request must not signal PickGauge");
   assert.equal(
     await waitForTrayItemRegistered(item.address),
     true,
     "Tray item must remain registered after window close request",
   );
 
-  const visibleBeforeReshow = visibleForgeGaugeWindowIds();
+  const visibleBeforeReshow = visiblePickGaugeWindowIds();
 
   assert.equal(
     visibleBeforeReshow.length,
     0,
-    "Window close request must leave no visible ForgeGauge window before reshow",
+    "Window close request must leave no visible PickGauge window before reshow",
   );
 
   triggerTrayMenuItem(item, showItem);
 
-  const secondWindowId = await waitForVisibleForgeGaugeWindow(visibleBeforeReshow);
+  const secondWindowId = await waitForVisiblePickGaugeWindow(visibleBeforeReshow);
   const secondWindowTitle = xdotool(["getwindowname", secondWindowId]);
 
-  assert.equal(secondWindowTitle, "ForgeGauge", "Show menu item must reopen ForgeGauge window");
+  assert.equal(secondWindowTitle, "PickGauge", "Show menu item must reopen PickGauge window");
 
   return {
     closeKeepsProcessRunning: true,
@@ -569,7 +569,7 @@ async function validateFocusLossHidesPopup(windowId) {
     assert.equal(
       await waitForWindowHidden(windowId),
       true,
-      "Focus loss must hide the ForgeGauge popup",
+      "Focus loss must hide the PickGauge popup",
     );
   } finally {
     await stopProcess(focusTarget.child);
@@ -597,12 +597,12 @@ function validatePopupWindowHints(windowId) {
   assert.match(
     state,
     /_NET_WM_STATE_SKIP_TASKBAR/u,
-    "ForgeGauge popup must request skip-taskbar window state",
+    "PickGauge popup must request skip-taskbar window state",
   );
   assert.match(
     state,
     /_NET_WM_STATE_(ABOVE|STAYS_ON_TOP)/u,
-    "ForgeGauge popup must request above/stays-on-top window state",
+    "PickGauge popup must request above/stays-on-top window state",
   );
 
   return {
@@ -612,10 +612,10 @@ function validatePopupWindowHints(windowId) {
 }
 
 async function validateTrayMenuQuit(item, child, menuItems) {
-  const showItem = findMenuItem(menuItems, "Show ForgeGauge");
+  const showItem = findMenuItem(menuItems, "Show PickGauge");
   const quitItem = findMenuItem(menuItems, "Quit");
 
-  assert.ok(showItem, "Tray menu must expose Show ForgeGauge");
+  assert.ok(showItem, "Tray menu must expose Show PickGauge");
   assert.ok(quitItem, "Tray menu must expose Quit");
 
   triggerTrayMenuItem(item, quitItem);
@@ -623,9 +623,9 @@ async function validateTrayMenuQuit(item, child, menuItems) {
   assert.equal(
     await waitForProcessExit(child, stopTimeoutMs),
     true,
-    "Tray Quit menu item must terminate ForgeGauge",
+    "Tray Quit menu item must terminate PickGauge",
   );
-  assert.equal(child.exitCode, 0, "Tray Quit menu item must exit ForgeGauge successfully");
+  assert.equal(child.exitCode, 0, "Tray Quit menu item must exit PickGauge successfully");
   assert.equal(
     await waitForTrayItemUnregistered(item.address),
     true,
@@ -667,7 +667,7 @@ async function validateSettingsPersistence({ configPath, isolatedRoot }) {
   child = launchAppImage(isolatedRoot);
 
   try {
-    const item = await waitForForgeGaugeTrayItem(beforeRestartItems, child);
+    const item = await waitForPickGaugeTrayItem(beforeRestartItems, child);
     const menuItems = await waitForTrayMenuItems(item);
     const restartedConfig = await waitForPersistedConfig(isolatedRoot);
 
@@ -712,7 +712,7 @@ async function waitForPersistedConfig(isolatedRoot) {
     await delay(100);
   }
 
-  throw new Error("Timed out waiting for ForgeGauge to persist config");
+  throw new Error("Timed out waiting for PickGauge to persist config");
 }
 
 function findConfigFile(root) {
@@ -767,7 +767,7 @@ async function waitForTrayMenuItems(item) {
   while (Date.now() - started < menuTimeoutMs) {
     menuItems = trayMenuItems(item);
 
-    if (findMenuItem(menuItems, "Show ForgeGauge") && findMenuItem(menuItems, "Quit")) {
+    if (findMenuItem(menuItems, "Show PickGauge") && findMenuItem(menuItems, "Quit")) {
       return menuItems;
     }
 
@@ -850,8 +850,8 @@ function gdbusCall(args) {
   }).trim();
 }
 
-async function waitForVisibleForgeGaugeWindow(previousWindowIds) {
-  return waitForVisibleWindowByName("^ForgeGauge$", previousWindowIds);
+async function waitForVisiblePickGaugeWindow(previousWindowIds) {
+  return waitForVisibleWindowByName("^PickGauge$", previousWindowIds);
 }
 
 async function waitForVisibleWindowByName(name, previousWindowIds) {
@@ -868,14 +868,14 @@ async function waitForVisibleWindowByName(name, previousWindowIds) {
     await delay(100);
   }
 
-  throw new Error("Timed out waiting for visible ForgeGauge window");
+  throw new Error("Timed out waiting for visible PickGauge window");
 }
 
 async function waitForWindowHidden(windowId) {
   const started = Date.now();
 
   while (Date.now() - started < stopTimeoutMs) {
-    if (!visibleForgeGaugeWindowIds().includes(windowId)) {
+    if (!visiblePickGaugeWindowIds().includes(windowId)) {
       return true;
     }
 
@@ -885,8 +885,8 @@ async function waitForWindowHidden(windowId) {
   return false;
 }
 
-function visibleForgeGaugeWindowIds() {
-  return visibleWindowIdsByName("^ForgeGauge$");
+function visiblePickGaugeWindowIds() {
+  return visibleWindowIdsByName("^PickGauge$");
 }
 
 function visibleWindowIdsByName(name) {

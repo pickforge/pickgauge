@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourcePath = resolve(repoRoot, "sidecars/playwright/forgegauge-playwright-sidecar.mjs");
+const sourcePath = resolve(repoRoot, "sidecars/playwright/pickgauge-playwright-sidecar.mjs");
 const targetTriple =
   process.env.TAURI_ENV_TARGET_TRIPLE ||
   process.env.TARGET_TRIPLE ||
@@ -21,7 +21,7 @@ if (!targetTriple.includes("linux")) {
 const targetPath = resolve(
   repoRoot,
   "src-tauri/binaries",
-  `forgegauge-playwright-sidecar-${targetTriple}`,
+  `pickgauge-playwright-sidecar-${targetTriple}`,
 );
 const source = readFileSync(sourcePath, "utf8");
 

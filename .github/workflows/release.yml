@@ -1,4 +1,4 @@
-name: Release ForgeGauge
+name: Release PickGauge
 
 on:
   push:
@@ -13,7 +13,7 @@ env:
   GH_REPO: ${{ github.repository }}
 
 concurrency:
-  group: forgegauge-release-${{ github.ref }}
+  group: pickgauge-release-${{ github.ref }}
   cancel-in-progress: false
 
 defaults:
@@ -41,7 +41,7 @@ jobs:
             echo "has_tauri_app=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_tauri_app=false" >> "$GITHUB_OUTPUT"
-            echo "ForgeGauge app source is not present yet; skipping release build."
+            echo "PickGauge app source is not present yet; skipping release build."
           fi
 
       - name: Set release metadata
@@ -54,7 +54,7 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=forgegauge-v${version}-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "tag=pickgauge-v${version}-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
   create-release:
     name: Create draft release
@@ -71,9 +71,9 @@ jobs:
           release_notes="$(cat <<'EOF'
           ## Platform support
 
-          ForgeGauge is Linux/KDE-first. Windows and macOS builds are generated automatically, but they are currently untested.
+          PickGauge is Linux/KDE-first. Windows and macOS builds are generated automatically, but they are currently untested.
 
-          If you try ForgeGauge on Windows or macOS, personal experience reports, issues, and pull requests are very welcome so these builds can improve over time.
+          If you try PickGauge on Windows or macOS, personal experience reports, issues, and pull requests are very welcome so these builds can improve over time.
           EOF
           )"
 
@@ -82,7 +82,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" \
               --draft \
-              --title "ForgeGauge ${RELEASE_VERSION} (${GITHUB_SHA::7})" \
+              --title "PickGauge ${RELEASE_VERSION} (${GITHUB_SHA::7})" \
               --target "$GITHUB_SHA" \
               --notes "$release_notes" \
               --generate-notes

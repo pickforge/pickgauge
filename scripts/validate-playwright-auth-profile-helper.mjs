@@ -16,9 +16,9 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const helperPath = resolve(repoRoot, "scripts/validate-playwright-authenticated-profile.mjs");
-const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-auth-profile-helper-"));
-const appIdentifier = "com.pickforge.forgegauge";
-const markerFileName = ".forgegauge-profile.json";
+const validationRoot = mkdtempSync(resolve(tmpdir(), "pickgauge-auth-profile-helper-"));
+const appIdentifier = "com.pickforge.pickgauge";
+const markerFileName = ".pickgauge-profile.json";
 const officialUrls = [
   "https://chatgpt.com/codex/cloud/settings/analytics",
   "https://claude.ai/new#settings/usage",
@@ -84,7 +84,7 @@ function validateStrictBlankProfileRefresh() {
   const claudeProfileRoot = createProfile("claude", "strict-blank-claude");
   const logPath = resolve(validationRoot, "strict-blank.log");
 
-  writeFileSync(logPath, "ForgeGauge startup completed\n", { mode: 0o600 });
+  writeFileSync(logPath, "PickGauge startup completed\n", { mode: 0o600 });
 
   const result = runHelper([
     "--codex-profile",
@@ -116,7 +116,7 @@ function validateEnvironmentProfileInputs() {
   const claudeProfileRoot = createProfile("claude", "env-claude");
   const logPath = resolve(validationRoot, "env.log");
 
-  writeFileSync(logPath, "ForgeGauge env smoke completed\n", { mode: 0o600 });
+  writeFileSync(logPath, "PickGauge env smoke completed\n", { mode: 0o600 });
 
   const result = runHelper(
     [
@@ -127,9 +127,9 @@ function validateEnvironmentProfileInputs() {
       "--require-no-default-profile-references",
     ],
     {
-      FORGEGAUGE_AUTH_CLAUDE_PROFILE_ROOT: claudeProfileRoot,
-      FORGEGAUGE_AUTH_CODEX_PROFILE_ROOT: codexProfileRoot,
-      FORGEGAUGE_AUTH_LOG_PATH: logPath,
+      PICKGAUGE_AUTH_CLAUDE_PROFILE_ROOT: claudeProfileRoot,
+      PICKGAUGE_AUTH_CODEX_PROFILE_ROOT: codexProfileRoot,
+      PICKGAUGE_AUTH_LOG_PATH: logPath,
     },
   );
   const output = JSON.parse(result.stdout);
@@ -150,7 +150,7 @@ function validateSharedProfileRootInput() {
   const claudeProfileRoot = createProfile("claude", "shared-root/claude");
   const logPath = resolve(validationRoot, "shared-root.log");
 
-  writeFileSync(logPath, "ForgeGauge shared root smoke completed\n", { mode: 0o600 });
+  writeFileSync(logPath, "PickGauge shared root smoke completed\n", { mode: 0o600 });
 
   const result = runHelper([
     "--profile-root",
@@ -188,7 +188,7 @@ function validateEnvironmentSharedProfileRootInput() {
   const claudeProfileRoot = createProfile("claude", "env-shared-root/claude");
   const logPath = resolve(validationRoot, "env-shared-root.log");
 
-  writeFileSync(logPath, "ForgeGauge environment shared root smoke completed\n", {
+  writeFileSync(logPath, "PickGauge environment shared root smoke completed\n", {
     mode: 0o600,
   });
 
@@ -201,8 +201,8 @@ function validateEnvironmentSharedProfileRootInput() {
       "--require-no-default-profile-references",
     ],
     {
-      FORGEGAUGE_AUTH_LOG_PATH: logPath,
-      FORGEGAUGE_AUTH_PROFILE_ROOT: profileRoot,
+      PICKGAUGE_AUTH_LOG_PATH: logPath,
+      PICKGAUGE_AUTH_PROFILE_ROOT: profileRoot,
     },
   );
   const output = JSON.parse(result.stdout);
@@ -224,7 +224,7 @@ function validateServiceProfileOverridePrecedence() {
   const codexProfileRoot = createProfile("codex", "override-codex");
   const logPath = resolve(validationRoot, "override-precedence.log");
 
-  writeFileSync(logPath, "ForgeGauge override precedence smoke completed\n", { mode: 0o600 });
+  writeFileSync(logPath, "PickGauge override precedence smoke completed\n", { mode: 0o600 });
 
   const result = runHelper([
     "--profile-root",
@@ -259,7 +259,7 @@ function validateServiceProfileOverridePrecedence() {
 
 function validateRelativeEnvironmentSharedProfileRootFailure() {
   const result = runHelper([], {
-    FORGEGAUGE_AUTH_PROFILE_ROOT: "relative-browser-profiles",
+    PICKGAUGE_AUTH_PROFILE_ROOT: "relative-browser-profiles",
   });
 
   assertFailureCode(result, "invalid_profile_root");
@@ -352,7 +352,7 @@ function validatePreflightFailure({ code, fileName, flag, name }) {
 function validateDefaultProfileReferenceFailure() {
   const profileRoot = createProfile("codex", "default-profile-reference", {
     extraPreferences: {
-      forgegaugeTestReference: resolve(homedir(), ".config/chromium"),
+      pickgaugeTestReference: resolve(homedir(), ".config/chromium"),
     },
   });
   const result = runHelper([

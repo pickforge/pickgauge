@@ -1,6 +1,6 @@
 # Provider Refresh Lifecycle
 
-This document defines the current ForgeGauge provider refresh policy. It must be updated before adding a browser automation backend or async provider runtime.
+This document defines the current PickGauge provider refresh policy. It must be updated before adding a browser automation backend or async provider runtime.
 
 ## Scheduler Ownership
 

@@ -14,7 +14,7 @@ const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
 const sidecarPath = resolve(
   repoRoot,
   "src-tauri/binaries",
-  `forgegauge-playwright-sidecar-${targetTriple}`,
+  `pickgauge-playwright-sidecar-${targetTriple}`,
 );
 const launchTimeoutMs = 30_000;
 const stopTimeoutMs = 3_000;
@@ -39,8 +39,8 @@ const disabledStoragePreferences = {
     password_manager_enabled: false,
   },
 };
-const validationRoot = mkdtempSync(resolve(tmpdir(), "forgegauge-synthetic-fail-closed-"));
-const syntheticCookieName = "forgegauge_synthetic_session";
+const validationRoot = mkdtempSync(resolve(tmpdir(), "pickgauge-synthetic-fail-closed-"));
+const syntheticCookieName = "pickgauge_synthetic_session";
 const sensitiveOutputPattern =
   /\b(set-cookie|cookie:|authorization:|bearer\s+[A-Za-z0-9._~+/-]+=*|session[_-]?token)\b/iu;
 let server = null;

@@ -13,7 +13,7 @@ use std::{
 
 pub const PROFILE_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 pub const SESSION_REGISTRY_FILE_NAME: &str = "managed-browser-sessions.json";
-pub const PROCESS_MARKER_ENV: &str = "FORGEGAUGE_BROWSER_PROCESS_MARKER";
+pub const PROCESS_MARKER_ENV: &str = "PICKGAUGE_BROWSER_PROCESS_MARKER";
 pub const CHROMIUM_DEFAULT_PROFILE_DIR: &str = "Default";
 pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
@@ -1343,7 +1343,7 @@ mod tests {
         fn new() -> Self {
             let mut path = std::env::temp_dir();
             path.push(format!(
-                "forgegauge-browser-session-test-{}-{}",
+                "pickgauge-browser-session-test-{}-{}",
                 std::process::id(),
                 NEXT_TEST_DIR_ID.fetch_add(1, Ordering::Relaxed)
             ));
@@ -1541,7 +1541,7 @@ mod tests {
 
     #[test]
     fn chromium_launch_plan_uses_service_profile_path() {
-        let profile_path = PathBuf::from("/tmp/forgegauge/browser-profiles/codex");
+        let profile_path = PathBuf::from("/tmp/pickgauge/browser-profiles/codex");
         let plan = chromium_launch_plan(Service::Codex, profile_path.clone());
 
         assert_eq!(plan.service, Service::Codex);
@@ -1549,12 +1549,12 @@ mod tests {
         assert_eq!(plan.profile_label, "codex-profile");
         assert!(plan
             .args
-            .contains(&"--user-data-dir=/tmp/forgegauge/browser-profiles/codex".to_string()));
+            .contains(&"--user-data-dir=/tmp/pickgauge/browser-profiles/codex".to_string()));
     }
 
     #[test]
     fn chromium_launch_plan_disables_password_and_autofill_prompts() {
-        let plan = chromium_launch_plan(Service::Claude, "/tmp/forgegauge/browser-profiles/claude");
+        let plan = chromium_launch_plan(Service::Claude, "/tmp/pickgauge/browser-profiles/claude");
 
         assert!(plan
             .args
@@ -1583,8 +1583,7 @@ mod tests {
 
     #[test]
     fn launch_diagnostics_redact_raw_profile_paths() {
-        let profile_path =
-            "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/claude";
         let plan = chromium_launch_plan(Service::Claude, profile_path);
         let diagnostics = format!("{:?}", plan.diagnostics);
 
@@ -1600,7 +1599,7 @@ mod tests {
 
     #[test]
     fn launch_plan_debug_redacts_raw_profile_paths_and_args() {
-        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
         let debug = format!("{plan:?}");
 
@@ -1630,7 +1629,7 @@ mod tests {
 
     #[test]
     fn playwright_launch_request_uses_persistent_context_contract() {
-        let profile_path = PathBuf::from("/tmp/forgegauge/browser-profiles/codex");
+        let profile_path = PathBuf::from("/tmp/pickgauge/browser-profiles/codex");
         let plan = chromium_launch_plan(Service::Codex, profile_path.clone());
         let request = playwright_launch_request(&plan);
 
@@ -1651,8 +1650,7 @@ mod tests {
 
     #[test]
     fn playwright_launch_request_diagnostics_redact_user_data_dir() {
-        let profile_path =
-            "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/claude";
         let plan = chromium_launch_plan(Service::Claude, profile_path);
         let request = playwright_launch_request(&plan);
         let diagnostics = format!("{:?}", request.diagnostics);
@@ -1676,7 +1674,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_launch_request_serializes_to_protocol_shape() {
-        let profile_path = "/tmp/forgegauge/browser-profiles/codex";
+        let profile_path = "/tmp/pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request = playwright_sidecar_launch_request(
@@ -1713,8 +1711,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_launch_request_debug_redacts_sensitive_launch_input() {
-        let profile_path =
-            "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/claude";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/claude";
         let plan = chromium_launch_plan(Service::Claude, profile_path);
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request =
@@ -1736,7 +1733,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_refresh_request_serializes_to_headless_protocol_shape() {
-        let profile_path = "/tmp/forgegauge/browser-profiles/claude";
+        let profile_path = "/tmp/pickgauge/browser-profiles/claude";
         let plan = chromium_launch_plan(Service::Claude, profile_path);
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request =
@@ -1763,7 +1760,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_refresh_request_debug_redacts_sensitive_input() {
-        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request = playwright_sidecar_refresh_request(
@@ -1784,7 +1781,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_launch_request_rejects_non_https_urls() {
-        let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/pickgauge/codex");
         let launch_request = playwright_launch_request(&plan);
         let error = playwright_sidecar_launch_request(&launch_request, "http://example.test")
             .expect_err("non-https urls are rejected");
@@ -1795,7 +1792,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_launch_response_accepts_launched_status() {
-        let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/pickgauge/codex");
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request = playwright_sidecar_launch_request(
             &launch_request,
@@ -1825,7 +1822,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_usage_response_accepts_checked_status() {
-        let plan = chromium_launch_plan(Service::Codex, "/tmp/forgegauge/codex");
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/pickgauge/codex");
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request = playwright_sidecar_refresh_request(
             &launch_request,
@@ -1865,7 +1862,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_usage_response_rejects_unsanitized_fields() {
-        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request = playwright_sidecar_refresh_request(
@@ -1901,7 +1898,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_launch_response_rejects_mismatch_without_echoing_input() {
-        let profile_path = "/home/dev/.local/share/com.pickforge.forgegauge/browser-profiles/codex";
+        let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request = playwright_sidecar_launch_request(
@@ -1932,7 +1929,7 @@ mod tests {
 
     #[test]
     fn playwright_sidecar_launch_response_rejects_failed_status_without_raw_code_details() {
-        let plan = chromium_launch_plan(Service::Claude, "/tmp/forgegauge/claude");
+        let plan = chromium_launch_plan(Service::Claude, "/tmp/pickgauge/claude");
         let launch_request = playwright_launch_request(&plan);
         let sidecar_request =
             playwright_sidecar_launch_request(&launch_request, "https://claude.ai/usage")
@@ -1941,14 +1938,14 @@ mod tests {
             "ok": false,
             "status": "rejected",
             "protocolVersion": 1,
-            "code": "/tmp/forgegauge/claude"
+            "code": "/tmp/pickgauge/claude"
         })
         .to_string();
         let error = playwright_sidecar_launch_response(&raw, &sidecar_request)
             .expect_err("rejected response is rejected");
 
         assert_eq!(error, "Managed login sidecar rejected launch");
-        assert!(!error.contains("/tmp/forgegauge"));
+        assert!(!error.contains("/tmp/pickgauge"));
     }
 
     #[test]

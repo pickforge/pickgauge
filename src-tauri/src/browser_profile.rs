@@ -6,9 +6,9 @@ use std::{
 };
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
-pub const PROFILE_MARKER_FILE_NAME: &str = ".forgegauge-profile.json";
+pub const PROFILE_MARKER_FILE_NAME: &str = ".pickgauge-profile.json";
 
-const APP_IDENTIFIER: &str = "com.pickforge.forgegauge";
+const APP_IDENTIFIER: &str = "com.pickforge.pickgauge";
 const MARKER_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -362,7 +362,7 @@ fn verify_marker(path: &Path, service: BrowserProfileService) -> Result<(), Stri
         || marker.app_identifier != APP_IDENTIFIER
         || marker.service != service
     {
-        return Err("Browser profile marker does not match ForgeGauge ownership".to_string());
+        return Err("Browser profile marker does not match PickGauge ownership".to_string());
     }
 
     Ok(())
@@ -429,7 +429,7 @@ mod tests {
         fn new() -> Self {
             let id = TEST_ID.fetch_add(1, Ordering::Relaxed);
             let path = env::temp_dir().join(format!(
-                "forgegauge-browser-profile-test-{}-{id}",
+                "pickgauge-browser-profile-test-{}-{id}",
                 std::process::id()
             ));
 
@@ -639,7 +639,7 @@ mod tests {
         let default_browser_path = home
             .join(".config")
             .join("google-chrome")
-            .join("ForgeGaugeTestProfile");
+            .join("PickGaugeTestProfile");
         let settings = BrowserProfileSettings {
             codex_path: Some(default_browser_path.to_string_lossy().to_string()),
             ..empty_settings()
@@ -824,7 +824,7 @@ mod tests {
         fs::create_dir_all(&paths.codex).expect("profile dir is recreated");
         fs::write(
             paths.codex.join(PROFILE_MARKER_FILE_NAME),
-            r#"{"schemaVersion":1,"appIdentifier":"com.pickforge.forgegauge","service":"claude","createdAt":"2026-06-03T00:00:00Z"}"#,
+            r#"{"schemaVersion":1,"appIdentifier":"com.pickforge.pickgauge","service":"claude","createdAt":"2026-06-03T00:00:00Z"}"#,
         )
         .expect("marker is written");
 

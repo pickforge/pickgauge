@@ -1,31 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">ForgeGauge logo mark</title>
-  <desc id="desc">A split blue and orange circular usage gauge with a privacy shield in the center.</desc>
-  <defs>
-    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#172033" flood-opacity="0.16"/>
-    </filter>
-  </defs>
-  <circle cx="256" cy="256" r="218" fill="#f6f7fb" stroke="#d8dee9" stroke-width="12"/>
-  <circle cx="256" cy="256" r="172" fill="none" stroke="#e4e8ef" stroke-width="56"/>
-  <path d="M 139 382 A 172 172 0 0 1 139 130" fill="none" stroke="#2563eb" stroke-width="56" stroke-linecap="round"/>
-  <path d="M 373 130 A 172 172 0 0 1 373 382" fill="none" stroke="#c75b12" stroke-width="56" stroke-linecap="round"/>
-  <g stroke="#647084" stroke-width="7" stroke-linecap="round" opacity="0.86">
-    <path d="M256 61v26"/>
-    <path d="M256 425v26"/>
-    <path d="M61 256h26"/>
-    <path d="M425 256h26"/>
-    <path d="M118 118l18 18"/>
-    <path d="M376 376l18 18"/>
-    <path d="M394 118l-18 18"/>
-    <path d="M136 376l-18 18"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="PickGauge mark">
+  <title>PickGauge mark</title>
+  <rect width="128" height="128" rx="24" fill="#0A0A0B"/>
+
+  <g stroke="#F2F2F3" stroke-width="3" stroke-linecap="square" fill="none">
+    <path d="M30 48 V32 H46"/>
+    <path d="M30 80 V96 H46"/>
+    <path d="M82 96 H98 V80"/>
+    <path d="M82 32 H98 V48"/>
   </g>
-  <g filter="url(#soft-shadow)">
-    <circle cx="256" cy="256" r="105" fill="#ffffff" stroke="#d8dee9" stroke-width="7"/>
-    <path d="M256 176l72 29v57c0 47-28 84-72 105-44-21-72-58-72-105v-57l72-29z" fill="#f6f7fb" stroke="#647084" stroke-width="8" stroke-linejoin="round"/>
-    <rect x="228" y="256" width="56" height="52" rx="10" fill="#172033"/>
-    <path d="M238 256v-18c0-24 14-40 18-40s18 16 18 40v18" fill="none" stroke="#172033" stroke-width="12" stroke-linecap="round"/>
-    <circle cx="256" cy="281" r="7" fill="#f6f7fb"/>
-    <path d="M256 288v12" stroke="#f6f7fb" stroke-width="5" stroke-linecap="round"/>
+  <path d="M44 76 A28 28 0 1 1 84 76" stroke="#F2F2F3" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.55"/>
+  <path d="M64 64 L82 48" stroke="#F2F2F3" stroke-width="2.4" stroke-linecap="round" opacity="0.65"/>
+  <g stroke="#F2F2F3" stroke-width="1.5" stroke-linecap="round" opacity="0.35">
+    <line x1="64" y1="37" x2="64" y2="45"/>
+    <line x1="42" y1="55" x2="50" y2="58"/>
+    <line x1="86" y1="55" x2="78" y2="58"/>
   </g>
+  <circle cx="84" cy="46" r="6" fill="#FF7A1A"/>
 </svg>

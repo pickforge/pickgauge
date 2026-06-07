@@ -9,11 +9,11 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appImagePath = resolve(
   repoRoot,
-  "src-tauri/target/release/bundle/appimage/ForgeGauge_0.1.0_amd64.AppImage",
+  "src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage",
 );
 const sidecarPath = resolve(
   repoRoot,
-  "src-tauri/binaries/forgegauge-playwright-sidecar-x86_64-unknown-linux-gnu",
+  "src-tauri/binaries/pickgauge-playwright-sidecar-x86_64-unknown-linux-gnu",
 );
 const readmePath = resolve(repoRoot, "README.md");
 const releaseWorkflowPath = resolve(repoRoot, ".github/workflows/release.yml");

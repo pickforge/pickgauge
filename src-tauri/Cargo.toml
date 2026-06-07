@@ -1,5 +1,5 @@
 [package]
-name = "forgegauge"
+name = "pickgauge"
 version = "0.1.0"
 description = "The Pickforge AI usage tray for Codex and Claude Code."
 authors = ["Pickforge"]
@@ -7,11 +7,11 @@ edition = "2021"
 license = "MIT"
 
 [lib]
-name = "forgegauge_lib"
+name = "pickgauge_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "forgegauge"
+name = "pickgauge"
 path = "src/main.rs"
 
 [build-dependencies]

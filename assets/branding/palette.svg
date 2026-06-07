@@ -1,38 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
-  <title id="title">ForgeGauge color palette</title>
-  <desc id="desc">Primary brand colors for ForgeGauge.</desc>
-  <rect width="1200" height="420" fill="#f6f7fb"/>
-  <text x="60" y="80" fill="#172033" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="48" font-weight="800">ForgeGauge Palette</text>
-  <g font-family="Inter, Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">
-    <g transform="translate(60 135)">
-      <rect width="160" height="160" rx="18" fill="#2563eb"/>
-      <text y="210" fill="#172033">Codex Blue</text>
-      <text y="242" fill="#647084" font-size="18">#2563eb</text>
-    </g>
-    <g transform="translate(260 135)">
-      <rect width="160" height="160" rx="18" fill="#c75b12"/>
-      <text y="210" fill="#172033">Claude Orange</text>
-      <text y="242" fill="#647084" font-size="18">#c75b12</text>
-    </g>
-    <g transform="translate(460 135)">
-      <rect width="160" height="160" rx="18" fill="#172033"/>
-      <text y="210" fill="#172033">Charcoal</text>
-      <text y="242" fill="#647084" font-size="18">#172033</text>
-    </g>
-    <g transform="translate(660 135)">
-      <rect width="160" height="160" rx="18" fill="#647084"/>
-      <text y="210" fill="#172033">Slate</text>
-      <text y="242" fill="#647084" font-size="18">#647084</text>
-    </g>
-    <g transform="translate(860 135)">
-      <rect width="160" height="160" rx="18" fill="#dc2626"/>
-      <text y="210" fill="#172033">Low Red</text>
-      <text y="242" fill="#647084" font-size="18">#dc2626</text>
-    </g>
-    <g transform="translate(1060 135)">
-      <rect width="80" height="160" rx="18" fill="#ffffff" stroke="#d8dee9" stroke-width="4"/>
-      <text x="-10" y="210" fill="#172033">Surface</text>
-      <text x="-10" y="242" fill="#647084" font-size="18">#f6f7fb</text>
-    </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">PickGauge color palette</title>
+  <desc id="desc">Primary Pickforge Studio colors used by PickGauge.</desc>
+  <rect width="1200" height="420" fill="#0A0A0B"/>
+  <text x="60" y="80" fill="#F2F2F3" font-family="Geist, Inter, Arial, sans-serif" font-size="48" font-weight="750">PickGauge Palette</text>
+  <g font-family="Geist Mono, JetBrains Mono, monospace" font-size="20" font-weight="600" fill="#F2F2F3">
+    <rect x="60" y="130" width="180" height="160" rx="18" fill="#0A0A0B" stroke="#F2F2F3" stroke-opacity="0.14"/>
+    <text x="60" y="330">#0A0A0B</text>
+    <rect x="280" y="130" width="180" height="160" rx="18" fill="#0F0F11" stroke="#F2F2F3" stroke-opacity="0.14"/>
+    <text x="280" y="330">#0F0F11</text>
+    <rect x="500" y="130" width="180" height="160" rx="18" fill="#F2F2F3"/>
+    <text x="500" y="330">#F2F2F3</text>
+    <rect x="720" y="130" width="180" height="160" rx="18" fill="#6E6E75"/>
+    <text x="720" y="330">#6E6E75</text>
+    <rect x="940" y="130" width="180" height="160" rx="18" fill="#FF7A1A"/>
+    <text x="940" y="330">#FF7A1A</text>
   </g>
 </svg>

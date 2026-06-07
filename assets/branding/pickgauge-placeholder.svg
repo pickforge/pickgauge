@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">PickGauge placeholder</title>
+  <desc id="desc">Dark Pickforge Studio placeholder with PickGauge bracket and gauge motif.</desc>
+  <rect width="640" height="360" rx="24" fill="#0A0A0B"/>
+  <rect x="1" y="1" width="638" height="358" rx="23" stroke="#F2F2F3" stroke-opacity="0.1"/>
+  <g stroke="#F2F2F3" stroke-opacity="0.07">
+    <path d="M0 72H640M0 144H640M0 216H640M0 288H640"/>
+    <path d="M80 0V360M160 0V360M240 0V360M320 0V360M400 0V360M480 0V360M560 0V360"/>
+  </g>
+  <g transform="translate(256 116)">
+    <rect width="128" height="128" rx="24" fill="#0F0F11" stroke="#F2F2F3" stroke-opacity="0.1"/>
+    <g stroke="#F2F2F3" stroke-width="3" stroke-linecap="square">
+      <path d="M30 48V32H46"/>
+      <path d="M30 80V96H46"/>
+      <path d="M82 96H98V80"/>
+      <path d="M82 32H98V48"/>
+    </g>
+    <path d="M44 76A28 28 0 1 1 84 76" stroke="#F2F2F3" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+    <path d="M64 64L82 48" stroke="#F2F2F3" stroke-width="2.4" stroke-linecap="round" opacity="0.65"/>
+    <circle cx="84" cy="46" r="6" fill="#FF7A1A"/>
+  </g>
+</svg>

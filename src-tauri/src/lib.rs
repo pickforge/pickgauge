@@ -1,4 +1,5 @@
 mod browser_profile;
+mod kwin;
 mod browser_session;
 mod config;
 pub mod history;
@@ -1608,12 +1609,13 @@ fn ensure_float_window(app: &AppHandle, visible: bool) {
         return;
     }
 
+    kwin::ensure_float_rule();
     let window = WebviewWindowBuilder::new(
         app,
         FLOAT_WINDOW_LABEL,
         WebviewUrl::App("index.html".into()),
     )
-    .title("PickGauge")
+    .title("PickGauge Float")
     .inner_size(
         f64::from(FLOAT_WINDOW_WIDTH),
         f64::from(FLOAT_WINDOW_HEIGHT),

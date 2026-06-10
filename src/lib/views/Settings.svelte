@@ -191,13 +191,24 @@
         Local estimates
       </label>
       <label class="switch">
-        <input type="checkbox" bind:checked={config.providers.webEnabled} />
+        <input type="checkbox" bind:checked={config.providers.cliEnabled} />
         <span class="track"></span>
-        Official web readings
+        Official readings via CLI login
+      </label>
+      <label class="switch">
+        <input
+          type="checkbox"
+          bind:checked={config.providers.webEnabled}
+          disabled={config.providers.cliEnabled}
+        />
+        <span class="track"></span>
+        Official web readings (browser)
       </label>
       <p class="hint">
-        Web readings are opt-in. Logins happen in an isolated browser profile and PickGauge never
-        stores passwords.
+        CLI readings reuse the Codex and Claude Code logins already on this machine — the real usage
+        number, auto-refreshed, no browser or captcha. Tokens are read locally and only sent to the
+        official provider APIs. Falls back to local estimates if a CLI isn't signed in. The browser
+        option is the older fallback and is disabled while CLI readings are on.
       </p>
     </div>
 

@@ -119,8 +119,10 @@ pub enum UsageProviderError {
 pub enum UsageProviderId {
     CodexLocal,
     CodexWeb,
+    CodexCli,
     ClaudeLocal,
     ClaudeWeb,
+    ClaudeCli,
     Fake,
 }
 
@@ -177,6 +179,11 @@ struct FakeUsageProvider {
 
 #[derive(Clone, Copy)]
 struct FailClosedWebProvider {
+    service: Service,
+}
+
+#[derive(Clone, Copy)]
+struct CliUsageProvider {
     service: Service,
 }
 
@@ -258,8 +265,10 @@ impl UsageProviderId {
         match self {
             Self::CodexLocal => "codex.local",
             Self::CodexWeb => "codex.web",
+            Self::CodexCli => "codex.cli",
             Self::ClaudeLocal => "claude.local",
             Self::ClaudeWeb => "claude.web",
+            Self::ClaudeCli => "claude.cli",
             Self::Fake => "fake",
         }
     }
@@ -724,6 +733,12 @@ impl UsageEngine {
             | (UsageProviderId::ClaudeWeb, Service::Claude) => {
                 Err(UsageProviderError::LoginRequired)
             }
+            (UsageProviderId::CodexCli, Service::Codex) => {
+                crate::cli_provider::refresh(Service::Codex, now)
+            }
+            (UsageProviderId::ClaudeCli, Service::Claude) => {
+                crate::cli_provider::refresh(Service::Claude, now)
+            }
             _ => Err(UsageProviderError::Internal),
         }
     }
@@ -1155,6 +1170,29 @@ impl UsageProvider for FailClosedWebProvider {
     }
 }
 
+impl UsageProvider for CliUsageProvider {
+    fn provider_id(&self) -> UsageProviderId {
+        match self.service {
+            Service::Codex => UsageProviderId::CodexCli,
+            Service::Claude => UsageProviderId::ClaudeCli,
+        }
+    }
+
+    fn service(&self) -> Service {
+        self.service
+    }
+
+    // CLI readings ARE the official number, just fetched via the API rather
+    // than the browser, so they flow through the same Web merge/priority path.
+    fn source(&self) -> UsageSource {
+        UsageSource::Web
+    }
+
+    fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+        crate::cli_provider::refresh(self.service, now)
+    }
+}
+
 impl UsageProvider for ClaudeLocalProvider {
     fn provider_id(&self) -> UsageProviderId {
         UsageProviderId::ClaudeLocal
@@ -1253,7 +1291,13 @@ fn providers_for_config(
             }));
         }
 
-        if config.providers.web_enabled {
+        // CLI credentials take precedence over browser scraping for the
+        // official (Web-source) reading.
+        if config.providers.cli_enabled {
+            providers.push(Box::new(CliUsageProvider {
+                service: Service::Codex,
+            }));
+        } else if config.providers.web_enabled {
             providers.push(Box::new(FailClosedWebProvider {
                 service: Service::Codex,
             }));
@@ -1279,7 +1323,11 @@ fn providers_for_config(
             }));
         }
 
-        if config.providers.web_enabled {
+        if config.providers.cli_enabled {
+            providers.push(Box::new(CliUsageProvider {
+                service: Service::Claude,
+            }));
+        } else if config.providers.web_enabled {
             providers.push(Box::new(FailClosedWebProvider {
                 service: Service::Claude,
             }));
@@ -1517,6 +1565,7 @@ mod tests {
             providers: crate::config::ProviderSettings {
                 local_enabled: false,
                 web_enabled: false,
+                cli_enabled: false,
             },
             ..AppConfig::default()
         }
@@ -1531,6 +1580,7 @@ mod tests {
             providers: crate::config::ProviderSettings {
                 local_enabled: true,
                 web_enabled: false,
+                cli_enabled: false,
             },
             ..AppConfig::default()
         }
@@ -1545,6 +1595,7 @@ mod tests {
             providers: crate::config::ProviderSettings {
                 local_enabled: true,
                 web_enabled: false,
+                cli_enabled: false,
             },
             ..AppConfig::default()
         }
@@ -1559,6 +1610,7 @@ mod tests {
             providers: crate::config::ProviderSettings {
                 local_enabled: false,
                 web_enabled: true,
+                cli_enabled: false,
             },
             ..AppConfig::default()
         }

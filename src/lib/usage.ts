@@ -158,6 +158,7 @@ export type AppConfig = {
   providers: {
     localEnabled: boolean;
     webEnabled: boolean;
+    cliEnabled: boolean;
   };
   intervals: {
     localSeconds: number;
@@ -194,6 +195,7 @@ export const defaultConfig: AppConfig = {
   providers: {
     localEnabled: true,
     webEnabled: false,
+    cliEnabled: true,
   },
   intervals: {
     localSeconds: 45,

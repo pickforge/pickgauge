@@ -1,4 +1,5 @@
 mod browser_profile;
+mod cli_provider;
 mod kwin;
 mod browser_session;
 mod config;
@@ -1336,7 +1337,9 @@ fn refresh_all_with_headless_web(
     let mut display_state = engine.refresh_all().map_err(map_usage_refresh_error)?;
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    if config.providers.web_enabled {
+    // The CLI-credentials provider produces the Web-source snapshot inside
+    // refresh_all(); only drive the headless browser when it is not in use.
+    if config.providers.web_enabled && !config.providers.cli_enabled {
         for service in [Service::Codex, Service::Claude] {
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
@@ -1367,7 +1370,7 @@ fn refresh_due_with_headless_web(
 ) -> CommandResult<UsageDisplayState> {
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    if config.providers.web_enabled {
+    if config.providers.web_enabled && !config.providers.cli_enabled {
         for service in [Service::Codex, Service::Claude] {
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,

@@ -38,6 +38,9 @@ pub struct ServiceToggles {
 pub struct ProviderSettings {
     pub local_enabled: bool,
     pub web_enabled: bool,
+    /// Official readings via the Codex/Claude CLIs' own logins (no browser).
+    /// Takes precedence over `web_enabled` when both are set.
+    pub cli_enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -122,6 +125,7 @@ impl Default for AppConfig {
             providers: ProviderSettings {
                 local_enabled: true,
                 web_enabled: false,
+                cli_enabled: true,
             },
             intervals: RefreshIntervals {
                 local_seconds: 45,
@@ -514,6 +518,7 @@ mod tests {
             providers: ProviderSettings {
                 local_enabled: true,
                 web_enabled: true,
+                cli_enabled: false,
             },
             intervals: RefreshIntervals {
                 local_seconds: 1,
@@ -560,6 +565,7 @@ mod tests {
             providers: ProviderSettings {
                 local_enabled: false,
                 web_enabled: true,
+                cli_enabled: false,
             },
             intervals: RefreshIntervals {
                 local_seconds: 60,

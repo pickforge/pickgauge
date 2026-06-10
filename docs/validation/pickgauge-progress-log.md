@@ -612,3 +612,25 @@ Deferred evidence:
 - Web/session security checks require browser backend selection and manual authenticated login/profile validation.
 - Current-feature release verification requires pushing or dispatching this feature branch through the release workflow.
 - Windows/macOS install/runtime checks require manual testing on those platforms.
+
+## 2026-06-10 — Branded GUI build-out (dashboard, history, float button, sound cues)
+
+Implemented:
+
+- Rebuilt the frontend on the Pickforge "one ember on a cold canvas" design system (Geist Sans/Mono via `@fontsource`, Phosphor icons, token-based `src/app.css`): `App.svelte` shell with brand window chrome and sidebar navigation, plus `Dashboard`, `History`, and `Settings` views and a half-arc `Gauge` component per the branding spec.
+- Usage history: `src-tauri/src/history.rs` stores gauge samples in SQLite under the app data dir (400-day retention, change-aware sampling); `local_provider.rs` gained `daily_token_usage` aggregation (caller-supplied UTC offset) feeding the History view's days/weeks/months grouping and the dashboard 14-day charts.
+- Floating button: dynamically created always-on-top, transparent, non-focusable `float` window (drag to move, click opens the app, right-click refreshes). Runs under XWayland on Wayland (`PICKGAUGE_NATIVE_WAYLAND=1` opts out). WebKitGTK's 200x200 minimum child request is overridden via GTK `set_size_request` so the window is exactly 184x64 with no invisible click-stealing margin.
+- Sound cues replace notifications: synthesized warn/recover chimes (`src-tauri/src/sounds.rs`, played via pw-play/paplay/aplay) fire only on low-threshold crossings, gated by the new config v5 `ui.sounds`; `ui.floatButton` toggles the capsule. Config migration v4→v5 covered by tests.
+- Main window promoted from tray popup to a 1000x700 resizable app window (close hides to tray; no hide-on-focus-loss).
+
+Validation evidence:
+
+- `cargo test` 208 passed; `cargo clippy -D warnings` and `cargo fmt --check` clean.
+- `svelte-check` 0 errors/0 warnings; ESLint clean; Vitest 56 passed; `vite build` succeeded.
+- `npm run test:browser-preview` passed after updating the validator for the multi-view UI (navigates Settings to opt into web providers, new aria-labels preserved).
+- Live KDE/Wayland smoke on this machine: app launched via `npm run tauri dev`; float capsule rendered transparent at exactly 184x64 above all windows (WM_NORMAL_HINTS min/max 184x64 verified via xprop); clicking it opened the main window; dashboard showed real local activity (tokens/sessions) from `~/.claude` and `~/.codex`.
+
+Deferred:
+
+- Audible verification of the warn/recover chimes (requires a real threshold crossing or manual quota calibration).
+- Tray icon interaction, authenticated web providers, and cross-platform checks remain as previously deferred.

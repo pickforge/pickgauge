@@ -128,7 +128,7 @@ async function validatePreviewState(browser, viewport, previewState) {
     );
     await assertVisibleText(page, "Codex");
     await assertVisibleText(page, "Claude Code");
-    await assertVisibleText(page, "Provider controls");
+    await assertVisibleText(page, "Remaining usage");
 
     for (const note of previewState.notes) {
       assert.equal(
@@ -168,13 +168,16 @@ async function validateDesktopOnlyControlFallbacks(browser) {
 
     assert.equal(await officialRefresh.isDisabled(), true);
     assert.equal(await defaultStartLogin.count(), 0);
+
+    await openSettingsView(page);
     assert.equal(await codexProfile.isDisabled(), true);
 
-    await page.getByLabel("Experimental web providers").check();
+    await setWebProvidersOptIn(page, true);
+    assert.equal(await codexProfile.isDisabled(), false);
 
+    await openDashboardView(page);
     assert.equal(await officialRefresh.isDisabled(), false);
     assert.equal(await defaultStartLogin.count(), 0);
-    assert.equal(await codexProfile.isDisabled(), false);
 
     await officialRefresh.click();
     await assertVisibleText(page, "Official Codex usage refreshes in the desktop app");
@@ -190,12 +193,36 @@ async function validateDesktopOnlyControlFallbacks(browser) {
     await validateStartLoginPrompt(page, "network-unavailable", { expectedVisible: false });
     await validateStartLoginPrompt(page, "unexpected-ui", { expectedVisible: false });
 
-    await page.getByRole("button", { name: "Hide popup to tray" }).click();
-    await assertVisibleText(page, "Popup hides to tray in the desktop app");
     await assertNoHorizontalOverflow(page, { label: "desktop", width: 1280 }, "controls");
   } finally {
     await context.close();
   }
+}
+
+async function openSettingsView(page) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Official web readings").waitFor({ state: "attached" });
+}
+
+async function openDashboardView(page) {
+  await page.getByRole("button", { name: "Dashboard" }).click();
+  await page.locator("article.usage-card").first().waitFor();
+}
+
+async function setWebProvidersOptIn(page, enabled) {
+  const toggle = page.getByLabel("Official web readings");
+
+  if ((await toggle.isChecked()) !== enabled) {
+    await page.locator("label.switch", { hasText: "Official web readings" }).click();
+  }
+
+  assert.equal(await toggle.isChecked(), enabled, "web provider opt-in should toggle");
+}
+
+async function optInWebProviders(page) {
+  await openSettingsView(page);
+  await setWebProvidersOptIn(page, true);
+  await openDashboardView(page);
 }
 
 async function assertStartLoginHiddenAfterOptIn(page, viewport, state) {
@@ -204,7 +231,7 @@ async function assertStartLoginHiddenAfterOptIn(page, viewport, state) {
   });
 
   assert.equal(await startLogin.count(), 0, `${viewport.label} ${state} should not show Start login`);
-  await page.getByLabel("Experimental web providers").check();
+  await optInWebProviders(page);
   assert.equal(
     await startLogin.count(),
     0,
@@ -222,13 +249,13 @@ async function validateStartLoginPrompt(page, state, { expectedVisible }) {
 
   if (!expectedVisible) {
     assert.equal(await startLogin.count(), 0, `${state} should not show Start login`);
-    await page.getByLabel("Experimental web providers").check();
+    await optInWebProviders(page);
     assert.equal(await startLogin.count(), 0, `${state} should keep Start login hidden`);
     return null;
   }
 
   assert.equal(await startLogin.isDisabled(), true, `${state} login prompt should start disabled`);
-  await page.getByLabel("Experimental web providers").check();
+  await optInWebProviders(page);
   assert.equal(await startLogin.isDisabled(), false, `${state} login prompt should be enabled`);
   return startLogin;
 }

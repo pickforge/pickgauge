@@ -1,18 +1,21 @@
 mod browser_profile;
 mod browser_session;
 mod config;
+pub mod history;
 pub mod local_provider;
+pub mod sounds;
 pub mod usage;
 pub mod web_provider;
 
 use std::{
+    collections::HashMap,
     fs,
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Child, ChildStdout},
     sync::{mpsc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{
     image::Image,
@@ -46,7 +49,6 @@ const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
 const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const LOG_FILE_NAME: &str = "pickgauge.log";
 const LOG_REDACTION_POLICY_PATH: &str = "docs/security/log-redaction-policy.md";
-const TRAY_UNKNOWN: &[u8] = include_bytes!("../../assets/branding/tray-unknown-64.png");
 const TRAY_ICON_SIZE: u32 = 64;
 const TRAY_ICON_CENTER: f32 = 32.0;
 const TRAY_ICON_OUTER_RADIUS: f32 = 30.0;
@@ -54,16 +56,27 @@ const TRAY_ICON_INNER_RADIUS: f32 = 21.0;
 const TRAY_CODEX_ACCENT: [u8; 4] = [242, 242, 243, 255];
 const TRAY_CLAUDE_ACCENT: [u8; 4] = [255, 122, 26, 255];
 const TRAY_LOW_ACCENT: [u8; 4] = [194, 65, 12, 255];
-const TRAY_TRACK: [u8; 4] = [110, 110, 117, 112];
+// Solid, not translucent: the icon must stay a self-contained dark coin so
+// the gauge ring keeps contrast on light desktop panels too.
+const TRAY_TRACK: [u8; 4] = [46, 46, 51, 255];
 const TRAY_SURFACE: [u8; 4] = [15, 15, 17, 255];
 const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 const POPUP_ANCHOR_GAP: i32 = 10;
+const FLOAT_WINDOW_LABEL: &str = "float";
 
 #[derive(Clone, Copy)]
 enum StartupWarning {
     AutostartSync,
     BrowserSessionRecovery,
     InitialUsageRefresh,
+    UsageHistoryStore,
+}
+
+/// Tracks which services were last seen below the low-usage threshold so we
+/// only play a cue on the crossing, never on every refresh tick.
+#[derive(Default)]
+struct CueTracker {
+    last_below: Mutex<HashMap<Service, bool>>,
 }
 
 struct ConfigLoadState {
@@ -146,6 +159,26 @@ struct LogLocation {
 struct WindowVisibility {
     status: String,
     updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageHistoryReport {
+    codex: Vec<history::DailyGaugeStat>,
+    claude: Vec<history::DailyGaugeStat>,
+    days: u32,
+    generated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalDailyUsageReport {
+    codex: Vec<local_provider::DailyTokenUsage>,
+    claude: Vec<local_provider::DailyTokenUsage>,
+    codex_status: Option<String>,
+    claude_status: Option<String>,
+    days: u32,
+    generated_at: String,
 }
 
 struct ProviderLoginStartPlan {
@@ -289,6 +322,9 @@ fn startup_warning_message(warning: StartupWarning) -> &'static str {
         StartupWarning::InitialUsageRefresh => {
             "PickGauge startup warning: initial usage refresh failed"
         }
+        StartupWarning::UsageHistoryStore => {
+            "PickGauge startup warning: usage history store is unavailable"
+        }
     }
 }
 
@@ -417,9 +453,8 @@ fn update_app_config(
         .map_err(map_usage_state_error)?;
     app.emit(SETTINGS_UPDATED_EVENT, &config)
         .map_err(map_event_emit_error)?;
-    engine
-        .refresh_all_and_emit(&app)
-        .map_err(map_usage_refresh_error)?;
+    ensure_float_window(&app, config.ui.float_button);
+    refresh_all_and_publish(&app, &engine).map_err(map_usage_refresh_error)?;
     Ok(config)
 }
 
@@ -446,9 +481,131 @@ fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> CommandResult<Vec<Usag
     engine.snapshots().map_err(map_usage_state_error)
 }
 
+/// Whether the desktop prefers a dark color scheme.
+/// Asks the XDG settings portal: 0 = no preference, 1 = dark, 2 = light.
+/// Defaults to dark on any failure, matching the canonical theme.
+fn panel_prefers_dark() -> bool {
+    let output = std::process::Command::new("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+            "org.freedesktop.portal.Settings.Read",
+            "org.freedesktop.appearance",
+            "color-scheme",
+        ])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            !String::from_utf8_lossy(&out.stdout).contains("uint32 2")
+        }
+        _ => true,
+    }
+}
+
+#[tauri::command]
+fn get_system_theme() -> String {
+    if panel_prefers_dark() {
+        "dark".into()
+    } else {
+        "light".into()
+    }
+}
+
 #[tauri::command]
 fn get_display_state(engine: State<'_, UsageEngine>) -> CommandResult<UsageDisplayState> {
     engine.display_state().map_err(map_usage_state_error)
+}
+
+// Async so the SQLite reads stay off the main thread (sync commands block
+// the whole UI in Tauri).
+#[tauri::command]
+async fn get_usage_history(
+    history_store: State<'_, history::HistoryStore>,
+    days: u32,
+    utc_offset_seconds: i32,
+) -> CommandResult<UsageHistoryReport> {
+    let map_error =
+        |_: String| command_error("usage_history_unavailable", "Usage history is unavailable");
+
+    Ok(UsageHistoryReport {
+        codex: history_store
+            .daily_gauge(Service::Codex, days, utc_offset_seconds)
+            .map_err(map_error)?,
+        claude: history_store
+            .daily_gauge(Service::Claude, days, utc_offset_seconds)
+            .map_err(map_error)?,
+        days,
+        generated_at: usage::now_rfc3339(),
+    })
+}
+
+/// Recent local-scan reports keyed by (days, utc_offset_seconds). The scan
+/// parses every Codex/Claude session log on disk, so navigating between
+/// Dashboard and History must not repeat it within a short window.
+#[derive(Default)]
+struct LocalUsageCache(Mutex<HashMap<(u32, i32), (Instant, LocalDailyUsageReport)>>);
+
+const LOCAL_USAGE_CACHE_TTL: Duration = Duration::from_secs(60);
+
+#[tauri::command]
+async fn get_local_daily_usage(
+    cache: State<'_, LocalUsageCache>,
+    days: u32,
+    utc_offset_seconds: i32,
+) -> CommandResult<LocalDailyUsageReport> {
+    let key = (days, utc_offset_seconds);
+    if let Some((scanned_at, report)) = cache.0.lock().unwrap().get(&key) {
+        if scanned_at.elapsed() < LOCAL_USAGE_CACHE_TTL {
+            return Ok(report.clone());
+        }
+    }
+
+    // The scan walks and parses every local session log; run it on a
+    // blocking thread so the UI keeps rendering.
+    let report =
+        tauri::async_runtime::spawn_blocking(move || scan_local_daily_usage(days, utc_offset_seconds))
+            .await
+            .map_err(|_| {
+                command_error("local_usage_scan_failed", "Local usage scan failed")
+            })?;
+    cache
+        .0
+        .lock()
+        .unwrap()
+        .insert(key, (Instant::now(), report.clone()));
+    Ok(report)
+}
+
+fn scan_local_daily_usage(days: u32, utc_offset_seconds: i32) -> LocalDailyUsageReport {
+    let now = usage::now_rfc3339();
+    let (codex, codex_status) = match local_provider::CodexLocalProvider::from_default_root()
+        .ok_or_else(|| "codex_home_unavailable".to_string())
+        .and_then(|provider| provider.daily_token_usage(days, utc_offset_seconds, &now))
+    {
+        Ok(daily) => (daily, None),
+        Err(status) => (Vec::new(), Some(status)),
+    };
+    let (claude, claude_status) = match local_provider::ClaudeLocalProvider::from_default_root()
+        .ok_or_else(|| "claude_home_unavailable".to_string())
+        .and_then(|provider| provider.daily_token_usage(days, utc_offset_seconds, &now))
+    {
+        Ok(daily) => (daily, None),
+        Err(status) => (Vec::new(), Some(status)),
+    };
+
+    LocalDailyUsageReport {
+        codex,
+        claude,
+        codex_status,
+        claude_status,
+        days,
+        generated_at: now,
+    }
 }
 
 #[tauri::command]
@@ -858,6 +1015,69 @@ fn clear_provider_profile_for_service(
     })
 }
 
+/// Runs after every snapshots-updated emit: persists the usage trail and
+/// plays threshold-crossing cues. Failures are deliberately non-fatal.
+fn after_snapshots_updated(app: &AppHandle, display_state: &UsageDisplayState) {
+    if let Some(store) = app.try_state::<history::HistoryStore>() {
+        let _ = store.record(&display_state.snapshots, history::now_unix());
+    }
+
+    play_threshold_cues(app, display_state);
+}
+
+fn play_threshold_cues(app: &AppHandle, display_state: &UsageDisplayState) {
+    let Ok(config) = app.state::<UsageEngine>().config() else {
+        return;
+    };
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let tracker = app.state::<CueTracker>();
+    let Ok(mut last_below) = tracker.last_below.lock() else {
+        return;
+    };
+
+    for snapshot in &display_state.snapshots {
+        if snapshot.source == UsageSource::Fake {
+            continue;
+        }
+
+        let Some(remaining) = snapshot.remaining_percent else {
+            continue;
+        };
+
+        let below = remaining <= config.low_usage_threshold;
+        let previous = last_below.insert(snapshot.service, below);
+
+        if !config.ui.sounds {
+            continue;
+        }
+
+        let crossed = match previous {
+            Some(was_below) => was_below != below,
+            None => below,
+        };
+
+        if crossed {
+            let cue = if below {
+                sounds::Cue::Warn
+            } else {
+                sounds::Cue::Recover
+            };
+            sounds::play(cue, &app_data_dir);
+        }
+    }
+}
+
+fn refresh_all_and_publish(
+    app: &AppHandle,
+    engine: &UsageEngine,
+) -> Result<UsageDisplayState, String> {
+    let display_state = engine.refresh_all_and_emit(app)?;
+    after_snapshots_updated(app, &display_state);
+    Ok(display_state)
+}
+
 fn emit_refresh_event(
     app: &AppHandle,
     service: Option<Service>,
@@ -948,6 +1168,7 @@ fn refresh_web_provider_preflight_response(
 
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
         .map_err(map_event_emit_error)?;
+    after_snapshots_updated(app, &display_state);
     emit_provider_error_events(app, &display_state);
 
     Ok(display_state)
@@ -1133,6 +1354,7 @@ fn refresh_all_with_headless_web(
 
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
         .map_err(map_event_emit_error)?;
+    after_snapshots_updated(app, &display_state);
 
     Ok(display_state)
 }
@@ -1160,6 +1382,7 @@ fn refresh_due_with_headless_web(
     let display_state = engine.refresh_due().map_err(map_usage_refresh_error)?;
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
         .map_err(map_event_emit_error)?;
+    after_snapshots_updated(app, &display_state);
 
     Ok(display_state)
 }
@@ -1192,6 +1415,7 @@ fn refresh_provider(
         Ok(display_state) => {
             app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
                 .map_err(map_event_emit_error)?;
+            after_snapshots_updated(&app, &display_state);
             emit_provider_error_events(&app, &display_state);
             emit_refresh_event(
                 &app,
@@ -1274,13 +1498,12 @@ fn tray_accent_for(service: Service, remaining_percent: f32, low_usage_threshold
 }
 
 fn tray_icon_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Image<'static> {
-    if let Some(rgba) = tray_icon_rgba_for(state, low_usage_threshold) {
-        return Image::new_owned(rgba, TRAY_ICON_SIZE, TRAY_ICON_SIZE);
-    }
+    let rgba = tray_icon_rgba_for(state, low_usage_threshold)
+        // Unknown reading: the same dark coin with an empty track ring, so the
+        // icon stays visible on both light and dark panels.
+        .unwrap_or_else(|| dynamic_tray_icon_rgba(state.service, 0.0, -1.0));
 
-    Image::from_bytes(TRAY_UNKNOWN)
-        .expect("valid bundled unknown tray icon")
-        .to_owned()
+    Image::new_owned(rgba, TRAY_ICON_SIZE, TRAY_ICON_SIZE)
 }
 
 fn start_usage_scheduler(app: AppHandle) {
@@ -1358,20 +1581,97 @@ fn main_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main").or_else(|| {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .title("PickGauge")
-            .inner_size(420.0, 640.0)
-            .min_inner_size(360.0, 520.0)
+            .inner_size(1000.0, 700.0)
+            .min_inner_size(820.0, 580.0)
             .resizable(true)
             .center()
             .visible(false)
-            .closable(false)
             .build()
             .ok()
     })
 }
 
-fn configure_popup_window(window: &WebviewWindow) {
-    let _ = window.set_skip_taskbar(true);
-    let _ = window.set_always_on_top(true);
+/// The floating capsule lives above every other window, never takes focus,
+/// and opens the main window on click. Created lazily so disabling it in
+/// settings simply hides the window.
+fn ensure_float_window(app: &AppHandle, visible: bool) {
+    if let Some(window) = app.get_webview_window(FLOAT_WINDOW_LABEL) {
+        if visible {
+            let _ = window.show();
+        } else {
+            let _ = window.hide();
+        }
+        return;
+    }
+
+    if !visible {
+        return;
+    }
+
+    let window = WebviewWindowBuilder::new(
+        app,
+        FLOAT_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("PickGauge")
+    .inner_size(
+        f64::from(FLOAT_WINDOW_WIDTH),
+        f64::from(FLOAT_WINDOW_HEIGHT),
+    )
+    .min_inner_size(
+        f64::from(FLOAT_WINDOW_WIDTH),
+        f64::from(FLOAT_WINDOW_HEIGHT),
+    )
+    .max_inner_size(
+        f64::from(FLOAT_WINDOW_WIDTH),
+        f64::from(FLOAT_WINDOW_HEIGHT),
+    )
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .focusable(false)
+    .skip_taskbar(true)
+    .visible_on_all_workspaces(true)
+    .position(64.0, 64.0)
+    .build();
+
+    // The WebKitGTK child requests a 200x200 minimum, which GTK promotes to
+    // the window min/max hints — leaving an invisible dead zone that swallows
+    // clicks meant for windows beneath. Override the child request directly.
+    if let Ok(window) = window {
+        clamp_float_window_size(&window);
+    }
+}
+
+const FLOAT_WINDOW_WIDTH: i32 = 208;
+const FLOAT_WINDOW_HEIGHT: i32 = 60;
+
+#[cfg(target_os = "linux")]
+fn clamp_float_window_size(window: &WebviewWindow) {
+    let window_handle = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        use gtk::prelude::*;
+
+        if let Ok(gtk_window) = window_handle.gtk_window() {
+            if let Some(child) = gtk_window.child() {
+                child.set_size_request(FLOAT_WINDOW_WIDTH, FLOAT_WINDOW_HEIGHT);
+            }
+
+            gtk_window.resize(FLOAT_WINDOW_WIDTH, FLOAT_WINDOW_HEIGHT);
+        }
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn clamp_float_window_size(window: &WebviewWindow) {
+    let _ = window.set_size(dpi::LogicalSize::new(
+        f64::from(FLOAT_WINDOW_WIDTH),
+        f64::from(FLOAT_WINDOW_HEIGHT),
+    ));
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1513,11 +1813,10 @@ fn position_popup_window_near_anchor(
     let _ = window.set_position(dpi::PhysicalPosition::new(x, y));
 }
 
-fn show_main_window(app: &tauri::AppHandle) {
+fn present_main_window(app: &tauri::AppHandle) {
     let window = main_window(app);
 
     if let Some(window) = window {
-        configure_popup_window(&window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -1526,8 +1825,6 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 fn toggle_main_window_near(app: &tauri::AppHandle, anchor: PopupAnchor) {
     if let Some(window) = main_window(app) {
-        configure_popup_window(&window);
-
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
@@ -1558,10 +1855,43 @@ fn hide_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
     })
 }
 
+#[tauri::command]
+fn show_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
+    present_main_window(&app);
+
+    Ok(WindowVisibility {
+        status: "visible".to_string(),
+        updated_at: usage::now_rfc3339(),
+    })
+}
+
+fn toggle_float_button(app: &AppHandle) {
+    let engine = app.state::<UsageEngine>();
+    let Ok(mut config) = engine.config() else {
+        return;
+    };
+
+    config.ui.float_button = !config.ui.float_button;
+
+    let Ok(config) = config::save(app, &config) else {
+        return;
+    };
+    let _ = engine.update_config(config.clone());
+    let _ = app.emit(SETTINGS_UPDATED_EVENT, &config);
+    ensure_float_window(app, config.ui.float_button);
+}
+
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(app, "show", "Show PickGauge", true, None::<&str>)?;
+    let float_item = MenuItem::with_id(
+        app,
+        "toggle-float",
+        "Show/hide floating button",
+        true,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    let menu = Menu::with_items(app, &[&show_item, &float_item, &quit_item])?;
     let app_handle = app.handle().clone();
     let click_app_handle = app_handle.clone();
     let (config, initial_state) = {
@@ -1584,7 +1914,8 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => show_main_window(app),
+            "show" => present_main_window(app),
+            "toggle-float" => toggle_float_button(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -1619,7 +1950,10 @@ pub fn run() {
             clear_provider_profile,
             get_app_config,
             get_display_state,
+            get_local_daily_usage,
             get_log_location,
+            get_system_theme,
+            get_usage_history,
             get_usage_snapshots,
             hide_main_window,
             inspect_provider_profile,
@@ -1627,6 +1961,7 @@ pub fn run() {
             refresh_provider,
             refresh_usage,
             reset_provider_session,
+            show_main_window,
             start_provider_login,
             update_app_config
         ])
@@ -1657,32 +1992,38 @@ pub fn run() {
             if sync_autostart(&app_handle, config.autostart.enabled).is_err() {
                 log_startup_warning(StartupWarning::AutostartSync);
             }
+            let float_button_enabled = config.ui.float_button;
             app.manage(UsageEngine::new(config));
-            if app
-                .state::<UsageEngine>()
-                .refresh_all_and_emit(&app_handle)
-                .is_err()
-            {
+            app.manage(CueTracker::default());
+            app.manage(LocalUsageCache::default());
+            match app_handle.path().app_data_dir() {
+                Ok(app_data_dir) => match history::HistoryStore::open_in(&app_data_dir) {
+                    Ok(store) => {
+                        app.manage(store);
+                    }
+                    Err(_) => log_startup_warning(StartupWarning::UsageHistoryStore),
+                },
+                Err(_) => log_startup_warning(StartupWarning::UsageHistoryStore),
+            }
+            if refresh_all_and_publish(&app_handle, &app.state::<UsageEngine>()).is_err() {
                 log_startup_warning(StartupWarning::InitialUsageRefresh);
             }
-            if let Some(window) = app_handle.get_webview_window("main") {
-                configure_popup_window(&window);
-            }
             setup_tray(app)?;
-            start_usage_scheduler(app_handle);
+            start_usage_scheduler(app_handle.clone());
+            ensure_float_window(&app_handle, float_button_enabled);
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building PickGauge")
         .run(|app_handle, event| match event {
-            tauri::RunEvent::WindowEvent { label, event, .. } if label == "main" => match event {
-                WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    hide_main_window_if_exists(app_handle);
-                }
-                WindowEvent::Focused(false) => hide_main_window_if_exists(app_handle),
-                _ => {}
-            },
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                api.prevent_close();
+                hide_main_window_if_exists(app_handle);
+            }
             tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } => {

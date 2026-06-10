@@ -178,10 +178,15 @@ export type AppConfig = {
   autostart: {
     enabled: boolean;
   };
+  ui: {
+    sounds: boolean;
+    floatButton: boolean;
+    theme: "system" | "dark" | "light";
+  };
 };
 
 export const defaultConfig: AppConfig = {
-  version: 4,
+  version: 5,
   enabledServices: {
     codex: true,
     claude: true,
@@ -222,6 +227,11 @@ export const defaultConfig: AppConfig = {
   },
   autostart: {
     enabled: false,
+  },
+  ui: {
+    sounds: true,
+    floatButton: true,
+    theme: "system",
   },
 };
 

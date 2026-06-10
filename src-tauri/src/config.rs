@@ -9,7 +9,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 const CONFIG_FILE_NAME: &str = "config.json";
-const CONFIG_VERSION: u32 = 4;
+const CONFIG_VERSION: u32 = 5;
 const MAX_PLAN_LABEL_LENGTH: usize = 80;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -23,6 +23,7 @@ pub struct AppConfig {
     pub browser_profiles: BrowserProfileSettings,
     pub local_quotas: LocalQuotaSettings,
     pub autostart: AutostartSettings,
+    pub ui: UiSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -67,6 +68,24 @@ pub struct LocalQuotaSettings {
 #[serde(rename_all = "camelCase")]
 pub struct AutostartSettings {
     pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiSettings {
+    pub sounds: bool,
+    pub float_button: bool,
+    pub theme: String,
+}
+
+impl Default for UiSettings {
+    fn default() -> Self {
+        Self {
+            sounds: true,
+            float_button: true,
+            theme: "system".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -118,6 +137,7 @@ impl Default for AppConfig {
             },
             local_quotas: LocalQuotaSettings::default(),
             autostart: AutostartSettings::default(),
+            ui: UiSettings::default(),
         }
     }
 }
@@ -270,6 +290,7 @@ fn migrate_config_value(value: &mut Value) -> Result<(), String> {
             1 => migrate_v1_to_v2(value)?,
             2 => migrate_v2_to_v3(value)?,
             3 => migrate_v3_to_v4(value)?,
+            4 => migrate_v4_to_v5(value)?,
             _ => {
                 return Err(format!(
                     "No migration is available for config version {version}"
@@ -316,6 +337,21 @@ fn migrate_v3_to_v4(value: &mut Value) -> Result<(), String> {
         .or_insert_with(default_autostart_value);
     object.insert("version".to_string(), Value::from(4));
     Ok(())
+}
+
+fn migrate_v4_to_v5(value: &mut Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Config root must be a JSON object".to_string())?;
+    object
+        .entry("ui".to_string())
+        .or_insert_with(default_ui_value);
+    object.insert("version".to_string(), Value::from(5));
+    Ok(())
+}
+
+fn default_ui_value() -> Value {
+    serde_json::to_value(UiSettings::default()).unwrap_or(Value::Null)
 }
 
 fn default_local_quotas_value() -> Value {
@@ -733,6 +769,49 @@ mod tests {
 
         assert_eq!(config.version, CONFIG_VERSION);
         assert_eq!(config.autostart, AutostartSettings::default());
+    }
+
+    #[test]
+    fn v4_config_migrates_to_current_with_ui_defaults() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        fs::write(
+            &path,
+            r#"{
+  "version": 4,
+  "enabledServices": {
+    "codex": true,
+    "claude": true
+  },
+  "providers": {
+    "localEnabled": true,
+    "webEnabled": false
+  },
+  "intervals": {
+    "localSeconds": 45,
+    "webMinutes": 30,
+    "manualWebRefreshCooldownSeconds": 60,
+    "gaugeSwitchSeconds": 6
+  },
+  "lowUsageThreshold": 20,
+  "browserProfiles": {
+    "rootPath": null,
+    "codexPath": null,
+    "claudePath": null
+  },
+  "autostart": {
+    "enabled": false
+  }
+}"#,
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("v4 config migrates");
+
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(config.ui, UiSettings::default());
+        assert!(config.ui.sounds);
+        assert!(config.ui.float_button);
     }
 
     #[test]

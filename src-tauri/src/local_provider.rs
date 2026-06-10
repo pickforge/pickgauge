@@ -1,8 +1,8 @@
 use crate::usage::{Service, UsageConfidence, UsageProviderId, UsageSnapshot, UsageSource};
 use rusqlite::{types::ValueRef, Connection, OpenFlags, Row};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     env,
     fs::{self, File},
     io::{BufRead, BufReader},
@@ -238,6 +238,75 @@ impl ClaudeLocalProvider {
         }
     }
 
+    pub fn daily_token_usage(
+        &self,
+        days: u32,
+        utc_offset_seconds: i32,
+        now: &str,
+    ) -> Result<Vec<DailyTokenUsage>, String> {
+        let projects_dir = self.data_root.join(CLAUDE_PROJECTS_DIR);
+
+        if !projects_dir.is_dir() {
+            return Err("claude_projects_missing".to_string());
+        }
+
+        let mut accumulator = DailyTokenAccumulator::new(days, utc_offset_seconds, now)?;
+        let mut files = Vec::new();
+        collect_jsonl_files(&projects_dir, &mut files)?;
+        files.truncate(MAX_CLAUDE_JSONL_FILES);
+
+        let mut records_read: u64 = 0;
+
+        'files: for file_path in files {
+            let Ok(file) = File::open(&file_path) else {
+                continue;
+            };
+
+            for line in BufReader::new(file).lines() {
+                let Ok(line) = line else {
+                    continue;
+                };
+                let line = line.trim();
+
+                if line.is_empty() {
+                    continue;
+                }
+
+                if records_read >= MAX_CLAUDE_RECORDS_PER_REFRESH {
+                    break 'files;
+                }
+
+                records_read += 1;
+
+                let Ok(record) = serde_json::from_str::<ClaudeJsonlRecord>(line) else {
+                    continue;
+                };
+                let Some(timestamp_ms) = record.timestamp.as_deref().and_then(parse_rfc3339_ms)
+                else {
+                    continue;
+                };
+                let Some(usage) = record
+                    .message
+                    .as_ref()
+                    .and_then(|message| message.usage.as_ref())
+                else {
+                    continue;
+                };
+
+                let tokens = usage
+                    .input_tokens
+                    .unwrap_or_default()
+                    .saturating_add(usage.output_tokens.unwrap_or_default())
+                    .saturating_add(usage.cache_creation_input_tokens.unwrap_or_default())
+                    .saturating_add(usage.cache_read_input_tokens.unwrap_or_default());
+
+                accumulator.add(timestamp_ms, tokens, record.session_id.as_deref());
+            }
+        }
+
+        Ok(accumulator.into_daily())
+    }
+
     fn scan_usage_summary(
         &self,
         window: Option<LocalUsageWindow>,
@@ -424,6 +493,58 @@ impl CodexLocalProvider {
         }
     }
 
+    pub fn daily_token_usage(
+        &self,
+        days: u32,
+        utc_offset_seconds: i32,
+        now: &str,
+    ) -> Result<Vec<DailyTokenUsage>, String> {
+        let db_path = self.data_root.join(CODEX_STATE_DB_FILE);
+
+        if !db_path.is_file() {
+            return Err("codex_state_db_missing".to_string());
+        }
+
+        let mut accumulator = DailyTokenAccumulator::new(days, utc_offset_seconds, now)?;
+        let connection = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| "codex_state_db_unreadable".to_string())?;
+        let mut statement = connection
+            .prepare(
+                "SELECT tokens_used, updated_at_ms, updated_at
+                 FROM threads
+                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
+                 LIMIT ?1",
+            )
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+        let rows = statement
+            .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
+                let tokens_used = optional_i64_column(row, 0);
+                let updated_at_ms = optional_i64_column(row, 1);
+                let updated_at = optional_i64_column(row, 2);
+
+                Ok((
+                    tokens_used,
+                    updated_at_ms.or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
+                ))
+            })
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+
+        for row in rows {
+            let (tokens_used, updated_at_ms) =
+                row.map_err(|_| "codex_threads_query_failed".to_string())?;
+            let Some(tokens) = tokens_used.and_then(|value| u64::try_from(value).ok()) else {
+                continue;
+            };
+            let Some(updated_at_ms) = updated_at_ms else {
+                continue;
+            };
+
+            accumulator.add(i128::from(updated_at_ms), tokens, None);
+        }
+
+        Ok(accumulator.into_daily())
+    }
+
     fn scan_usage_summary(
         &self,
         window: Option<LocalUsageWindow>,
@@ -477,6 +598,80 @@ impl CodexLocalProvider {
 
         Ok(summary)
     }
+}
+
+/// One local-time day of token usage derived from local activity files.
+/// `activity` counts sessions (Claude) or threads (Codex) touched that day.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyTokenUsage {
+    pub day: String,
+    pub tokens: u64,
+    pub activity: u64,
+}
+
+#[derive(Default)]
+struct DailyTokenAccumulator {
+    days: BTreeMap<String, DayBucket>,
+    since_ms: i128,
+    offset_seconds: i64,
+}
+
+#[derive(Default)]
+struct DayBucket {
+    tokens: u64,
+    activity_keys: HashSet<String>,
+    anonymous_activity: u64,
+}
+
+impl DailyTokenAccumulator {
+    fn new(days: u32, utc_offset_seconds: i32, now: &str) -> Result<Self, String> {
+        let now_ms = parse_rfc3339_ms(now).ok_or_else(|| "invalid_now_timestamp".to_string())?;
+        let days = i128::from(days.clamp(1, 730));
+
+        Ok(Self {
+            days: BTreeMap::new(),
+            since_ms: now_ms - days * 86_400_000,
+            offset_seconds: i64::from(utc_offset_seconds.clamp(-64_800, 64_800)),
+        })
+    }
+
+    fn add(&mut self, timestamp_ms: i128, tokens: u64, activity_key: Option<&str>) {
+        if timestamp_ms < self.since_ms {
+            return;
+        }
+
+        let Some(day) = local_day(timestamp_ms, self.offset_seconds) else {
+            return;
+        };
+        let bucket = self.days.entry(day).or_default();
+        bucket.tokens = bucket.tokens.saturating_add(tokens);
+
+        match activity_key {
+            Some(key) => {
+                bucket.activity_keys.insert(key.to_string());
+            }
+            None => bucket.anonymous_activity = bucket.anonymous_activity.saturating_add(1),
+        }
+    }
+
+    fn into_daily(self) -> Vec<DailyTokenUsage> {
+        self.days
+            .into_iter()
+            .map(|(day, bucket)| DailyTokenUsage {
+                day,
+                tokens: bucket.tokens,
+                activity: bucket.anonymous_activity + bucket.activity_keys.len() as u64,
+            })
+            .collect()
+    }
+}
+
+fn local_day(timestamp_ms: i128, offset_seconds: i64) -> Option<String> {
+    let shifted = timestamp_ms + i128::from(offset_seconds) * 1000;
+    OffsetDateTime::from_unix_timestamp_nanos(shifted * 1_000_000)
+        .ok()
+        .map(|moment| moment.date().to_string())
 }
 
 #[derive(Debug)]
@@ -1370,6 +1565,119 @@ mod tests {
         assert_eq!(snapshot.details["threadsRead"], 0);
         assert_eq!(snapshot.details["usageThreads"], 0);
         assert_eq!(snapshot.details["invalidRecords"], 0);
+    }
+
+    #[test]
+    fn claude_daily_token_usage_groups_by_local_day() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(
+            projects_dir.join("session.jsonl"),
+            [
+                r#"{"type":"assistant","timestamp":"2026-06-01T10:00:00Z","sessionId":"session-a","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":100,"output_tokens":20}}}"#,
+                r#"{"type":"assistant","timestamp":"2026-06-01T18:00:00Z","sessionId":"session-b","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":50,"output_tokens":10}}}"#,
+                r#"{"type":"assistant","timestamp":"2026-06-02T09:00:00Z","sessionId":"session-a","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":40,"output_tokens":5}}}"#,
+            ]
+            .join("\n"),
+        )
+        .expect("fixture file is written");
+        let provider = ClaudeLocalProvider::new(&dir.path);
+
+        let daily = provider
+            .daily_token_usage(30, 0, "2026-06-03T00:00:00Z")
+            .expect("daily usage aggregates");
+
+        assert_eq!(
+            daily,
+            vec![
+                DailyTokenUsage {
+                    day: "2026-06-01".to_string(),
+                    tokens: 180,
+                    activity: 2,
+                },
+                DailyTokenUsage {
+                    day: "2026-06-02".to_string(),
+                    tokens: 45,
+                    activity: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn claude_daily_token_usage_applies_utc_offset_to_day_boundaries() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(
+            projects_dir.join("session.jsonl"),
+            r#"{"type":"assistant","timestamp":"2026-06-02T01:00:00Z","sessionId":"session-a","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":10,"output_tokens":1}}}"#,
+        )
+        .expect("fixture file is written");
+        let provider = ClaudeLocalProvider::new(&dir.path);
+
+        // GMT-3: 01:00 UTC on June 2 is still June 1 locally.
+        let daily = provider
+            .daily_token_usage(30, -3 * 3600, "2026-06-03T00:00:00Z")
+            .expect("daily usage aggregates");
+
+        assert_eq!(daily.len(), 1);
+        assert_eq!(daily[0].day, "2026-06-01");
+    }
+
+    #[test]
+    fn codex_daily_token_usage_groups_threads_by_day() {
+        let dir = TestDir::new();
+        create_codex_state_db(
+            &dir.path,
+            &[
+                (1200, ms("2026-06-01T12:00:00Z"), Some("codex-fixture")),
+                (800, ms("2026-06-01T20:00:00Z"), Some("codex-fixture")),
+                (300, ms("2026-06-02T08:00:00Z"), Some("codex-fixture")),
+            ],
+        );
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let daily = provider
+            .daily_token_usage(30, 0, "2026-06-03T00:00:00Z")
+            .expect("daily usage aggregates");
+
+        assert_eq!(
+            daily,
+            vec![
+                DailyTokenUsage {
+                    day: "2026-06-01".to_string(),
+                    tokens: 2000,
+                    activity: 2,
+                },
+                DailyTokenUsage {
+                    day: "2026-06-02".to_string(),
+                    tokens: 300,
+                    activity: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn daily_token_usage_ignores_records_older_than_requested_range() {
+        let dir = TestDir::new();
+        create_codex_state_db(
+            &dir.path,
+            &[
+                (1200, ms("2026-01-01T12:00:00Z"), Some("codex-fixture")),
+                (300, ms("2026-06-02T08:00:00Z"), Some("codex-fixture")),
+            ],
+        );
+        let provider = CodexLocalProvider::new(&dir.path);
+
+        let daily = provider
+            .daily_token_usage(30, 0, "2026-06-03T00:00:00Z")
+            .expect("daily usage aggregates");
+
+        assert_eq!(daily.len(), 1);
+        assert_eq!(daily[0].day, "2026-06-02");
     }
 
     #[test]

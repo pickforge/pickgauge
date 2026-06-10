@@ -2568,6 +2568,7 @@ name = "pickgauge"
 version = "0.1.0"
 dependencies = [
  "dpi",
+ "gtk",
  "libc",
  "rusqlite",
  "serde",

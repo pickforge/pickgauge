@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default PickGauge permissions",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "windows": ["main", "float"],
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

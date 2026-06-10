@@ -1,151 +1,62 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
-  import heroArtUrl from "../assets/branding/hero-art.png";
-  import lockupUrl from "../assets/branding/logo-lockup-on-dark.svg";
+  import ClockCounterClockwise from "phosphor-svelte/lib/ClockCounterClockwise";
+  import Gauge from "phosphor-svelte/lib/Gauge";
+  import GearSix from "phosphor-svelte/lib/GearSix";
   import logoUrl from "../assets/branding/logo-mark.svg";
-  import patternUrl from "../assets/branding/brand-pattern.svg";
-  import trayClaudeUrl from "../assets/branding/tray-claude.svg";
-  import trayCodexUrl from "../assets/branding/tray-codex.svg";
-  import {
-    confidenceLabels,
-    formatPercent,
-    formatTimestamp,
-    lastOfficialCheck,
-    loginStatusClearedBySnapshots,
-    loginPromptVisible,
-    localActivitySummary,
-    profileInspectionSummary,
-    profilePathFromInput,
-    profilePathValue,
-    serviceLabels,
-    snapshotIsStale,
-    sourceLabels,
-    webProviderControlState,
-  } from "./lib/display";
+  import { api, desktopApiAvailable } from "./lib/api";
+  import { serviceLabels } from "./lib/display";
   import {
     browserPreviewSnapshots,
     browserPreviewStateFromSearch,
     defaultConfig,
     fallbackSnapshots,
-    providerStatusMessage,
-    redactedUserPath,
     type AppConfig,
-    type ClearedProviderProfile,
-    type CommandError,
     type LoginRequiredEvent,
-    type LogLocation,
-    type OfficialUsagePage,
-    type ProviderProfileInspection,
-    type ProviderLoginStart,
-    type Service,
     type UsageDisplayState,
     type UsageSnapshot,
   } from "./lib/usage";
+  import Dashboard from "./lib/views/Dashboard.svelte";
+  import History from "./lib/views/History.svelte";
+  import Settings from "./lib/views/Settings.svelte";
 
+  type View = "dashboard" | "history" | "settings";
+
+  let view = $state<View>("dashboard");
   let config = $state<AppConfig>(defaultConfig);
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
   let loading = $state(true);
-  let saving = $state(false);
   let refreshing = $state(false);
-  let refreshingOfficial = $state<Service | null>(null);
-  let clearingSnapshots = $state(false);
-  let clearingProfile = $state<Service | null>(null);
-  let inspectingProfile = $state<Service | null>(null);
-  let locatingLogs = $state(false);
-  let openingService = $state<Service | null>(null);
-  let startingLogin = $state<Service | null>(null);
-  let hidingWindow = $state(false);
-  let error = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
-  let loginStatusService = $state<Service | null>(null);
-  const webControls = $derived(webProviderControlState(config));
+  let statusIsError = $state(false);
+  let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const serviceTone: Record<Service, string> = {
-    codex: "codex",
-    claude: "claude",
-  };
+  const navItems: { id: View; label: string; icon: typeof Gauge }[] = [
+    { id: "dashboard", label: "Dashboard", icon: Gauge },
+    { id: "history", label: "History", icon: ClockCounterClockwise },
+    { id: "settings", label: "Settings", icon: GearSix },
+  ];
 
-  const serviceIcons: Record<Service, string> = {
-    codex: trayCodexUrl,
-    claude: trayClaudeUrl,
-  };
+  function setStatus(message: string | null, error = false) {
+    statusMessage = message;
+    statusIsError = error;
 
-  function isCommandError(caught: unknown): caught is CommandError {
-    if (typeof caught !== "object" || caught === null) {
-      return false;
+    if (statusTimer) {
+      clearTimeout(statusTimer);
+      statusTimer = null;
     }
 
-    const error = caught as Partial<CommandError>;
-    return typeof error.code === "string" && typeof error.message === "string";
-  }
-
-  function desktopApiAvailable() {
-    return (
-      typeof window !== "undefined" &&
-      Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
-    );
-  }
-
-  function showDesktopOnlyError(message: string) {
-    error = message;
-    statusMessage = null;
-  }
-
-  function formatError(caught: unknown, fallback: string) {
-    if (isCommandError(caught) && caught.message.length > 0) {
-      return caught.message;
-    }
-
-    if (caught instanceof Error && caught.message) {
-      return caught.message;
-    }
-
-    if (typeof caught === "string" && caught.length > 0) {
-      return caught;
-    }
-
-    return fallback;
-  }
-
-  function updateProfilePath(field: keyof AppConfig["browserProfiles"], event: Event) {
-    const target = event.currentTarget;
-
-    if (!(target instanceof HTMLInputElement)) {
-      return;
-    }
-
-    config.browserProfiles[field] = profilePathFromInput(target.value);
-  }
-
-  function updateQuotaLabel(service: keyof AppConfig["localQuotas"], event: Event) {
-    const target = event.currentTarget;
-
-    if (!(target instanceof HTMLInputElement)) {
-      return;
-    }
-
-    config.localQuotas[service].planLabel = target.value;
-  }
-
-  function providerLoginStatusMessage(service: Service, login: ProviderLoginStart) {
-    switch (login.status) {
-      case "already_authenticated":
-        return `${serviceLabels[service]} already logged in`;
-      case "login_required":
-        return `${serviceLabels[service]} login required`;
-      case "launched":
-        return `Started ${serviceLabels[service]} login`;
-      case "preflight_unavailable":
-        return `Could not verify ${serviceLabels[service]} login state`;
+    if (message && !error) {
+      statusTimer = setTimeout(() => {
+        statusMessage = null;
+      }, 6000);
     }
   }
 
   onMount(() => {
     let cancelled = false;
-    let unlistenUsage: (() => void) | null = null;
-    let unlistenLogin: (() => void) | null = null;
+    const cleanups: (() => void)[] = [];
 
     if (!desktopApiAvailable()) {
       snapshots = browserPreviewSnapshots(browserPreviewStateFromSearch(window.location.search));
@@ -155,48 +66,49 @@
       };
     }
 
-    listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
-      snapshots = event.payload.snapshots;
+    function track(promise: Promise<() => void>) {
+      promise
+        .then((cleanup) => {
+          if (cancelled) {
+            cleanup();
+            return;
+          }
+          cleanups.push(cleanup);
+        })
+        .catch(() => {});
+    }
 
-      if (
-        loginStatusService !== null &&
-        statusMessage === `${serviceLabels[loginStatusService]} login required` &&
-        loginStatusClearedBySnapshots(loginStatusService, snapshots)
-      ) {
-        statusMessage = null;
-        loginStatusService = null;
-      }
-    })
-      .then((cleanup) => {
-        if (cancelled) {
-          cleanup();
-          return;
-        }
-
-        unlistenUsage = cleanup;
-      })
-      .catch(() => {});
-
-    listen<LoginRequiredEvent>("login://required", (event) => {
-      error = null;
-      statusMessage = `${serviceLabels[event.payload.service]} login required`;
-      loginStatusService = event.payload.service;
-    })
-      .then((cleanup) => {
-        if (cancelled) {
-          cleanup();
-          return;
-        }
-
-        unlistenLogin = cleanup;
-      })
-      .catch(() => {});
+    track(
+      listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
+        snapshots = event.payload.snapshots;
+      }),
+    );
+    track(
+      listen<LoginRequiredEvent>("login://required", (event) => {
+        setStatus(`${serviceLabels[event.payload.service]} login required`, true);
+      }),
+    );
+    track(
+      listen<AppConfig>("settings://updated", (event) => {
+        config = event.payload;
+      }),
+    );
+    track(
+      listen("usage://refresh-started", () => {
+        refreshing = true;
+      }),
+    );
+    track(
+      listen("usage://refresh-finished", () => {
+        refreshing = false;
+      }),
+    );
 
     async function loadState() {
       try {
         const [loadedConfig, displayState] = await Promise.all([
-          invoke<AppConfig>("get_app_config"),
-          invoke<UsageDisplayState>("get_display_state"),
+          api.getAppConfig(),
+          api.getDisplayState(),
         ]);
 
         if (cancelled) {
@@ -205,8 +117,8 @@
 
         config = loadedConfig;
         snapshots = displayState.snapshots;
-      } catch (caught) {
-        error = formatError(caught, "Running in browser preview mode");
+      } catch {
+        setStatus("Running in browser preview mode", true);
       } finally {
         if (!cancelled) {
           loading = false;
@@ -218,599 +130,253 @@
 
     return () => {
       cancelled = true;
-      unlistenUsage?.();
-      unlistenLogin?.();
+      cleanups.forEach((cleanup) => cleanup());
     };
   });
-
-  async function saveSettings() {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError("Settings are only persisted in the desktop app");
-      return;
-    }
-
-    saving = true;
-
-    try {
-      config = await invoke<AppConfig>("update_app_config", { config });
-      snapshots = (await invoke<UsageDisplayState>("get_display_state")).snapshots;
-      error = null;
-      statusMessage = "Settings saved";
-    } catch (caught) {
-      error = formatError(caught, "Settings are only persisted in the app");
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function hidePopup() {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      error = null;
-      statusMessage = "Popup hides to tray in the desktop app";
-      return;
-    }
-
-    hidingWindow = true;
-
-    try {
-      await invoke("hide_main_window");
-      error = null;
-      statusMessage = null;
-    } catch (caught) {
-      error = formatError(caught, "Could not hide popup");
-    } finally {
-      hidingWindow = false;
-    }
-  }
-
-  async function openOfficialPage(service: Service) {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError(`${serviceLabels[service]} usage opens from the desktop app`);
-      return;
-    }
-
-    openingService = service;
-
-    try {
-      await invoke<OfficialUsagePage>("open_official_usage_page", { service });
-      error = null;
-      statusMessage = `Opened ${serviceLabels[service]} official usage page`;
-    } catch (caught) {
-      error = formatError(caught, `Could not open ${serviceLabels[service]} usage page`);
-    } finally {
-      openingService = null;
-    }
-  }
-
-  async function startProviderLogin(service: Service) {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError(`${serviceLabels[service]} login starts from the desktop app`);
-      return;
-    }
-
-    startingLogin = service;
-
-    try {
-      const login = await invoke<ProviderLoginStart>("start_provider_login", { service });
-      error = null;
-      statusMessage = providerLoginStatusMessage(service, login);
-      loginStatusService = login.status === "login_required" ? service : null;
-    } catch (caught) {
-      error = formatError(caught, `Could not start ${serviceLabels[service]} login`);
-    } finally {
-      startingLogin = null;
-    }
-  }
-
-  async function refreshNow() {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError("Usage refresh is available in the desktop app");
-      return;
-    }
-
-    refreshing = true;
-
-    try {
-      const displayState = await invoke<UsageDisplayState>("refresh_usage");
-      snapshots = displayState.snapshots;
-      error = null;
-      statusMessage = "Usage refreshed";
-    } catch (caught) {
-      error = formatError(caught, "Could not refresh usage");
-    } finally {
-      refreshing = false;
-    }
-  }
-
-  async function refreshOfficialUsage(service: Service) {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError(`Official ${serviceLabels[service]} usage refreshes in the desktop app`);
-      return;
-    }
-
-    refreshingOfficial = service;
-
-    try {
-      const displayState = await invoke<UsageDisplayState>("refresh_provider", {
-        service,
-        source: "web",
-      });
-      snapshots = displayState.snapshots;
-      error = null;
-      const refreshedSnapshot = displayState.snapshots.find((snapshot) => snapshot.service === service);
-      const providerMessage = refreshedSnapshot ? providerStatusMessage(refreshedSnapshot) : null;
-      statusMessage = providerMessage
-        ? `Official ${serviceLabels[service]}: ${providerMessage}`
-        : `Official ${serviceLabels[service]} usage refreshed`;
-    } catch (caught) {
-      error = formatError(caught, `Could not refresh official ${serviceLabels[service]} usage`);
-    } finally {
-      refreshingOfficial = null;
-    }
-  }
-
-  async function clearSnapshotCache() {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError("Cached usage is cleared in the desktop app");
-      return;
-    }
-
-    if (!confirm("Clear cached usage snapshots?")) {
-      return;
-    }
-
-    clearingSnapshots = true;
-
-    try {
-      const displayState = await invoke<UsageDisplayState>("clear_cached_snapshots");
-      snapshots = displayState.snapshots;
-      error = null;
-      statusMessage = "Cached usage snapshots cleared";
-    } catch (caught) {
-      error = formatError(caught, "Could not clear cached usage");
-    } finally {
-      clearingSnapshots = false;
-    }
-  }
-
-  async function showLogLocation() {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError("Log location is available in the desktop app");
-      return;
-    }
-
-    locatingLogs = true;
-
-    try {
-      const location = await invoke<LogLocation>("get_log_location");
-      const state = location.exists ? "created" : "not created yet";
-      error = null;
-      statusMessage = `Log file: ${redactedUserPath(location.path)} (${state}). Policy: ${location.redactionPolicy}`;
-    } catch (caught) {
-      error = formatError(caught, "Could not read log location");
-    } finally {
-      locatingLogs = false;
-    }
-  }
-
-  async function resetProviderSession(service: Service) {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError(`${serviceLabels[service]} sessions reset in the desktop app`);
-      return;
-    }
-
-    if (!confirm(`Reset the app-owned ${serviceLabels[service]} browser session data?`)) {
-      return;
-    }
-
-    clearingProfile = service;
-
-    try {
-      const result = await invoke<ClearedProviderProfile>("reset_provider_session", { service });
-      error = null;
-      statusMessage = result.cleared
-        ? `Reset ${serviceLabels[service]} browser session`
-        : `${serviceLabels[service]} browser session was already clear`;
-    } catch (caught) {
-      error = formatError(caught, `Could not reset ${serviceLabels[service]} browser session`);
-    } finally {
-      clearingProfile = null;
-    }
-  }
-
-  async function inspectProviderProfile(service: Service) {
-    statusMessage = null;
-
-    if (!desktopApiAvailable()) {
-      showDesktopOnlyError(`${serviceLabels[service]} profile inspection runs in the desktop app`);
-      return;
-    }
-
-    inspectingProfile = service;
-
-    try {
-      const inspection = await invoke<ProviderProfileInspection>("inspect_provider_profile", {
-        service,
-      });
-      error = null;
-      statusMessage = profileInspectionSummary(inspection);
-    } catch (caught) {
-      error = formatError(caught, `Could not inspect ${serviceLabels[service]} profile`);
-    } finally {
-      inspectingProfile = null;
-    }
-  }
 </script>
 
-<main class="shell" style={`--brand-pattern: url(${patternUrl});`}>
-  <section class="hero">
-    <div class="hero-top">
-      <div class="brand-row">
-        <img class="brand-mark" src={logoUrl} alt="PickGauge logo mark" />
-        <img class="brand-lockup" src={lockupUrl} alt="PickGauge, Pickforge AI usage tray" />
-      </div>
-      <button
-        class="window-action"
-        type="button"
-        disabled={hidingWindow}
-        aria-label="Hide popup to tray"
-        title="Hide popup to tray"
-        onclick={hidePopup}
-      >
-        ×
-      </button>
+<div class="app bg-blueprint">
+  <header class="chrome">
+    <div class="chrome-dots" aria-hidden="true">
+      <span></span>
+      <span></span>
+      <span></span>
     </div>
-    <p class="summary">Track Codex and Claude Code usage from a privacy-conscious desktop tray.</p>
-    <img class="hero-art" src={heroArtUrl} alt="Abstract PickGauge usage gauge artwork" />
-  </section>
+    <span class="chrome-title">Pickgauge · Usage</span>
+    <span class="pill" class:ember={!refreshing}>
+      <span class="dot" class:pulse={!refreshing}></span>
+      {refreshing ? "syncing" : "watching"}
+    </span>
+  </header>
 
-  <section class="cards" aria-label="Usage snapshots">
-    {#if snapshots.length === 0}
-      <article class="usage-card empty">
-        <h2>No services enabled</h2>
-        <p>Enable Codex or Claude Code in settings to show usage snapshots.</p>
-      </article>
-    {/if}
-
-    {#each snapshots as snapshot (snapshot.service)}
-      <article class={`usage-card ${serviceTone[snapshot.service]}`}>
-        <div class="usage-header">
-          <div class="service-title">
-            <img src={serviceIcons[snapshot.service]} alt="" aria-hidden="true" />
-            <h2>{serviceLabels[snapshot.service]}</h2>
-          </div>
-          <span>{confidenceLabels[snapshot.confidence]}</span>
-        </div>
-
-        <div class="gauge-row">
-          <div
-            class="gauge"
-            style={`--value: ${snapshot.remainingPercent ?? 0};`}
-            aria-label={`${serviceLabels[snapshot.service]} remaining usage`}
-          >
-            <strong>{formatPercent(snapshot.remainingPercent)}</strong>
-            <small>remaining</small>
-          </div>
-
-          <dl>
-            <div>
-              <dt>Source</dt>
-              <dd>{sourceLabels[snapshot.source]}</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{formatTimestamp(snapshot.lastUpdated)}</dd>
-            </div>
-            {#if lastOfficialCheck(snapshot)}
-              <div>
-                <dt>Official</dt>
-                <dd>{lastOfficialCheck(snapshot)}</dd>
-              </div>
-            {/if}
-          </dl>
-        </div>
-
-        {#if snapshotIsStale(snapshot)}
-          <p class="snapshot-note">Stale data</p>
-        {/if}
-
-        {#if providerStatusMessage(snapshot)}
-          <p class="snapshot-note">{providerStatusMessage(snapshot)}</p>
-        {/if}
-
-        {#if localActivitySummary(snapshot)}
-          <p class="activity-summary">{localActivitySummary(snapshot)}</p>
-        {/if}
-
-        <div class="card-actions">
+  <div class="body">
+    <aside class="sidebar">
+      <img class="mark" src={logoUrl} alt="PickGauge mark" />
+      <nav aria-label="Main navigation">
+        {#each navItems as item (item.id)}
           <button
-            class="secondary-button"
+            class="nav-btn"
+            class:active={view === item.id}
             type="button"
-            disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
-            aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
-            onclick={() => refreshOfficialUsage(snapshot.service)}
+            onclick={() => (view = item.id)}
           >
-            {refreshingOfficial === snapshot.service ? "Refreshing..." : "Refresh official"}
+            <item.icon size={17} weight={view === item.id ? "fill" : "regular"} />
+            {item.label}
           </button>
-          {#if loginPromptVisible(snapshot)}
-            <button
-              class="secondary-button"
-              type="button"
-              disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
-              aria-label={`Start ${serviceLabels[snapshot.service]} login`}
-              onclick={() => startProviderLogin(snapshot.service)}
-            >
-              {startingLogin === snapshot.service ? "Starting..." : "Start login"}
-            </button>
-          {/if}
-          <button
-            class="secondary-button"
-            type="button"
-            disabled={openingService === snapshot.service}
-            aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
-            onclick={() => openOfficialPage(snapshot.service)}
-          >
-            {openingService === snapshot.service ? "Opening..." : "Open official page"}
-          </button>
+        {/each}
+      </nav>
+    </aside>
+
+    <main class="content fade-up">
+      {#if loading}
+        <div class="loading">
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
         </div>
-      </article>
-    {/each}
-  </section>
+      {:else if view === "dashboard"}
+        <Dashboard {snapshots} {config} {setStatus} />
+      {:else if view === "history"}
+        <History {setStatus} />
+      {:else}
+        <Settings bind:config {setStatus} />
+      {/if}
+    </main>
+  </div>
 
-  <section class="settings-panel" aria-label="Settings">
-    <div>
-      <p class="eyebrow">Settings</p>
-      <h2>Provider controls</h2>
-    </div>
+  <footer class="footer">
+    <span class="status" class:error={statusIsError}>{statusMessage ?? ""}</span>
+    <span class="brand-line">© Pickforge · pickforge.dev · MIT</span>
+  </footer>
+</div>
 
-    <div class="settings-grid">
-      <label>
-        <input type="checkbox" bind:checked={config.enabledServices.codex} />
-        Codex
-      </label>
-      <label>
-        <input type="checkbox" bind:checked={config.enabledServices.claude} />
-        Claude Code
-      </label>
-      <label>
-        <input type="checkbox" bind:checked={config.providers.localEnabled} />
-        Local providers
-      </label>
-      <label>
-        <input type="checkbox" bind:checked={config.providers.webEnabled} />
-        Experimental web providers
-      </label>
-      <label>
-        <input type="checkbox" bind:checked={config.autostart.enabled} />
-        Start at login
-      </label>
-    </div>
+<style>
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: var(--surface);
+  }
 
-    <div class="number-grid">
-      <label>
-        Local refresh
-        <input type="number" min="30" max="60" bind:value={config.intervals.localSeconds} />
-      </label>
-      <label>
-        Web refresh
-        <input
-          type="number"
-          min="15"
-          max="60"
-          bind:value={config.intervals.webMinutes}
-          disabled={webControls.webRefreshDisabled}
-        />
-      </label>
-      <label>
-        Web cooldown
-        <input
-          type="number"
-          min="60"
-          bind:value={config.intervals.manualWebRefreshCooldownSeconds}
-          disabled={webControls.webCooldownDisabled}
-        />
-      </label>
-      <label>
-        Tray switch
-        <input type="number" min="5" max="10" bind:value={config.intervals.gaugeSwitchSeconds} />
-      </label>
-      <label>
-        Low threshold
-        <input type="number" min="1" max="100" bind:value={config.lowUsageThreshold} />
-      </label>
-    </div>
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex: none;
+    height: 44px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--hairline);
+    background: color-mix(in srgb, var(--surface) 75%, transparent);
+  }
 
-    <div class="path-grid" aria-label="Browser profile paths">
-      <label>
-        Profile root
-        <input
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default app data path"
-          value={profilePathValue(config.browserProfiles.rootPath)}
-          oninput={(event) => updateProfilePath("rootPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
-        />
-      </label>
-      <label>
-        Codex profile
-        <input
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default under root"
-          value={profilePathValue(config.browserProfiles.codexPath)}
-          oninput={(event) => updateProfilePath("codexPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
-        />
-      </label>
-      <label>
-        Claude profile
-        <input
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default under root"
-          value={profilePathValue(config.browserProfiles.claudePath)}
-          oninput={(event) => updateProfilePath("claudePath", event)}
-          disabled={webControls.profilePathInputsDisabled}
-        />
-      </label>
-    </div>
+  .chrome-dots {
+    display: flex;
+    gap: 6px;
+  }
 
-    <div class="quota-grid" aria-label="Local quota calibration">
-      <div class="quota-group">
-        <label class="quota-enabled">
-          <input type="checkbox" bind:checked={config.localQuotas.codex.enabled} />
-          Codex calibration
-        </label>
-        <div class="quota-fields">
-          <label>
-            Codex plan
-            <input
-              type="text"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Optional"
-              value={config.localQuotas.codex.planLabel}
-              oninput={(event) => updateQuotaLabel("codex", event)}
-            />
-          </label>
-          <label>
-            Token limit
-            <input type="number" min="0" step="1" bind:value={config.localQuotas.codex.limit} />
-          </label>
-          <label>
-            Window hours
-            <input
-              type="number"
-              min="1"
-              max="744"
-              step="1"
-              bind:value={config.localQuotas.codex.windowHours}
-            />
-          </label>
-        </div>
-      </div>
+  .chrome-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text) 15%, transparent);
+  }
 
-      <div class="quota-group">
-        <label class="quota-enabled">
-          <input type="checkbox" bind:checked={config.localQuotas.claude.enabled} />
-          Claude calibration
-        </label>
-        <div class="quota-fields">
-          <label>
-            Claude plan
-            <input
-              type="text"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Optional"
-              value={config.localQuotas.claude.planLabel}
-              oninput={(event) => updateQuotaLabel("claude", event)}
-            />
-          </label>
-          <label>
-            Token limit
-            <input type="number" min="0" step="1" bind:value={config.localQuotas.claude.limit} />
-          </label>
-          <label>
-            Window hours
-            <input
-              type="number"
-              min="1"
-              max="744"
-              step="1"
-              bind:value={config.localQuotas.claude.windowHours}
-            />
-          </label>
-        </div>
-      </div>
-    </div>
+  .chrome-title {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
 
-    <button class="save-button" type="button" disabled={saving} onclick={saveSettings}>
-      {saving ? "Saving…" : "Save settings"}
-    </button>
+  .body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
 
-    <div class="maintenance-grid" aria-label="Maintenance actions">
-      <button class="secondary-button" type="button" disabled={refreshing} onclick={refreshNow}>
-        {refreshing ? "Refreshing..." : "Refresh now"}
-      </button>
-      <button
-        class="secondary-button"
-        type="button"
-        disabled={clearingSnapshots}
-        onclick={clearSnapshotCache}
-      >
-        {clearingSnapshots ? "Clearing..." : "Clear cache"}
-      </button>
-      <button
-        class="secondary-button"
-        type="button"
-        disabled={locatingLogs}
-        onclick={showLogLocation}
-      >
-        {locatingLogs ? "Checking..." : "Show log location"}
-      </button>
-      <button
-        class="secondary-button danger"
-        type="button"
-        disabled={clearingProfile === "codex"}
-        onclick={() => resetProviderSession("codex")}
-      >
-        {clearingProfile === "codex" ? "Resetting..." : "Reset Codex session"}
-      </button>
-      <button
-        class="secondary-button danger"
-        type="button"
-        disabled={clearingProfile === "claude"}
-        onclick={() => resetProviderSession("claude")}
-      >
-        {clearingProfile === "claude" ? "Resetting..." : "Reset Claude session"}
-      </button>
-      <button
-        class="secondary-button"
-        type="button"
-        disabled={inspectingProfile === "codex"}
-        onclick={() => inspectProviderProfile("codex")}
-      >
-        {inspectingProfile === "codex" ? "Inspecting..." : "Inspect Codex profile"}
-      </button>
-      <button
-        class="secondary-button"
-        type="button"
-        disabled={inspectingProfile === "claude"}
-        onclick={() => inspectProviderProfile("claude")}
-      >
-        {inspectingProfile === "claude" ? "Inspecting..." : "Inspect Claude profile"}
-      </button>
-    </div>
-  </section>
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    flex: none;
+    width: 176px;
+    padding: 18px 12px;
+    border-right: 1px solid var(--hairline);
+    background: color-mix(in srgb, var(--surface-1) 55%, transparent);
+  }
 
-  {#if loading}
-    <p class="status">Loading local PickGauge state…</p>
-  {:else if statusMessage}
-    <p class="status">{statusMessage}</p>
-  {:else if error}
-    <p class="status muted">{error}</p>
-  {/if}
-</main>
+  .mark {
+    width: 34px;
+    height: 34px;
+    margin-left: 6px;
+  }
+
+  nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    transition:
+      background 0.3s var(--ease-forge),
+      color 0.3s var(--ease-forge);
+  }
+
+  .nav-btn:hover {
+    color: var(--text);
+    background: var(--wash);
+  }
+
+  .nav-btn.active {
+    color: var(--ember);
+    background: color-mix(in srgb, var(--ember) 8%, transparent);
+  }
+
+  .nav-btn:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ember) 60%, transparent);
+    outline-offset: -2px;
+  }
+
+  .content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 24px 28px 32px;
+  }
+
+  .loading {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .skeleton {
+    height: 180px;
+    border-radius: var(--radius-card);
+    background: linear-gradient(
+      100deg,
+      var(--surface-1) 40%,
+      var(--surface-2) 50%,
+      var(--surface-1) 60%
+    );
+    background-size: 220% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  @keyframes shimmer {
+    to {
+      background-position: -120% 0;
+    }
+  }
+
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex: none;
+    height: 34px;
+    padding: 0 16px;
+    border-top: 1px solid var(--hairline);
+    background: color-mix(in srgb, var(--surface) 75%, transparent);
+  }
+
+  .status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .status.error {
+    color: var(--bad);
+  }
+
+  .brand-line {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+
+  @media (max-width: 700px) {
+    .sidebar {
+      width: 60px;
+      padding: 18px 8px;
+      align-items: center;
+    }
+
+    .mark {
+      margin-left: 0;
+    }
+
+    .nav-btn {
+      justify-content: center;
+      width: 44px;
+      padding: 0;
+      font-size: 0;
+      gap: 0;
+    }
+
+    .content {
+      padding: 18px 14px 24px;
+    }
+  }
+</style>

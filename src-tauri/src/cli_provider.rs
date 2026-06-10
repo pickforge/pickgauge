@@ -69,15 +69,60 @@ pub fn refresh(service: Service, now: &str) -> Result<UsageSnapshot, UsageProvid
     }
 }
 
-fn snapshot(
+/// One rate-limit window: percent used and when it resets.
+struct Window {
+    used: f32,
+    reset: Option<String>,
+}
+
+fn window_json(window: &Option<Window>) -> Value {
+    match window {
+        Some(w) => {
+            let used = w.used.clamp(0.0, 100.0);
+            json!({
+                "usedPercent": used,
+                "remainingPercent": (100.0 - used).clamp(0.0, 100.0),
+                "resetAt": w.reset,
+            })
+        }
+        None => Value::Null,
+    }
+}
+
+/// Build a snapshot carrying BOTH windows. The headline number (drives the
+/// float capsule and the OS tray) is the 5-hour session window, falling back
+/// to the weekly window when the session window is absent.
+fn build_snapshot(
     service: Service,
-    used_percent: f32,
-    reset_at: Option<String>,
+    five_hour: Option<Window>,
+    week: Option<Window>,
+    extra: Value,
     now: &str,
-    details: Value,
-) -> UsageSnapshot {
-    let used = used_percent.clamp(0.0, 100.0);
-    UsageSnapshot {
+) -> Result<UsageSnapshot, UsageProviderError> {
+    let headline = five_hour
+        .as_ref()
+        .or(week.as_ref())
+        .ok_or(UsageProviderError::MissingData)?;
+    let used = headline.used.clamp(0.0, 100.0);
+    let reset_at = headline.reset.clone();
+
+    let mut details = base_details(service);
+    if let Some(obj) = details.as_object_mut() {
+        obj.insert(
+            "windows".into(),
+            json!({
+                "fiveHour": window_json(&five_hour),
+                "week": window_json(&week),
+            }),
+        );
+        if let Some(extra_obj) = extra.as_object() {
+            for (key, value) in extra_obj {
+                obj.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
+    Ok(UsageSnapshot {
         service,
         remaining_percent: Some((100.0 - used).clamp(0.0, 100.0)),
         used_percent: Some(used),
@@ -86,7 +131,7 @@ fn snapshot(
         confidence: UsageConfidence::High,
         last_updated: now.to_string(),
         details,
-    }
+    })
 }
 
 fn base_details(service: Service) -> Value {
@@ -184,46 +229,27 @@ fn codex_usage(
 fn parse_codex_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
     let rate = body.get("rate_limit").ok_or(UsageProviderError::ParseFailed)?;
 
-    // Use whichever window is closest to its cap — that's the binding limit.
-    let primary = codex_window(rate.get("primary_window"));
-    let secondary = codex_window(rate.get("secondary_window"));
-    let primary_pct = primary.as_ref().map(|w| w.0);
-    let secondary_pct = secondary.as_ref().map(|w| w.0);
-    let binding = [primary, secondary]
-        .into_iter()
-        .flatten()
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .ok_or(UsageProviderError::MissingData)?;
+    // primary_window = 5-hour session, secondary_window = weekly.
+    let five_hour = codex_window(rate.get("primary_window"));
+    let week = codex_window(rate.get("secondary_window"));
 
-    let mut details = base_details(Service::Codex);
-    if let Some(obj) = details.as_object_mut() {
-        if let Some(plan) = body.get("plan_type").and_then(Value::as_str) {
-            obj.insert("plan".into(), json!(plan));
-        }
-        obj.insert("primaryUsedPercent".into(), json!(primary_pct));
-        obj.insert("secondaryUsedPercent".into(), json!(secondary_pct));
-        obj.insert(
-            "bindingWindow".into(),
-            json!(if primary_pct.is_some_and(|p| (binding.0 - p).abs() < f32::EPSILON) {
-                "primary"
-            } else {
-                "secondary"
-            }),
-        );
-    }
+    let extra = match body.get("plan_type").and_then(Value::as_str) {
+        Some(plan) => json!({ "plan": plan }),
+        None => Value::Null,
+    };
 
-    Ok(snapshot(Service::Codex, binding.0, binding.1, now, details))
+    build_snapshot(Service::Codex, five_hour, week, extra, now)
 }
 
-/// (used_percent, reset_at_rfc3339) for a Codex rate-limit window.
-fn codex_window(window: Option<&Value>) -> Option<(f32, Option<String>)> {
+/// A Codex rate-limit window (`used_percent`, unix `reset_at`).
+fn codex_window(window: Option<&Value>) -> Option<Window> {
     let window = window?;
     let used = window.get("used_percent").and_then(Value::as_f64)? as f32;
     let reset = window
         .get("reset_at")
         .and_then(Value::as_i64)
         .and_then(unix_to_rfc3339);
-    Some((used, reset))
+    Some(Window { used, reset })
 }
 
 // ---------------------------------------------------------------- Claude
@@ -304,36 +330,22 @@ fn claude_usage(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderE
 
 fn parse_claude_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
     let five_hour = claude_window(body.get("five_hour"));
-    let seven_day = claude_window(body.get("seven_day"));
-    let five_hour_pct = five_hour.as_ref().map(|w| w.0);
-    let seven_day_pct = seven_day.as_ref().map(|w| w.0);
-    let binding = [five_hour, seven_day]
-        .into_iter()
-        .flatten()
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .ok_or(UsageProviderError::MissingData)?;
-
-    let mut details = base_details(Service::Claude);
-    if let Some(obj) = details.as_object_mut() {
-        obj.insert("fiveHourUtilization".into(), json!(five_hour_pct));
-        obj.insert("sevenDayUtilization".into(), json!(seven_day_pct));
-    }
-
-    Ok(snapshot(Service::Claude, binding.0, binding.1, now, details))
+    let week = claude_window(body.get("seven_day"));
+    build_snapshot(Service::Claude, five_hour, week, Value::Null, now)
 }
 
-/// (utilization_percent, resets_at) for a Claude usage window.
-fn claude_window(window: Option<&Value>) -> Option<(f32, Option<String>)> {
+/// A Claude usage window (`utilization` percent, ISO `resets_at`).
+fn claude_window(window: Option<&Value>) -> Option<Window> {
     let window = window?;
     if window.is_null() {
         return None;
     }
-    let util = window.get("utilization").and_then(Value::as_f64)? as f32;
+    let used = window.get("utilization").and_then(Value::as_f64)? as f32;
     let reset = window
         .get("resets_at")
         .and_then(Value::as_str)
         .map(str::to_string);
-    Some((util, reset))
+    Some(Window { used, reset })
 }
 
 #[cfg(test)]
@@ -342,35 +354,40 @@ mod tests {
 
     // Real response shape from https://chatgpt.com/backend-api/codex/usage.
     #[test]
-    fn parses_codex_binding_window() {
+    fn parses_codex_both_windows_headline_is_five_hour() {
         let body = json!({
             "plan_type": "pro",
             "rate_limit": {
-                "primary_window": { "used_percent": 0, "reset_at": 1781145921 },
+                "primary_window": { "used_percent": 1, "reset_at": 1781145921 },
                 "secondary_window": { "used_percent": 77, "reset_at": 1781137520 }
             }
         });
         let snap = parse_codex_body(&body, "2026-06-10T00:00:00Z").unwrap();
-        assert_eq!(snap.used_percent, Some(77.0));
-        assert_eq!(snap.remaining_percent, Some(23.0));
+        // Headline = 5-hour window (drives float + tray).
+        assert_eq!(snap.remaining_percent, Some(99.0));
         assert_eq!(snap.source, UsageSource::Web);
         assert_eq!(snap.confidence, UsageConfidence::High);
         assert_eq!(snap.details["plan"], "pro");
-        assert_eq!(snap.details["bindingWindow"], "secondary");
-        assert!(snap.reset_at.is_some());
+        // Both windows are carried for the card.
+        let windows = &snap.details["windows"];
+        assert_eq!(windows["fiveHour"]["remainingPercent"], 99.0);
+        assert_eq!(windows["week"]["remainingPercent"], 23.0);
+        assert!(windows["fiveHour"]["resetAt"].is_string());
     }
 
     // Real response shape from https://api.anthropic.com/api/oauth/usage.
     #[test]
-    fn parses_claude_binding_window() {
+    fn parses_claude_both_windows() {
         let body = json!({
-            "five_hour": { "utilization": 33.0, "resets_at": "2026-06-11T02:00:00Z" },
-            "seven_day": { "utilization": 29.0, "resets_at": "2026-06-17T11:59:59Z" },
+            "five_hour": { "utilization": 43.0, "resets_at": "2026-06-11T02:00:00Z" },
+            "seven_day": { "utilization": 30.0, "resets_at": "2026-06-17T11:59:59Z" },
             "seven_day_opus": null
         });
         let snap = parse_claude_body(&body, "2026-06-10T00:00:00Z").unwrap();
-        assert_eq!(snap.used_percent, Some(33.0));
-        assert_eq!(snap.remaining_percent, Some(67.0));
+        assert_eq!(snap.remaining_percent, Some(57.0));
+        let windows = &snap.details["windows"];
+        assert_eq!(windows["fiveHour"]["remainingPercent"], 57.0);
+        assert_eq!(windows["week"]["remainingPercent"], 70.0);
         assert_eq!(snap.reset_at.as_deref(), Some("2026-06-11T02:00:00Z"));
     }
 
@@ -384,12 +401,13 @@ mod tests {
     }
 
     #[test]
-    fn claude_skips_null_windows() {
+    fn claude_null_week_keeps_five_hour_headline() {
         let body = json!({
             "five_hour": { "utilization": 12.0, "resets_at": "2026-06-11T02:00:00Z" },
             "seven_day": null
         });
         let snap = parse_claude_body(&body, "2026-06-10T00:00:00Z").unwrap();
-        assert_eq!(snap.used_percent, Some(12.0));
+        assert_eq!(snap.remaining_percent, Some(88.0));
+        assert!(snap.details["windows"]["week"].is_null());
     }
 }

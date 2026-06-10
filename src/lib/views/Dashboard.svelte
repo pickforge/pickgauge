@@ -19,6 +19,7 @@
   } from "../display";
   import {
     providerStatusMessage,
+    usageWindows,
     type AppConfig,
     type Service,
     type UsageSnapshot,
@@ -119,10 +120,48 @@
   );
   const activeDays = $derived(new Set(allDaily.map((entry) => entry.day)).size);
 
-  function snapshotLow(snapshot: UsageSnapshot) {
-    return (
-      snapshot.remainingPercent !== null && snapshot.remainingPercent <= config.lowUsageThreshold
-    );
+  function formatReset(resetAt: string | null): string | null {
+    if (!resetAt) return null;
+    const target = new Date(resetAt).getTime();
+    if (Number.isNaN(target)) return null;
+    const diffMs = target - Date.now();
+    if (diffMs <= 0) return "soon";
+    const minutes = Math.round(diffMs / 60000);
+    if (minutes < 60) return `in ${minutes}m`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `in ${hours}h`;
+    const days = Math.round(hours / 24);
+    return `in ${days}d`;
+  }
+
+  function windowsFor(snapshot: UsageSnapshot) {
+    const { fiveHour, week } = usageWindows(snapshot);
+    const low = (remaining: number | null) =>
+      remaining !== null && remaining <= config.lowUsageThreshold;
+    const rows: {
+      key: string;
+      label: string;
+      remainingPercent: number | null;
+      low: boolean;
+      resetLabel: string | null;
+    }[] = [];
+    rows.push({
+      key: "five-hour",
+      label: "5-hour session",
+      remainingPercent: fiveHour?.remainingPercent ?? null,
+      low: low(fiveHour?.remainingPercent ?? null),
+      resetLabel: formatReset(fiveHour?.resetAt ?? null),
+    });
+    if (week) {
+      rows.push({
+        key: "week",
+        label: "Weekly",
+        remainingPercent: week.remainingPercent,
+        low: low(week.remainingPercent),
+        resetLabel: formatReset(week.resetAt),
+      });
+    }
+    return rows;
   }
 
   async function loadDaily() {
@@ -263,9 +302,19 @@
             </span>
           </header>
 
-          <div class="gauge-row">
-            <Gauge value={snapshot.remainingPercent} low={snapshotLow(snapshot)} />
+          <div class="gauge-windows">
+            {#each windowsFor(snapshot) as win (win.key)}
+              <div class="gauge-window">
+                <span class="window-label">{win.label}</span>
+                <Gauge value={win.remainingPercent} low={win.low} />
+                {#if win.resetLabel}
+                  <span class="window-reset">resets {win.resetLabel}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
 
+          <div class="gauge-row">
             <dl class="meta">
               <div>
                 <dt>Source</dt>
@@ -429,6 +478,37 @@
     font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.02em;
+  }
+
+  .gauge-windows {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .gauge-window {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 4px 4px;
+    border-radius: var(--radius-card);
+    background: var(--wash);
+    border: 1px solid var(--hairline);
+  }
+
+  .window-label {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+  }
+
+  .window-reset {
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
 
   .gauge-row {

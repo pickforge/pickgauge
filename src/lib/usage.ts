@@ -15,6 +15,51 @@ export type UsageSnapshot = {
   details: Record<string, unknown>;
 };
 
+export type UsageWindow = {
+  remainingPercent: number | null;
+  usedPercent: number | null;
+  resetAt: string | null;
+};
+
+/**
+ * Pull the 5-hour and weekly windows out of a snapshot's details, when the
+ * provider supplies them (the CLI-credentials provider does). Falls back to
+ * the headline `remainingPercent` for the 5-hour window so providers without
+ * window detail still render.
+ */
+export function usageWindows(snapshot: UsageSnapshot): {
+  fiveHour: UsageWindow | null;
+  week: UsageWindow | null;
+} {
+  const readWindow = (value: unknown): UsageWindow | null => {
+    if (!value || typeof value !== "object") return null;
+    const w = value as Record<string, unknown>;
+    const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
+    return {
+      remainingPercent: num(w.remainingPercent),
+      usedPercent: num(w.usedPercent),
+      resetAt: typeof w.resetAt === "string" ? w.resetAt : null,
+    };
+  };
+
+  const windows = snapshot.details?.windows as Record<string, unknown> | undefined;
+  const fiveHour = readWindow(windows?.fiveHour);
+  const week = readWindow(windows?.week);
+
+  return {
+    fiveHour:
+      fiveHour ??
+      (snapshot.remainingPercent !== null
+        ? {
+            remainingPercent: snapshot.remainingPercent,
+            usedPercent: snapshot.usedPercent,
+            resetAt: snapshot.resetAt,
+          }
+        : null),
+    week,
+  };
+}
+
 type ProviderStatusCode =
   | "parsed"
   | "placeholder"

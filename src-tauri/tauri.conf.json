@@ -25,12 +25,13 @@
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
     "category": "Utility",
-    "copyright": "Copyright © 2026 Pickforge",
+    "copyright": "Copyright \u00a9 2026 Pickforge",
     "publisher": "Pickforge",
     "shortDescription": "Pickforge AI usage tray",
     "longDescription": "PickGauge tracks Codex and Claude Code usage from a lightweight desktop tray app.",

@@ -1,14 +1,35 @@
+<p align="center">
+  <img src="assets/branding/pickgauge-lockup-horizontal.svg" alt="PickGauge" width="560">
+</p>
+
 # PickGauge
 
-### Local AI usage visibility from the tray
+A fuel gauge for your AI subscriptions. PickGauge is a privacy-conscious Linux tray app that tracks remaining Codex and Claude Code usage — keeping quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
 
-![PickGauge brand preview](assets/branding/social-card.png)
+PickForge builds the app. PickGauge tells you how much agent fuel is left while you do it.
 
-PickGauge is a privacy-conscious Linux tray app for tracking remaining AI usage across Codex and Claude Code. It keeps quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
+Local-first. Open source. Built for people who ship.
 
 > **Status:** Tauri/Svelte desktop app with a branded dashboard, usage history, floating button, sound cues, persisted settings, tray wiring, app icons, and release automation. Web providers remain opt-in and await authenticated validation.
 
-## Desktop app
+## Install
+
+Release artifacts are built from `main` by GitHub Actions: Linux AppImage, Windows installers, macOS Intel and Apple Silicon builds. PickGauge is still **Linux/KDE-first** — Windows and macOS builds are produced automatically but currently **untested**; experience reports are welcome.
+
+On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:
+
+```bash
+npm run build:appimage
+```
+
+The AppImage script also prepares the Linux Playwright sidecar executable under `src-tauri/binaries/` before invoking Tauri. Real headed web-provider login still requires a working local Node/Playwright runtime. For local sidecar launch validation:
+
+```bash
+npx playwright install chromium
+npm run test:sidecar-launch
+```
+
+## The desktop app
 
 PickGauge ships a full Tauri 2 + Svelte 5 GUI in the Pickforge "one ember on a cold canvas" design system:
 
@@ -17,6 +38,10 @@ PickGauge ships a full Tauri 2 + Svelte 5 GUI in the Pickforge "one ember on a c
 - **Floating button** — a draggable always-on-top capsule with live mini-gauges. Click it to open the app, right-click to refresh. It never takes keyboard focus. On Wayland the app runs under XWayland so always-on-top works (set `PICKGAUGE_NATIVE_WAYLAND=1` to opt out).
 - **Sounds, not notifications** — short synthesized chimes when a gauge crosses below the low-usage threshold and when it recovers (toggle in Settings). PickGauge never posts desktop notifications.
 - **Settings** — services, providers, refresh rhythm, quota calibration, browser profiles, autostart, sounds, and the floating button, all persisted locally.
+
+<p align="center">
+  <img src="assets/branding/pickgauge-dashboard-mock.svg" alt="PICKGAUGE · DASHBOARD — half-arc gauges with confidence labels, 14-day history, floating button, and the privacy boundary" width="900">
+</p>
 
 ## What it will do
 
@@ -28,17 +53,7 @@ PickGauge ships a full Tauri 2 + Svelte 5 GUI in the Pickforge "one ember on a c
 - Clearly label data as `high`, `medium`, `low`, or `unknown` confidence.
 - Fail gracefully when local files are missing, login expires, MFA appears, or official pages change.
 
-## Privacy principles
-
-| Principle | Behavior |
-| --- | --- |
-| No password storage | Users authenticate manually in isolated browser profiles. |
-| Opt-in web reads | Browser-based official usage checks are disabled by default. |
-| Local-first estimates | CLI/session files are used passively where possible. |
-| Data minimization | No raw page HTML, auth headers, cookies, tokens, or account identifiers in app logs or fixtures. |
-| Honest confidence | The UI shows whether usage is official, estimated, merged, stale, or unavailable. |
-
-## Planned services
+Planned services:
 
 | Service | Source | Confidence |
 | --- | --- | --- |
@@ -50,7 +65,17 @@ Official usage pages:
 - Codex: <https://chatgpt.com/codex/cloud/settings/analytics>
 - Claude Code: <https://claude.ai/new#settings/usage>
 
-## Architecture at a glance
+## Privacy principles
+
+| Principle | Behavior |
+| --- | --- |
+| No password storage | Users authenticate manually in isolated browser profiles. |
+| Opt-in web reads | Browser-based official usage checks are disabled by default. |
+| Local-first estimates | CLI/session files are used passively where possible. |
+| Data minimization | No raw page HTML, auth headers, cookies, tokens, or account identifiers in app logs or fixtures. |
+| Honest confidence | The UI shows whether usage is official, estimated, merged, stale, or unavailable. |
+
+## Architecture
 
 ```text
 Tray controller
@@ -71,12 +96,9 @@ Privacy boundary
 └─ Guarded cache/session cleanup
 ```
 
-## Proposed stack
+Stack: **Rust** for the backend, usage engine, tray control, config, and provider logic; **Tauri v2** for the lightweight desktop shell and tray integration; **Svelte** for the popup and settings UI; **KDE/Wayland first**, with CachyOS Linux as the target validation environment.
 
-- **Rust** for the backend, usage engine, tray control, config, and provider logic.
-- **Tauri v2** for the lightweight desktop shell and tray integration.
-- **Svelte** for the popup and settings UI.
-- **KDE/Wayland first**, with CachyOS Linux as the target validation environment.
+PickGauge needs a real desktop shell: a persistent tray icon, native windows, local filesystem access for CLI usage data, isolated browser/session handling, and packaged installers. Tauri gives the app a Rust backend for the privacy-sensitive work while keeping the popup/settings UI lightweight with Svelte instead of shipping a full Electron runtime.
 
 ## Branding
 
@@ -93,43 +115,6 @@ After changing the source app icon, regenerate platform icons with:
 npm run tauri -- icon assets/branding/app-icon.svg
 ```
 
-## Current MVP behavior
-
-- Branded Tauri tray app shell.
-- Branded popup with fake Codex and Claude Code snapshots.
-- Local settings persistence for enabled services, provider toggles, refresh intervals, tray switch interval, and low-usage threshold.
-- Branded tray icons that rotate between Codex and Claude Code and can switch to low/unknown states.
-
-## Why Tauri?
-
-PickGauge needs a real desktop shell: a persistent tray icon, native windows, local filesystem access for CLI usage data, isolated browser/session handling, and packaged installers. Tauri gives the app a Rust backend for the privacy-sensitive work while keeping the popup/settings UI lightweight with Svelte instead of shipping a full Electron runtime.
-
-## Releases and platform support
-
-GitHub Actions is configured to create queued releases from `main` pushes once the Tauri app source exists. Release notes are generated automatically and artifacts are uploaded for:
-
-- Linux AppImage
-- Windows installers
-- macOS Intel builds
-- macOS Apple Silicon builds
-
-PickGauge is still **Linux/KDE-first**. Windows and macOS builds are produced automatically, but they are currently **untested**. If you try them, personal experience reports, issues, and pull requests are very welcome so cross-platform support can improve.
-
-On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:
-
-```bash
-npm run build:appimage
-```
-
-The AppImage script also prepares the Linux Playwright sidecar executable under `src-tauri/binaries/` before invoking Tauri. Real headed web-provider login still requires a working local Node/Playwright runtime.
-
-For local sidecar launch validation:
-
-```bash
-npx playwright install chromium
-npm run test:sidecar-launch
-```
-
 ## Roadmap
 
 1. Bootstrap the Tauri + Svelte app shell.
@@ -142,6 +127,12 @@ npm run test:sidecar-launch
 8. Merge official baselines with local usage deltas.
 9. Package for daily Linux desktop use, then expand automated Windows and macOS release artifacts.
 
-## Project documents
+Project documents: [`docs/plans/pickgauge-implementation-plan.md`](docs/plans/pickgauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.
 
-- [`docs/plans/pickgauge-implementation-plan.md`](docs/plans/pickgauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.
+---
+
+<p align="center">
+  <a href="https://pickforge.dev">
+    <img src="assets/branding/pickforge-studio-footer.svg" alt="Pickforge Studio — local-first, open source, built for people who ship" width="560">
+  </a>
+</p>

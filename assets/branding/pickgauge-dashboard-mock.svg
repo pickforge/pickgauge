@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" fill="none" role="img" aria-label="PickGauge dashboard mock">
+  <title>PICKGAUGE · DASHBOARD</title>
+  <defs>
+    <clipPath id="frame"><rect width="1200" height="720" rx="14"/></clipPath>
+  </defs>
+
+  <!-- window frame -->
+  <rect width="1200" height="720" rx="14" fill="#0A0A0B"/>
+  <rect x="0.5" y="0.5" width="1199" height="719" rx="13.5" stroke="#F2F2F3" stroke-opacity="0.14"/>
+
+  <g clip-path="url(#frame)">
+    <!-- chrome -->
+    <circle cx="28" cy="24" r="5" fill="#F2F2F3" fill-opacity="0.15"/>
+    <circle cx="46" cy="24" r="5" fill="#F2F2F3" fill-opacity="0.15"/>
+    <circle cx="64" cy="24" r="5" fill="#F2F2F3" fill-opacity="0.15"/>
+    <text x="92" y="28" font-family="Geist Mono, JetBrains Mono, monospace" font-size="11" letter-spacing="2" fill="#6E6E75">PICKGAUGE · DASHBOARD</text>
+    <g>
+      <rect x="1020" y="12" width="156" height="24" rx="12" fill="#FF7A1A" fill-opacity="0.05" stroke="#FF7A1A" stroke-opacity="0.3"/>
+      <circle cx="1036" cy="24" r="3" fill="#FF7A1A"/>
+      <text x="1046" y="28" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#FF7A1A">CLAUDE LOW</text>
+    </g>
+    <line x1="0" y1="48" x2="1200" y2="48" stroke="#F2F2F3" stroke-opacity="0.08"/>
+
+    <!-- ===== gauges pane ===== -->
+    <rect x="24" y="72" width="560" height="360" rx="10" fill="#0F0F11" stroke="#F2F2F3" stroke-opacity="0.08"/>
+    <text x="44" y="100" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#6E6E75">REMAINING USAGE</text>
+    <text x="564" y="100" text-anchor="end" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#6E6E75" fill-opacity="0.7">LOCAL + OPT-IN OFFICIAL</text>
+
+    <!-- codex gauge: 64% -->
+    <path d="M 90 250 A 80 80 0 0 1 250 250" stroke="#F2F2F3" stroke-opacity="0.08" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <path d="M 90 250 A 80 80 0 0 1 204.1 178.6" stroke="#F2F2F3" stroke-opacity="0.6" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <text x="170" y="238" text-anchor="middle" font-family="Geist, Inter, Arial, sans-serif" font-size="40" font-weight="750" fill="#F2F2F3">64%</text>
+    <text x="170" y="282" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="11" letter-spacing="1.8" fill="#6E6E75">CODEX</text>
+    <text x="170" y="304" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" fill="#6E6E75" fill-opacity="0.7">local · high · 2m ago</text>
+
+    <!-- claude gauge: 18% (low → ember) -->
+    <path d="M 358 250 A 80 80 0 0 1 518 250" stroke="#F2F2F3" stroke-opacity="0.08" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <path d="M 358 250 A 80 80 0 0 1 370.4 207.1" stroke="#FF7A1A" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <text x="438" y="238" text-anchor="middle" font-family="Geist, Inter, Arial, sans-serif" font-size="40" font-weight="750" fill="#FF7A1A">18%</text>
+    <text x="438" y="282" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="11" letter-spacing="1.8" fill="#6E6E75">CLAUDE CODE</text>
+    <text x="438" y="304" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" fill="#6E6E75" fill-opacity="0.7">merged · medium · 4m ago</text>
+
+    <line x1="44" y1="330" x2="564" y2="330" stroke="#F2F2F3" stroke-opacity="0.08"/>
+    <g font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.4" fill="#6E6E75" fill-opacity="0.7">
+      <text x="44" y="360">CONFIDENCE LABELED · HIGH / MEDIUM / LOW / UNKNOWN</text>
+      <text x="44" y="384">NO PASSWORDS STORED · NO NOTIFICATIONS · CHIMES ONLY</text>
+      <text x="44" y="408">REFRESH · 5 MIN · TRAY ALTERNATES SERVICES</text>
+    </g>
+
+    <!-- ===== history pane ===== -->
+    <rect x="608" y="72" width="568" height="360" rx="10" fill="#0F0F11" stroke="#F2F2F3" stroke-opacity="0.08"/>
+    <text x="628" y="100" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#6E6E75">HISTORY · 14 DAYS · TOKENS</text>
+    <text x="1156" y="100" text-anchor="end" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#6E6E75" fill-opacity="0.7">~/.local/share/…/history.db</text>
+    <!-- baseline -->
+    <line x1="628" y1="368" x2="1156" y2="368" stroke="#F2F2F3" stroke-opacity="0.12"/>
+    <!-- 14 bars, today = ember -->
+    <g fill="#F2F2F3">
+      <rect x="636" y="296" width="22" height="72" rx="3" fill-opacity="0.14"/>
+      <rect x="673" y="262" width="22" height="106" rx="3" fill-opacity="0.16"/>
+      <rect x="710" y="318" width="22" height="50" rx="3" fill-opacity="0.12"/>
+      <rect x="747" y="238" width="22" height="130" rx="3" fill-opacity="0.18"/>
+      <rect x="784" y="282" width="22" height="86" rx="3" fill-opacity="0.15"/>
+      <rect x="821" y="208" width="22" height="160" rx="3" fill-opacity="0.2"/>
+      <rect x="858" y="252" width="22" height="116" rx="3" fill-opacity="0.17"/>
+      <rect x="895" y="330" width="22" height="38" rx="3" fill-opacity="0.1"/>
+      <rect x="932" y="270" width="22" height="98" rx="3" fill-opacity="0.16"/>
+      <rect x="969" y="226" width="22" height="142" rx="3" fill-opacity="0.19"/>
+      <rect x="1006" y="288" width="22" height="80" rx="3" fill-opacity="0.15"/>
+      <rect x="1043" y="246" width="22" height="122" rx="3" fill-opacity="0.18"/>
+      <rect x="1080" y="300" width="22" height="68" rx="3" fill-opacity="0.14"/>
+    </g>
+    <rect x="1117" y="188" width="22" height="180" rx="3" fill="#FF7A1A" fill-opacity="0.85"/>
+    <text x="1128" y="392" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" fill="#6E6E75">today</text>
+    <text x="628" y="416" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.4" fill="#6E6E75" fill-opacity="0.7">grouped by days · weeks · months — up to a year back</text>
+
+    <!-- ===== floating button pane ===== -->
+    <rect x="24" y="456" width="400" height="216" rx="10" fill="#0F0F11" stroke="#F2F2F3" stroke-opacity="0.08"/>
+    <text x="44" y="484" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#6E6E75">FLOATING BUTTON · ALWAYS ON TOP</text>
+    <!-- capsule -->
+    <rect x="104" y="530" width="240" height="56" rx="28" fill="#0A0A0B" stroke="#F2F2F3" stroke-opacity="0.2" stroke-width="1.5"/>
+    <!-- mini gauge codex -->
+    <path d="M 134 568 A 18 18 0 0 1 170 568" stroke="#F2F2F3" stroke-opacity="0.12" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <path d="M 134 568 A 18 18 0 0 1 159.7 551.9" stroke="#F2F2F3" stroke-opacity="0.6" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <text x="152" y="566" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" fill="#F2F2F3" fill-opacity="0.85">64</text>
+    <!-- mini gauge claude -->
+    <path d="M 196 568 A 18 18 0 0 1 232 568" stroke="#F2F2F3" stroke-opacity="0.12" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <path d="M 196 568 A 18 18 0 0 1 198.8 558.4" stroke="#FF7A1A" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <text x="214" y="566" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" fill="#FF7A1A">18</text>
+    <text x="312" y="563" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="9" letter-spacing="1.2" fill="#6E6E75">CLICK · OPEN</text>
+    <text x="312" y="577" text-anchor="middle" font-family="Geist Mono, JetBrains Mono, monospace" font-size="9" letter-spacing="1.2" fill="#6E6E75">R-CLICK · REFRESH</text>
+    <text x="44" y="640" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.4" fill="#6E6E75" fill-opacity="0.7">never takes keyboard focus · draggable</text>
+
+    <!-- ===== privacy pane ===== -->
+    <rect x="448" y="456" width="728" height="216" rx="10" fill="#0F0F11" stroke="#F2F2F3" stroke-opacity="0.08"/>
+    <text x="468" y="484" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.8" fill="#6E6E75">PRIVACY BOUNDARY</text>
+    <g font-family="Geist Mono, JetBrains Mono, monospace" font-size="12" fill="#F2F2F3">
+      <text x="468" y="518" fill-opacity="0.7">local CLI files read passively      ✓ default</text>
+      <text x="468" y="544" fill-opacity="0.7">official web pages                  opt-in · isolated profiles</text>
+      <text x="468" y="570" fill-opacity="0.7">passwords / cookies / tokens        never stored · never logged</text>
+      <text x="468" y="596" fill-opacity="0.7">estimates labeled honestly          official · estimated · stale</text>
+    </g>
+    <text x="468" y="640" font-family="Geist Mono, JetBrains Mono, monospace" font-size="10" letter-spacing="1.4" fill="#6E6E75" fill-opacity="0.7">rust + tauri 2 + svelte 5 · linux/kde first</text>
+  </g>
+</svg>

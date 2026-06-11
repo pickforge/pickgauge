@@ -14,18 +14,34 @@
   let {
     config = $bindable(),
     setStatus,
+    onDirtyChange = () => {},
+    bindActions = () => {},
   }: {
     config: AppConfig;
     setStatus: (message: string | null, error?: boolean) => void;
+    onDirtyChange?: (dirty: boolean) => void;
+    bindActions?: (actions: { save: () => Promise<boolean>; discard: () => void }) => void;
   } = $props();
 
   let saving = $state(false);
+  let savedJson = $state(JSON.stringify($state.snapshot(config)));
   let clearingSnapshots = $state(false);
   let locatingLogs = $state(false);
   let clearingProfile = $state<Service | null>(null);
   let inspectingProfile = $state<Service | null>(null);
 
   const webControls = $derived(webProviderControlState(config));
+  const dirty = $derived(
+    savedJson !== "" && JSON.stringify($state.snapshot(config)) !== savedJson,
+  );
+
+  $effect(() => {
+    onDirtyChange(dirty);
+  });
+
+  $effect(() => {
+    bindActions({ save: saveSettings, discard: discardSettings });
+  });
 
   function formatError(caught: unknown, fallback: string) {
     if (typeof caught === "object" && caught !== null && "message" in caught) {
@@ -56,22 +72,34 @@
     }
   }
 
-  async function saveSettings() {
+  async function saveSettings(): Promise<boolean> {
     if (!desktopApiAvailable()) {
       setStatus("Settings are only persisted in the desktop app", true);
-      return;
+      return false;
     }
 
     saving = true;
 
     try {
       config = await api.updateAppConfig($state.snapshot(config));
+      savedJson = JSON.stringify($state.snapshot(config));
       setStatus("Settings saved");
+      return true;
     } catch (caught) {
       setStatus(formatError(caught, "Could not save settings"), true);
+      return false;
     } finally {
       saving = false;
     }
+  }
+
+  function discardSettings() {
+    if (!savedJson) {
+      return;
+    }
+
+    config = JSON.parse(savedJson) as AppConfig;
+    void setTheme(config.ui.theme);
   }
 
   async function clearSnapshotCache() {
@@ -412,6 +440,17 @@
       </div>
     </div>
   </div>
+
+  {#if dirty}
+    <div class="save-bar glass" role="status">
+      <span class="save-dot"></span>
+      <span class="save-text">Unsaved changes</span>
+      <button class="btn btn-ghost small" type="button" onclick={discardSettings}>Discard</button>
+      <button class="btn btn-primary small" type="button" disabled={saving} onclick={saveSettings}>
+        {saving ? "Saving…" : "Save settings"}
+      </button>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -469,5 +508,44 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .save-bar {
+    position: fixed;
+    bottom: 48px;
+    right: 28px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px 10px 16px;
+    border-radius: var(--radius-pill);
+    border-color: color-mix(in srgb, var(--ember) 35%, transparent);
+    box-shadow: var(--glow-ember-soft);
+    animation: save-bar-in 400ms var(--ease-forge) both;
+  }
+
+  @keyframes save-bar-in {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .save-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--ember);
+    animation: ember-pulse 2.4s var(--ease-forge) infinite;
+  }
+
+  .save-text {
+    font-size: 13px;
+    font-weight: 600;
   }
 </style>

@@ -24,6 +24,9 @@
   type View = "dashboard" | "history" | "settings";
 
   let view = $state<View>("dashboard");
+  let settingsDirty = $state(false);
+  let pendingView = $state<View | null>(null);
+  let settingsActions: { save: () => Promise<boolean>; discard: () => void } | null = null;
   let config = $state<AppConfig>(defaultConfig);
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
   let loading = $state(true);
@@ -37,6 +40,34 @@
     { id: "history", label: "History", icon: ClockCounterClockwise },
     { id: "settings", label: "Settings", icon: GearSix },
   ];
+
+  function navigate(target: View) {
+    if (view === "settings" && settingsDirty && target !== "settings") {
+      pendingView = target;
+      return;
+    }
+    view = target;
+  }
+
+  async function saveAndContinue() {
+    if (!settingsActions || !pendingView) {
+      return;
+    }
+    if (await settingsActions.save()) {
+      view = pendingView;
+    }
+    pendingView = null;
+  }
+
+  function discardAndContinue() {
+    if (!pendingView) {
+      return;
+    }
+    settingsActions?.discard();
+    settingsDirty = false;
+    view = pendingView;
+    pendingView = null;
+  }
 
   function setStatus(message: string | null, error = false) {
     statusMessage = message;
@@ -158,8 +189,11 @@
             class="nav-btn"
             class:active={view === item.id}
             type="button"
-            onclick={() => (view = item.id)}
+            onclick={() => navigate(item.id)}
           >
+            {#if item.id === "settings" && settingsDirty}
+              <span class="dirty-dot" title="Unsaved changes"></span>
+            {/if}
             <item.icon size={17} weight={view === item.id ? "fill" : "regular"} />
             {item.label}
           </button>
@@ -178,7 +212,12 @@
       {:else if view === "history"}
         <History {setStatus} />
       {:else}
-        <Settings bind:config {setStatus} />
+        <Settings
+          bind:config
+          {setStatus}
+          onDirtyChange={(dirty) => (settingsDirty = dirty)}
+          bindActions={(actions) => (settingsActions = actions)}
+        />
       {/if}
     </main>
   </div>
@@ -188,6 +227,33 @@
     <span class="brand-line">© Pickforge · pickforge.dev · MIT</span>
   </footer>
 </div>
+
+{#if pendingView}
+  <div class="dialog-backdrop" role="presentation" onclick={() => (pendingView = null)}>
+    <div
+      class="dialog card"
+      role="alertdialog"
+      aria-label="Unsaved settings"
+      tabindex="-1"
+      onclick={(event) => event.stopPropagation()}
+      onkeydown={(event) => event.key === "Escape" && (pendingView = null)}
+    >
+      <h3>Unsaved settings</h3>
+      <p>You changed settings but haven't saved them yet.</p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost small" type="button" onclick={() => (pendingView = null)}>
+          Keep editing
+        </button>
+        <button class="btn btn-danger small" type="button" onclick={discardAndContinue}>
+          Discard
+        </button>
+        <button class="btn btn-primary small" type="button" onclick={saveAndContinue}>
+          Save and continue
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .app {
@@ -290,6 +356,72 @@
   .nav-btn:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--ember) 60%, transparent);
     outline-offset: -2px;
+  }
+
+  .dirty-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-pill);
+    background: var(--ember);
+    flex: none;
+    margin-left: -4px;
+    animation: ember-pulse 2.4s var(--ease-forge) infinite;
+  }
+
+  .dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(4px);
+    animation: backdrop-in 250ms var(--ease-forge) both;
+  }
+
+  @keyframes backdrop-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .dialog {
+    width: min(420px, calc(100vw - 48px));
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: dialog-in 350ms var(--ease-forge) both;
+  }
+
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .dialog h3 {
+    font-size: 16px;
+  }
+
+  .dialog p {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
   }
 
   .content {

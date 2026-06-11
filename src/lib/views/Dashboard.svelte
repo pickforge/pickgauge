@@ -278,7 +278,9 @@
       <h2>Remaining usage</h2>
     </div>
     <button class="btn btn-primary" type="button" disabled={refreshing} onclick={refreshNow}>
-      <ArrowsClockwise size={15} />
+      <span class="btn-icon" class:spinning={refreshing}>
+        <ArrowsClockwise size={15} />
+      </span>
       {refreshing ? "Refreshing…" : "Refresh now"}
     </button>
   </header>
@@ -351,7 +353,9 @@
               disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
               onclick={() => refreshOfficialUsage(snapshot.service)}
             >
-              <ArrowsClockwise size={13} />
+              <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
+                <ArrowsClockwise size={13} />
+              </span>
               {refreshingOfficial === snapshot.service ? "Refreshing…" : "Refresh official"}
             </button>
             {#if loginPromptVisible(snapshot)}
@@ -452,6 +456,14 @@
 
   .small-text {
     font-size: 12px;
+  }
+
+  .btn-icon {
+    display: inline-flex;
+  }
+
+  .btn-icon.spinning {
+    animation: spin 0.9s linear infinite;
   }
 
   .gauge-grid {

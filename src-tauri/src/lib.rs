@@ -1290,25 +1290,32 @@ fn visible_page_state_from_sidecar(value: &str) -> Result<VisiblePageState, Usag
     }
 }
 
+// Async so the blocking provider work runs off the main thread; a sync
+// command would freeze the UI for the whole refresh.
 #[tauri::command]
-fn refresh_usage(
-    app: AppHandle,
-    engine: State<'_, UsageEngine>,
-    sessions: State<'_, browser_session::BrowserSessionManager>,
-) -> CommandResult<UsageDisplayState> {
+async fn refresh_usage(app: AppHandle) -> CommandResult<UsageDisplayState> {
+    tauri::async_runtime::spawn_blocking(move || refresh_usage_blocking(&app))
+        .await
+        .map_err(|_| command_error("refresh_task_failed", "Usage refresh task stopped unexpectedly"))?
+}
+
+fn refresh_usage_blocking(app: &AppHandle) -> CommandResult<UsageDisplayState> {
+    let engine = app.state::<UsageEngine>();
+    let sessions = app.state::<browser_session::BrowserSessionManager>();
+
     emit_refresh_event(
-        &app,
+        app,
         None,
         None,
         usage::REFRESH_STARTED_EVENT,
         UsageRefreshStatus::Started,
     )?;
 
-    match refresh_all_with_headless_web(&app, &engine, &sessions) {
+    match refresh_all_with_headless_web(app, &engine, &sessions) {
         Ok(display_state) => {
-            emit_provider_error_events(&app, &display_state);
+            emit_provider_error_events(app, &display_state);
             emit_refresh_event(
-                &app,
+                app,
                 None,
                 None,
                 usage::REFRESH_FINISHED_EVENT,
@@ -1318,7 +1325,7 @@ fn refresh_usage(
         }
         Err(error) => {
             let _ = emit_refresh_event(
-                &app,
+                app,
                 None,
                 None,
                 usage::REFRESH_FINISHED_EVENT,
@@ -1391,16 +1398,29 @@ fn refresh_due_with_headless_web(
     Ok(display_state)
 }
 
+// Async for the same reason as refresh_usage: the web/CLI provider work
+// must not block the main thread.
 #[tauri::command]
-fn refresh_provider(
+async fn refresh_provider(
     app: AppHandle,
-    engine: State<'_, UsageEngine>,
-    sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
     source: UsageSource,
 ) -> CommandResult<UsageDisplayState> {
+    tauri::async_runtime::spawn_blocking(move || refresh_provider_blocking(&app, service, source))
+        .await
+        .map_err(|_| command_error("refresh_task_failed", "Provider refresh task stopped unexpectedly"))?
+}
+
+fn refresh_provider_blocking(
+    app: &AppHandle,
+    service: Service,
+    source: UsageSource,
+) -> CommandResult<UsageDisplayState> {
+    let engine = app.state::<UsageEngine>();
+    let sessions = app.state::<browser_session::BrowserSessionManager>();
+
     emit_refresh_event(
-        &app,
+        app,
         Some(service),
         Some(source),
         usage::REFRESH_STARTED_EVENT,
@@ -1408,7 +1428,7 @@ fn refresh_provider(
     )?;
 
     let refresh_result = if source == UsageSource::Web {
-        refresh_web_provider_headless(&app, &engine, &sessions, service)
+        refresh_web_provider_headless(app, &engine, &sessions, service)
     } else {
         engine
             .refresh_provider_source(service, source)
@@ -1419,10 +1439,10 @@ fn refresh_provider(
         Ok(display_state) => {
             app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
                 .map_err(map_event_emit_error)?;
-            after_snapshots_updated(&app, &display_state);
-            emit_provider_error_events(&app, &display_state);
+            after_snapshots_updated(app, &display_state);
+            emit_provider_error_events(app, &display_state);
             emit_refresh_event(
-                &app,
+                app,
                 Some(service),
                 Some(source),
                 usage::REFRESH_FINISHED_EVENT,
@@ -1432,7 +1452,7 @@ fn refresh_provider(
         }
         Err(error) => {
             let _ = emit_refresh_event(
-                &app,
+                app,
                 Some(service),
                 Some(source),
                 usage::REFRESH_FINISHED_EVENT,

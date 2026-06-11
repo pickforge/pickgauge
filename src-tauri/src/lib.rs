@@ -1976,20 +1976,26 @@ fn show_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
     })
 }
 
-fn toggle_float_button(app: &AppHandle) {
+fn apply_float_button_toggle(app: &AppHandle) -> Option<bool> {
     let engine = app.state::<UsageEngine>();
-    let Ok(mut config) = engine.config() else {
-        return;
-    };
+    let mut config = engine.config().ok()?;
 
     config.ui.float_button = !config.ui.float_button;
 
-    let Ok(config) = config::save(app, &config) else {
-        return;
-    };
+    let config = config::save(app, &config).ok()?;
+    let enabled = config.ui.float_button;
     let _ = engine.update_config(config.clone());
     let _ = app.emit(SETTINGS_UPDATED_EVENT, &config);
-    ensure_float_window(app, config.ui.float_button);
+    ensure_float_window(app, enabled);
+
+    Some(enabled)
+}
+
+#[tauri::command]
+fn toggle_float_button(app: AppHandle) -> CommandResult<bool> {
+    apply_float_button_toggle(&app).ok_or_else(|| {
+        command_error("float_toggle_failed", "Could not toggle the floating button")
+    })
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -2026,7 +2032,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => present_main_window(app),
-            "toggle-float" => toggle_float_button(app),
+            "toggle-float" => {
+                let _ = apply_float_button_toggle(app);
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -2074,6 +2082,7 @@ pub fn run() {
             reset_provider_session,
             show_main_window,
             start_provider_login,
+            toggle_float_button,
             update_app_config
         ])
         .plugin(tauri_plugin_autostart::init(

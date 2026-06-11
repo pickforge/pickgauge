@@ -76,6 +76,10 @@
   function onPointerUp(event: PointerEvent) {
     if (event.button === 0 && downAt && !dragged) {
       api.showMainWindow().catch(() => {});
+    } else if (event.button === 1) {
+      // Middle-click dismisses the capsule (persisted; re-enable from the
+      // tray menu or Settings).
+      api.toggleFloatButton().catch(() => {});
     }
 
     downAt = null;
@@ -148,8 +152,8 @@
   class="capsule"
   role="button"
   tabindex="-1"
-  aria-label="Open PickGauge"
-  title="PickGauge — click to open, right-click to refresh, drag to move"
+  aria-label="PickGauge — click to open, right-click to refresh, middle-click to hide"
+  title="PickGauge — click to open, right-click to refresh, middle-click to hide, drag to move"
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}

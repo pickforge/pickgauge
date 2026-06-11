@@ -76,6 +76,7 @@ export const api = {
   getLogLocation: () => invoke<LogLocation>("get_log_location"),
   hideMainWindow: () => invoke<WindowVisibility>("hide_main_window"),
   showMainWindow: () => invoke<WindowVisibility>("show_main_window"),
+  toggleFloatButton: () => invoke<boolean>("toggle_float_button"),
   getUsageHistory: (days: number) =>
     invoke<UsageHistoryReport>("get_usage_history", {
       days,

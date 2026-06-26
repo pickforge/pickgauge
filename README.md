@@ -19,14 +19,14 @@ Release artifacts are built from `main` by GitHub Actions: Linux AppImage, Windo
 On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:
 
 ```bash
-npm run build:appimage
+bun run build:appimage
 ```
 
 The AppImage script also prepares the Linux Playwright sidecar executable under `src-tauri/binaries/` before invoking Tauri. Real headed web-provider login still requires a working local Node/Playwright runtime. For local sidecar launch validation:
 
 ```bash
-npx playwright install chromium
-npm run test:sidecar-launch
+bunx playwright install chromium
+bun run test:sidecar-launch
 ```
 
 ## The desktop app
@@ -112,7 +112,7 @@ Brand assets live in `assets/branding/`. The app uses the Pickforge Studio v2 da
 After changing the source app icon, regenerate platform icons with:
 
 ```bash
-npm run tauri -- icon assets/branding/app-icon.svg
+bun run tauri icon assets/branding/app-icon.svg
 ```
 
 ## Roadmap

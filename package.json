@@ -21,7 +21,7 @@
     "test:synthetic-fail-closed": "node scripts/validate-playwright-synthetic-fail-closed.mjs",
     "test:sidecar-launch": "node scripts/validate-playwright-sidecar-launch.mjs",
     "tauri": "tauri",
-    "build:appimage": "npm run prepare:sidecar && NO_STRIP=1 tauri build --bundles appimage"
+    "build:appimage": "bun run prepare:sidecar && NO_STRIP=1 tauri build --bundles appimage"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.8",

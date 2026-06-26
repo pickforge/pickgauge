@@ -1,4 +1,4 @@
-export type Service = "codex" | "claude";
+export type Service = "codex" | "claude" | "ollama";
 
 export type UsageSource = "local" | "web" | "merged" | "fake";
 
@@ -199,6 +199,7 @@ export type AppConfig = {
   enabledServices: {
     codex: boolean;
     claude: boolean;
+    ollama: boolean;
   };
   providers: {
     localEnabled: boolean;
@@ -216,6 +217,7 @@ export type AppConfig = {
     rootPath: string | null;
     codexPath: string | null;
     claudePath: string | null;
+    ollamaPath: string | null;
   };
   localQuotas: {
     codex: LocalServiceQuotaSettings;
@@ -232,10 +234,11 @@ export type AppConfig = {
 };
 
 export const defaultConfig: AppConfig = {
-  version: 5,
+  version: 6,
   enabledServices: {
     codex: true,
     claude: true,
+    ollama: false,
   },
   providers: {
     localEnabled: true,
@@ -253,6 +256,7 @@ export const defaultConfig: AppConfig = {
     rootPath: null,
     codexPath: null,
     claudePath: null,
+    ollamaPath: null,
   },
   localQuotas: {
     codex: {

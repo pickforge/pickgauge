@@ -5,7 +5,15 @@
   import Gauge from "phosphor-svelte/lib/Gauge";
   import GearSix from "phosphor-svelte/lib/GearSix";
   import logoUrl from "../assets/branding/logo-mark.svg";
-  import { api, desktopApiAvailable } from "./lib/api";
+  import {
+    api,
+    desktopApiAvailable,
+    EVENT_LOGIN_REQUIRED,
+    EVENT_REFRESH_FINISHED,
+    EVENT_REFRESH_STARTED,
+    EVENT_SETTINGS,
+    EVENT_SNAPSHOTS,
+  } from "./lib/api";
   import { serviceLabels } from "./lib/display";
   import {
     browserPreviewSnapshots,
@@ -110,27 +118,27 @@
     }
 
     track(
-      listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
+      listen<UsageDisplayState>(EVENT_SNAPSHOTS, (event) => {
         snapshots = event.payload.snapshots;
       }),
     );
     track(
-      listen<LoginRequiredEvent>("login://required", (event) => {
+      listen<LoginRequiredEvent>(EVENT_LOGIN_REQUIRED, (event) => {
         setStatus(`${serviceLabels[event.payload.service]} login required`, true);
       }),
     );
     track(
-      listen<AppConfig>("settings://updated", (event) => {
+      listen<AppConfig>(EVENT_SETTINGS, (event) => {
         config = event.payload;
       }),
     );
     track(
-      listen("usage://refresh-started", () => {
+      listen(EVENT_REFRESH_STARTED, () => {
         refreshing = true;
       }),
     );
     track(
-      listen("usage://refresh-finished", () => {
+      listen(EVENT_REFRESH_FINISHED, () => {
         refreshing = false;
       }),
     );
@@ -241,13 +249,13 @@
       <h3>Unsaved settings</h3>
       <p>You changed settings but haven't saved them yet.</p>
       <div class="dialog-actions">
-        <button class="btn btn-ghost small" type="button" onclick={() => (pendingView = null)}>
+        <button class="btn btn-ghost btn-sm" type="button" onclick={() => (pendingView = null)}>
           Keep editing
         </button>
-        <button class="btn btn-danger small" type="button" onclick={discardAndContinue}>
+        <button class="btn btn-danger btn-sm" type="button" onclick={discardAndContinue}>
           Discard
         </button>
-        <button class="btn btn-primary small" type="button" onclick={saveAndContinue}>
+        <button class="btn btn-primary btn-sm" type="button" onclick={saveAndContinue}>
           Save and continue
         </button>
       </div>

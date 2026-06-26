@@ -24,6 +24,7 @@ const PROVIDER_BACKOFF_MAX_SECONDS: u64 = 15 * 60;
 pub enum Service {
     Codex,
     Claude,
+    Ollama,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -123,6 +124,7 @@ pub enum UsageProviderId {
     ClaudeLocal,
     ClaudeWeb,
     ClaudeCli,
+    OllamaWeb,
     Fake,
 }
 
@@ -207,6 +209,7 @@ impl Service {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
+            Self::Ollama => "ollama",
         }
     }
 
@@ -214,6 +217,7 @@ impl Service {
         match self {
             Self::Codex => "Codex",
             Self::Claude => "Claude Code",
+            Self::Ollama => "Ollama",
         }
     }
 }
@@ -256,6 +260,8 @@ impl UsageProviderId {
             (Service::Codex, UsageSource::Web) => Some(Self::CodexWeb),
             (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
             (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
+            (Service::Ollama, UsageSource::Web) => Some(Self::OllamaWeb),
+            (Service::Ollama, UsageSource::Local) => None,
             (_, UsageSource::Fake) => Some(Self::Fake),
             (_, UsageSource::Merged) => None,
         }
@@ -269,6 +275,7 @@ impl UsageProviderId {
             Self::ClaudeLocal => "claude.local",
             Self::ClaudeWeb => "claude.web",
             Self::ClaudeCli => "claude.cli",
+            Self::OllamaWeb => "ollama.web",
             Self::Fake => "fake",
         }
     }
@@ -301,6 +308,7 @@ impl UsageDisplayState {
         states.sort_by_key(|state| match state.service {
             Service::Codex => 0,
             Service::Claude => 1,
+            Service::Ollama => 2,
         });
 
         if states.is_empty() {
@@ -730,7 +738,8 @@ impl UsageEngine {
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
             (UsageProviderId::CodexWeb, Service::Codex)
-            | (UsageProviderId::ClaudeWeb, Service::Claude) => {
+            | (UsageProviderId::ClaudeWeb, Service::Claude)
+            | (UsageProviderId::OllamaWeb, Service::Ollama) => {
                 Err(UsageProviderError::LoginRequired)
             }
             (UsageProviderId::CodexCli, Service::Codex) => {
@@ -860,6 +869,7 @@ impl UsageEngineState {
         snapshots.sort_by_key(|snapshot| match snapshot.service {
             Service::Codex => 0,
             Service::Claude => 1,
+            Service::Ollama => 2,
         });
 
         UsageDisplayState {
@@ -874,7 +884,7 @@ fn merged_display_snapshots(
     config: &AppConfig,
     now: &str,
 ) -> Vec<UsageSnapshot> {
-    [Service::Codex, Service::Claude]
+    [Service::Codex, Service::Claude, Service::Ollama]
         .into_iter()
         .filter(|service| config.service_enabled(*service))
         .filter_map(|service| {
@@ -1115,6 +1125,7 @@ impl AppConfig {
         match service {
             Service::Codex => self.enabled_services.codex,
             Service::Claude => self.enabled_services.claude,
+            Service::Ollama => self.enabled_services.ollama,
         }
     }
 }
@@ -1175,6 +1186,7 @@ impl UsageProvider for CliUsageProvider {
         match self.service {
             Service::Codex => UsageProviderId::CodexCli,
             Service::Claude => UsageProviderId::ClaudeCli,
+            Service::Ollama => unreachable!("Ollama has no CLI provider"),
         }
     }
 
@@ -1332,6 +1344,14 @@ fn providers_for_config(
                 service: Service::Claude,
             }));
         }
+    }
+
+    // Ollama Cloud usage is only available by scraping the logged-in settings
+    // page, so it has no local or CLI provider — only the browser web path.
+    if config.enabled_services.ollama && config.providers.web_enabled {
+        providers.push(Box::new(FailClosedWebProvider {
+            service: Service::Ollama,
+        }));
     }
 
     providers
@@ -1561,7 +1581,11 @@ mod tests {
 
     fn config_with_services(codex: bool, claude: bool) -> AppConfig {
         AppConfig {
-            enabled_services: crate::config::ServiceToggles { codex, claude },
+            enabled_services: crate::config::ServiceToggles {
+                codex,
+                claude,
+                ollama: false,
+            },
             providers: crate::config::ProviderSettings {
                 local_enabled: false,
                 web_enabled: false,
@@ -1576,6 +1600,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex: false,
                 claude: true,
+                ollama: false,
             },
             providers: crate::config::ProviderSettings {
                 local_enabled: true,
@@ -1591,6 +1616,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex: true,
                 claude: false,
+                ollama: false,
             },
             providers: crate::config::ProviderSettings {
                 local_enabled: true,
@@ -1606,6 +1632,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex: true,
                 claude: true,
+                ollama: false,
             },
             providers: crate::config::ProviderSettings {
                 local_enabled: false,

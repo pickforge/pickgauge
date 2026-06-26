@@ -16,6 +16,7 @@ pub struct BrowserProfilePaths {
     pub root: PathBuf,
     pub codex: PathBuf,
     pub claude: PathBuf,
+    pub ollama: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -23,6 +24,7 @@ pub struct BrowserProfilePaths {
 pub enum BrowserProfileService {
     Codex,
     Claude,
+    Ollama,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -54,6 +56,7 @@ pub fn prepare_browser_profiles(
     ensure_profile_root_directory(&paths.root)?;
     ensure_profile_directory(&paths.codex, BrowserProfileService::Codex)?;
     ensure_profile_directory(&paths.claude, BrowserProfileService::Claude)?;
+    ensure_profile_directory(&paths.ollama, BrowserProfileService::Ollama)?;
 
     Ok(paths)
 }
@@ -102,6 +105,7 @@ impl BrowserProfilePaths {
         match service {
             BrowserProfileService::Codex => &self.codex,
             BrowserProfileService::Claude => &self.claude,
+            BrowserProfileService::Ollama => &self.ollama,
         }
     }
 }
@@ -133,11 +137,16 @@ fn resolve_browser_profile_paths(
         Some(path) => resolve_configured_path(path)?,
         None => root.join("claude"),
     };
+    let ollama = match configured_path(&settings.ollama_path) {
+        Some(path) => resolve_configured_path(path)?,
+        None => root.join("ollama"),
+    };
 
     let paths = BrowserProfilePaths {
         root,
         codex: canonicalize_browser_profile_path(&codex)?,
         claude: canonicalize_browser_profile_path(&claude)?,
+        ollama: canonicalize_browser_profile_path(&ollama)?,
     };
     reject_overlapping_profile_paths(&paths)?;
 
@@ -220,16 +229,25 @@ fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn reject_overlapping_profile_paths(paths: &BrowserProfilePaths) -> Result<(), String> {
-    if paths_overlap(&paths.codex, &paths.claude) {
-        return Err("Browser profile paths must be separate per service".to_string());
-    }
+    let service_paths = [&paths.codex, &paths.claude, &paths.ollama];
 
-    if paths.root == paths.codex || paths.root == paths.claude {
+    if service_paths.iter().any(|path| &paths.root == *path) {
         return Err("Browser profile root must not be a service profile path".to_string());
     }
 
-    if paths.root.starts_with(&paths.codex) || paths.root.starts_with(&paths.claude) {
+    if service_paths
+        .iter()
+        .any(|path| paths.root.starts_with(path))
+    {
         return Err("Browser profile root must not be inside a service profile path".to_string());
+    }
+
+    for (index, left) in service_paths.iter().enumerate() {
+        for right in &service_paths[index + 1..] {
+            if paths_overlap(left, right) {
+                return Err("Browser profile paths must be separate per service".to_string());
+            }
+        }
     }
 
     Ok(())
@@ -449,6 +467,7 @@ mod tests {
             root_path: None,
             codex_path: None,
             claude_path: None,
+            ollama_path: None,
         }
     }
 
@@ -483,6 +502,7 @@ mod tests {
             root_path: Some(dir.path.join("root").to_string_lossy().to_string()),
             codex_path: Some(dir.path.join("codex-custom").to_string_lossy().to_string()),
             claude_path: Some(dir.path.join("claude-custom").to_string_lossy().to_string()),
+            ollama_path: None,
         };
 
         let paths = prepare_browser_profiles(&settings, &dir.path).expect("profiles prepare");
@@ -545,6 +565,7 @@ mod tests {
                     .to_string_lossy()
                     .to_string(),
             ),
+            ollama_path: None,
         };
 
         let error = prepare_browser_profiles(&settings, &dir.path).expect_err("path is rejected");
@@ -566,6 +587,7 @@ mod tests {
                     .to_string_lossy()
                     .to_string(),
             ),
+            ollama_path: None,
         };
 
         let error = prepare_browser_profiles(&settings, &dir.path).expect_err("path is rejected");

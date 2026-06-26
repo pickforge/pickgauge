@@ -62,6 +62,9 @@
   }
 
   function formatTokens(value: number) {
+    if (value >= 1_000_000_000) {
+      return `${(value / 1_000_000_000).toFixed(1)}B`;
+    }
     if (value >= 1_000_000) {
       return `${(value / 1_000_000).toFixed(1)}M`;
     }
@@ -147,7 +150,7 @@
     }[] = [];
     rows.push({
       key: "five-hour",
-      label: "5-hour session",
+      label: snapshot.service === "ollama" ? "Session" : "5-hour session",
       remainingPercent: fiveHour?.remainingPercent ?? null,
       low: low(fiveHour?.remainingPercent ?? null),
       resetLabel: formatReset(fiveHour?.resetAt ?? null),
@@ -347,7 +350,7 @@
 
           <footer class="service-actions">
             <button
-              class="btn small"
+              class="btn btn-sm"
               type="button"
               aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
               disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
@@ -360,7 +363,7 @@
             </button>
             {#if loginPromptVisible(snapshot)}
               <button
-                class="btn small"
+                class="btn btn-sm"
                 type="button"
                 aria-label={`Start ${serviceLabels[snapshot.service]} login`}
                 disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
@@ -371,7 +374,7 @@
               </button>
             {/if}
             <button
-              class="btn small btn-ghost"
+              class="btn btn-sm btn-ghost"
               type="button"
               aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
               disabled={openingService === snapshot.service}

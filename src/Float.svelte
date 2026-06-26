@@ -2,7 +2,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
-  import { api, desktopApiAvailable } from "./lib/api";
+  import { api, desktopApiAvailable, EVENT_SETTINGS, EVENT_SNAPSHOTS } from "./lib/api";
   import type { AppConfig, Service, UsageDisplayState, UsageSnapshot } from "./lib/usage";
   import { defaultConfig } from "./lib/usage";
 
@@ -21,6 +21,7 @@
   const ringColors: Record<Service, string> = {
     codex: "var(--text)",
     claude: "#ff7a1a",
+    ollama: "#2563eb",
   };
 
   function ringColor(snapshot: UsageSnapshot) {
@@ -122,12 +123,12 @@
     }
 
     track(
-      listen<UsageDisplayState>("usage://snapshots-updated", (event) => {
+      listen<UsageDisplayState>(EVENT_SNAPSHOTS, (event) => {
         snapshots = event.payload.snapshots;
       }),
     );
     track(
-      listen<AppConfig>("settings://updated", (event) => {
+      listen<AppConfig>(EVENT_SETTINGS, (event) => {
         config = event.payload;
       }),
     );

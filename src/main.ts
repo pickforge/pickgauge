@@ -8,7 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { mount } from "svelte";
 import App from "./App.svelte";
 import Float from "./Float.svelte";
-import { api, desktopApiAvailable } from "./lib/api";
+import { api, desktopApiAvailable, EVENT_SETTINGS } from "./lib/api";
 import { initTheme, setTheme, type ThemeSetting } from "./lib/theme";
 import type { AppConfig } from "./lib/usage";
 import "./app.css";
@@ -46,7 +46,7 @@ if (desktopApiAvailable()) {
     .getAppConfig()
     .then((config) => initTheme(config.ui.theme as ThemeSetting))
     .catch(() => initTheme("system"));
-  void listen<AppConfig>("settings://updated", (event) => {
+  void listen<AppConfig>(EVENT_SETTINGS, (event) => {
     void setTheme(event.payload.ui.theme as ThemeSetting);
   });
 } else {

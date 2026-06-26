@@ -107,6 +107,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build Tauri bundles
+        env:
+          # Updater signing — set these repo secrets so `tauri build` emits the
+          # signed `.sig` artifacts the in-app updater verifies.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           bundle_args=()
           if [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -123,10 +128,13 @@ jobs:
           done < <(
             find src-tauri/target/release/bundle -type f \
               \( -name '*.AppImage' \
+              -o -name '*.AppImage.sig' \
               -o -name '*.deb' \
               -o -name '*.rpm' \
               -o -name '*.msi' \
+              -o -name '*.msi.sig' \
               -o -name '*.exe' \
+              -o -name '*.exe.sig' \
               -o -name '*.dmg' \
               -o -name '*.app.tar.gz' \
               -o -name '*.app.tar.gz.sig' \) \
@@ -160,6 +168,64 @@ jobs:
       - build
     if: startsWith(github.ref, 'refs/tags/') && needs.build.result == 'success'
     steps:
+      - name: Generate updater manifest (latest.json)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          download_base="https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}"
+
+          mkdir -p updater-sigs
+          gh release download "$RELEASE_TAG" --dir updater-sigs --pattern '*.sig' --clobber
+
+          platforms='{}'
+          add_platform() {
+            local key="$1" sig_file="$2" bundle_name signature url
+            bundle_name="$(basename "${sig_file%.sig}")"
+            signature="$(cat "$sig_file")"
+            url="${download_base}/${bundle_name}"
+            platforms="$(jq \
+              --arg key "$key" --arg sig "$signature" --arg url "$url" \
+              '.[$key] = {signature: $sig, url: $url}' <<<"$platforms")"
+          }
+
+          # Linux AppImage
+          while IFS= read -r -d '' sig; do
+            add_platform "linux-x86_64" "$sig"
+          done < <(find updater-sigs -name 'linux-appimage-*.AppImage.sig' -print0)
+
+          # Windows: the updater installs the NSIS `-setup.exe`; fall back to MSI.
+          win_sig="$(find updater-sigs -name 'windows-*-setup.exe.sig' | head -n1)"
+          if [[ -z "$win_sig" ]]; then
+            win_sig="$(find updater-sigs \( -name 'windows-*.exe.sig' -o -name 'windows-*.msi.sig' \) | head -n1)"
+          fi
+          [[ -n "$win_sig" ]] && add_platform "windows-x86_64" "$win_sig"
+
+          # macOS (per-arch app bundle archives)
+          while IFS= read -r -d '' sig; do
+            add_platform "darwin-x86_64" "$sig"
+          done < <(find updater-sigs -name 'macos-intel-*.app.tar.gz.sig' -print0)
+          while IFS= read -r -d '' sig; do
+            add_platform "darwin-aarch64" "$sig"
+          done < <(find updater-sigs -name 'macos-apple-silicon-*.app.tar.gz.sig' -print0)
+
+          jq -n \
+            --arg version "$version" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson platforms "$platforms" \
+            '{version: $version, pub_date: $pub_date, platforms: $platforms}' \
+            > latest.json
+          cat latest.json
+
+          if [[ "$(jq '.platforms | length' latest.json)" == "0" ]]; then
+            echo "No signed updater artifacts found; refusing to publish an empty latest.json."
+            exit 1
+          fi
+
+          gh release upload "$RELEASE_TAG" latest.json --clobber
+
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ github.token }}

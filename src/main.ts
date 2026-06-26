@@ -10,6 +10,7 @@ import App from "./App.svelte";
 import Float from "./Float.svelte";
 import { api, desktopApiAvailable, EVENT_SETTINGS } from "./lib/api";
 import { initTheme, setTheme, type ThemeSetting } from "./lib/theme";
+import { checkForUpdatesOnStartup } from "./lib/updater";
 import type { AppConfig } from "./lib/usage";
 import "./app.css";
 
@@ -49,6 +50,7 @@ if (desktopApiAvailable()) {
   void listen<AppConfig>(EVENT_SETTINGS, (event) => {
     void setTheme(event.payload.ui.theme as ThemeSetting);
   });
+  void checkForUpdatesOnStartup();
 } else {
   initTheme("system");
 }

@@ -10,7 +10,7 @@ import App from "./App.svelte";
 import Float from "./Float.svelte";
 import { api, desktopApiAvailable, EVENT_SETTINGS } from "./lib/api";
 import { initTheme, setTheme, type ThemeSetting } from "./lib/theme";
-import { checkForUpdatesOnStartup } from "./lib/updater";
+import { checkForUpdatesWhenVisible } from "./lib/updater";
 import type { AppConfig } from "./lib/usage";
 import "./app.css";
 
@@ -35,7 +35,8 @@ function currentWindowLabel() {
   return new URLSearchParams(window.location.search).get("window") ?? "main";
 }
 
-const component = currentWindowLabel() === "float" ? Float : App;
+const windowLabel = currentWindowLabel();
+const component = windowLabel === "float" ? Float : App;
 
 if (component === Float) {
   document.documentElement.classList.add("is-float");
@@ -50,7 +51,9 @@ if (desktopApiAvailable()) {
   void listen<AppConfig>(EVENT_SETTINGS, (event) => {
     void setTheme(event.payload.ui.theme as ThemeSetting);
   });
-  void checkForUpdatesOnStartup();
+  if (windowLabel === "main") {
+    void checkForUpdatesWhenVisible();
+  }
 } else {
   initTheme("system");
 }

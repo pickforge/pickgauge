@@ -95,9 +95,30 @@ pub fn clear_browser_profile(
     verify_marker(&marker_path, service)?;
     fs::remove_dir_all(profile_path)
         .map_err(|error| format!("Could not remove browser profile directory: {error}"))?;
+    remove_profile_session_file(profile_path)?;
     remove_empty_profile_root(&paths.root)?;
 
     Ok(true)
+}
+
+// The Playwright sidecar harvests an authenticated session to a sibling file
+// (`<profile>.session.json`), so a reset must remove it too — otherwise stored
+// cookies survive "Reset session". `remove_file` unlinks the named entry without
+// following symlinks, so it never touches a target outside the profile area.
+fn remove_profile_session_file(profile_path: &Path) -> Result<(), String> {
+    let session_path = profile_session_file_path(profile_path);
+
+    match fs::remove_file(&session_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not remove browser session file: {error}")),
+    }
+}
+
+fn profile_session_file_path(profile_path: &Path) -> PathBuf {
+    let mut session_path = profile_path.as_os_str().to_owned();
+    session_path.push(".session.json");
+    PathBuf::from(session_path)
 }
 
 impl BrowserProfilePaths {
@@ -792,6 +813,10 @@ mod tests {
             prepare_browser_profiles(&empty_settings(), &dir.path).expect("profiles prepare");
         fs::write(paths.codex.join("browser-data"), "data").expect("profile data is written");
         fs::write(paths.claude.join("browser-data"), "data").expect("profile data is written");
+        let codex_session = profile_session_file_path(&paths.codex);
+        let claude_session = profile_session_file_path(&paths.claude);
+        fs::write(&codex_session, "cookies").expect("codex session is written");
+        fs::write(&claude_session, "cookies").expect("claude session is written");
 
         let cleared =
             clear_browser_profile(&empty_settings(), &dir.path, BrowserProfileService::Codex)
@@ -799,7 +824,9 @@ mod tests {
 
         assert!(cleared);
         assert!(!paths.codex.exists());
+        assert!(!codex_session.exists());
         assert!(paths.claude.exists());
+        assert!(claude_session.exists());
     }
 
     #[test]

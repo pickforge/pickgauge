@@ -395,8 +395,8 @@ function validateSharedProfileRoot(profileRoot) {
 
 function printHelp() {
   console.log(`Usage:
-  npm --silent run smoke:auth-profile -- --profile-root /absolute/browser-profiles --log-file /absolute/pickgauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
-  npm --silent run smoke:auth-profile -- --codex-profile /absolute/profile --claude-profile /absolute/profile --log-file /absolute/pickgauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
+  bun run --silent smoke:auth-profile --profile-root /absolute/browser-profiles --log-file /absolute/pickgauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
+  bun run --silent smoke:auth-profile --codex-profile /absolute/profile --claude-profile /absolute/profile --log-file /absolute/pickgauge.log --require-usage --require-session-storage-artifacts --require-sanitized-log-file --require-disabled-storage-preferences --require-no-credential-store-files --require-no-autofill-store-files --require-no-default-profile-references
 
 Environment:
   PICKGAUGE_AUTH_PROFILE_ROOT=/absolute/browser-profiles
@@ -406,7 +406,7 @@ Environment:
 
 The command runs headless refresh checks only. Profile roots must contain PickGauge
 ownership markers unless --allow-unmarked-test-profile is used for disposable tests.
-Use npm --silent or environment variables for real profile paths so npm does not echo
+Use bun run --silent or environment variables for real profile paths so bun does not echo
 CLI arguments before the helper starts. The helper emits sanitized JSON without
 profile paths, official URLs, cookies, tokens, auth headers, browser storage
 contents, or page markup. Use --require-sanitized-log-file with a normal app log

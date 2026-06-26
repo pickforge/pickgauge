@@ -2,7 +2,7 @@
 
 // Dev helper: capture branded-UI screenshots of every view in browser
 // preview mode. Usage: node scripts/capture-preview-screenshots.mjs
-// (expects `npm run dev` already listening on port 1420).
+// (expects `bun run dev` already listening on port 1420).
 
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

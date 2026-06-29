@@ -31,6 +31,9 @@
   let inspectingProfile = $state<Service | null>(null);
 
   const webControls = $derived(webProviderControlState(config));
+  const cliProvidedProfilePathsDisabled = $derived(
+    webControls.profilePathInputsDisabled || config.providers.cliEnabled,
+  );
   const dirty = $derived(
     savedJson !== "" && JSON.stringify($state.snapshot(config)) !== savedJson,
   );
@@ -212,11 +215,20 @@
 
     try {
       const result = await api.startProviderLogin(service);
-      setStatus(
-        result.status === "already_authenticated"
-          ? `${serviceLabels[service]} is already signed in`
-          : `Opened ${serviceLabels[service]} sign-in — finish in the browser window, then refresh`,
-      );
+      const label = serviceLabels[service];
+
+      if (result.status === "launched") {
+        setStatus(`Opened ${label} sign-in — finish in the browser window, then refresh`);
+      } else if (result.status === "already_authenticated") {
+        setStatus(`${label} is already signed in`);
+      } else if (result.status === "preflight_unavailable") {
+        setStatus(`Couldn't reach ${label} to check sign-in — verify your connection, then try again`, true);
+      } else {
+        setStatus(
+          `Couldn't open the ${label} sign-in window — make sure official web readings are on, then try again`,
+          true,
+        );
+      }
     } catch (caught) {
       setStatus(formatError(caught, `Could not start ${serviceLabels[service]} sign-in`), true);
     } finally {
@@ -452,7 +464,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.codexPath)}
           oninput={(event) => updateProfilePath("codexPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
+          disabled={cliProvidedProfilePathsDisabled}
         />
       </label>
       <label class="field">
@@ -465,7 +477,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.claudePath)}
           oninput={(event) => updateProfilePath("claudePath", event)}
-          disabled={webControls.profilePathInputsDisabled}
+          disabled={cliProvidedProfilePathsDisabled}
         />
       </label>
       <label class="field">

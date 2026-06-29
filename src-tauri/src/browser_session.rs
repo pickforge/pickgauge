@@ -20,6 +20,7 @@ pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
 pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
 pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
+pub const PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE: &str = "httpRefreshUsage";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
 pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
@@ -226,6 +227,18 @@ pub struct PlaywrightSidecarUsageResponse {
     pub used_percent: Option<f32>,
     pub reset_at: Option<String>,
     pub visible_fields: Vec<String>,
+    pub weekly: Option<PlaywrightSidecarUsageWindow>,
+}
+
+/// A secondary rate-limit window (e.g. Ollama's weekly meter) carried alongside
+/// the headline window. Percentages and the reset timestamp are validated by the
+/// web provider, so this only transports the raw values.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaywrightSidecarUsageWindow {
+    pub remaining_percent: Option<f32>,
+    pub used_percent: Option<f32>,
+    pub reset_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,6 +272,7 @@ struct RawPlaywrightSidecarUsageResponse {
     used_percent: Option<f32>,
     reset_at: Option<String>,
     visible_fields: Option<Vec<String>>,
+    weekly: Option<PlaywrightSidecarUsageWindow>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -648,6 +662,23 @@ pub fn playwright_sidecar_refresh_request(
     )
 }
 
+/// Lightweight refresh that replays the harvested session cookie over plain HTTP
+/// inside the sidecar (no Chromium). Same headless protocol shape as the browser
+/// refresh; only the action differs.
+#[allow(dead_code)]
+pub fn playwright_sidecar_http_refresh_request(
+    request: &PlaywrightLaunchRequest,
+    url: impl Into<String>,
+) -> Result<PlaywrightSidecarLaunchRequest, String> {
+    playwright_sidecar_request(
+        request,
+        url,
+        PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE,
+        true,
+        "Managed browser refresh URL must use HTTPS",
+    )
+}
+
 fn playwright_sidecar_request(
     request: &PlaywrightLaunchRequest,
     url: impl Into<String>,
@@ -827,6 +858,7 @@ pub fn playwright_sidecar_usage_response(
         used_percent: response.used_percent,
         reset_at: response.reset_at,
         visible_fields,
+        weekly: response.weekly,
     })
 }
 
@@ -1100,6 +1132,7 @@ fn profile_label(service: Service) -> String {
     match service {
         Service::Codex => "codex-profile".to_string(),
         Service::Claude => "claude-profile".to_string(),
+        Service::Ollama => "ollama-profile".to_string(),
     }
 }
 
@@ -1759,6 +1792,24 @@ mod tests {
     }
 
     #[test]
+    fn playwright_sidecar_http_refresh_request_serializes_to_http_action() {
+        let profile_path = "/tmp/pickgauge/browser-profiles/ollama";
+        let plan = chromium_launch_plan(Service::Ollama, profile_path);
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request =
+            playwright_sidecar_http_refresh_request(&launch_request, "https://ollama.com/settings")
+                .expect("sidecar request is created");
+        let value = serde_json::to_value(&sidecar_request).expect("sidecar request serializes");
+
+        assert_eq!(sidecar_request.action, "httpRefreshUsage");
+        assert_eq!(sidecar_request.service, Service::Ollama);
+        assert_eq!(sidecar_request.user_data_dir, profile_path);
+        assert!(sidecar_request.headless);
+        assert_eq!(value["action"], "httpRefreshUsage");
+        assert_eq!(value["headless"], true);
+    }
+
+    #[test]
     fn playwright_sidecar_refresh_request_debug_redacts_sensitive_input() {
         let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
@@ -1858,6 +1909,47 @@ mod tests {
             response.visible_fields,
             vec!["remaining_percent", "used_percent", "reset_at"]
         );
+        assert!(response.weekly.is_none());
+    }
+
+    #[test]
+    fn playwright_sidecar_usage_response_carries_weekly_window() {
+        let plan = chromium_launch_plan(Service::Codex, "/tmp/pickgauge/codex");
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_refresh_request(
+            &launch_request,
+            "https://chatgpt.com/codex/cloud/settings/analytics",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "checked",
+            "protocolVersion": 1,
+            "action": "refreshUsage",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "codex",
+            "profileLabel": "codex-profile",
+            "headless": true,
+            "argCount": sidecar_request.args.len(),
+            "pageState": "usage",
+            "remainingPercent": 83.0,
+            "usedPercent": 17.0,
+            "resetAt": "2026-06-20T19:00:00Z",
+            "visibleFields": ["remaining_percent", "used_percent", "reset_at", "quota_window"],
+            "weekly": {
+                "remainingPercent": 43.0,
+                "usedPercent": 57.0,
+                "resetAt": "2026-06-22T00:00:00Z"
+            }
+        })
+        .to_string();
+        let response = playwright_sidecar_usage_response(&raw, &sidecar_request)
+            .expect("checked response is accepted");
+
+        let weekly = response.weekly.expect("weekly window is carried");
+        assert_eq!(weekly.used_percent, Some(57.0));
+        assert_eq!(weekly.remaining_percent, Some(43.0));
+        assert_eq!(weekly.reset_at.as_deref(), Some("2026-06-22T00:00:00Z"));
     }
 
     #[test]

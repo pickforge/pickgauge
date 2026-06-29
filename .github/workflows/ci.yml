@@ -23,7 +23,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -45,19 +48,19 @@ jobs:
             patchelf
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Lint
-        run: npm run lint
+        run: bun run lint
 
       - name: Svelte type check
-        run: npm run check
+        run: bun run check
 
       - name: Build frontend
-        run: npm run build
+        run: bun run build
 
       - name: Sidecar tests
-        run: npm test
+        run: bun run test
 
       - name: Rust check
         working-directory: src-tauri

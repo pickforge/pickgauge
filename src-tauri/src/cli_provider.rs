@@ -66,6 +66,7 @@ pub fn refresh(service: Service, now: &str) -> Result<UsageSnapshot, UsageProvid
     match service {
         Service::Codex => refresh_codex(now),
         Service::Claude => refresh_claude(now),
+        Service::Ollama => Err(UsageProviderError::Internal),
     }
 }
 
@@ -138,6 +139,7 @@ fn base_details(service: Service) -> Value {
     let provider_id = match service {
         Service::Codex => UsageProviderId::CodexCli,
         Service::Claude => UsageProviderId::ClaudeCli,
+        Service::Ollama => unreachable!("Ollama has no CLI provider"),
     };
     json!({
         "status": "parsed",

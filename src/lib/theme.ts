@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { api } from "./api";
 
 export type ThemeSetting = "system" | "dark" | "light";
 
@@ -13,7 +13,7 @@ async function resolveSystem(): Promise<"dark" | "light"> {
   // The backend reads the XDG settings portal — more reliable than the
   // webview's media query under a forced X11 backend.
   try {
-    const theme = await invoke<string>("get_system_theme");
+    const theme = await api.getSystemTheme();
     if (theme === "light" || theme === "dark") return theme;
   } catch {
     // fall through to the media query

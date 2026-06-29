@@ -31,6 +31,9 @@
   let inspectingProfile = $state<Service | null>(null);
 
   const webControls = $derived(webProviderControlState(config));
+  const cliProvidedProfilePathsDisabled = $derived(
+    webControls.profilePathInputsDisabled || config.providers.cliEnabled,
+  );
   const dirty = $derived(
     savedJson !== "" && JSON.stringify($state.snapshot(config)) !== savedJson,
   );
@@ -186,6 +189,52 @@
       inspectingProfile = null;
     }
   }
+
+  let loggingIn = $state<Service | null>(null);
+
+  const themeOptions: { value: AppConfig["ui"]["theme"]; label: string }[] = [
+    { value: "system", label: "System" },
+    { value: "dark", label: "Dark" },
+    { value: "light", label: "Light" },
+  ];
+
+  const calibratedServices = ["codex", "claude"] as const;
+
+  function selectTheme(value: AppConfig["ui"]["theme"]) {
+    config.ui.theme = value;
+    void setTheme(value);
+  }
+
+  async function startProviderLogin(service: Service) {
+    if (!desktopApiAvailable()) {
+      setStatus(`${serviceLabels[service]} sign-in runs in the desktop app`, true);
+      return;
+    }
+
+    loggingIn = service;
+
+    try {
+      const result = await api.startProviderLogin(service);
+      const label = serviceLabels[service];
+
+      if (result.status === "launched") {
+        setStatus(`Opened ${label} sign-in — finish in the browser window, then refresh`);
+      } else if (result.status === "already_authenticated") {
+        setStatus(`${label} is already signed in`);
+      } else if (result.status === "preflight_unavailable") {
+        setStatus(`Couldn't reach ${label} to check sign-in — verify your connection, then try again`, true);
+      } else {
+        setStatus(
+          `Couldn't open the ${label} sign-in window — make sure official web readings are on, then try again`,
+          true,
+        );
+      }
+    } catch (caught) {
+      setStatus(formatError(caught, `Could not start ${serviceLabels[service]} sign-in`), true);
+    } finally {
+      loggingIn = null;
+    }
+  }
 </script>
 
 <section aria-label="Settings">
@@ -214,6 +263,11 @@
         Claude Code
       </label>
       <label class="switch">
+        <input type="checkbox" bind:checked={config.enabledServices.ollama} />
+        <span class="track"></span>
+        Ollama (Cloud)
+      </label>
+      <label class="switch">
         <input type="checkbox" bind:checked={config.providers.localEnabled} />
         <span class="track"></span>
         Local estimates
@@ -227,7 +281,7 @@
         <input
           type="checkbox"
           bind:checked={config.providers.webEnabled}
-          disabled={config.providers.cliEnabled}
+          disabled={config.providers.cliEnabled && !config.enabledServices.ollama}
         />
         <span class="track"></span>
         Official web readings (browser)
@@ -235,25 +289,43 @@
       <p class="hint">
         CLI readings reuse the Codex and Claude Code logins already on this machine — the real usage
         number, auto-refreshed, no browser or captcha. Tokens are read locally and only sent to the
-        official provider APIs. Falls back to local estimates if a CLI isn't signed in. The browser
-        option is the older fallback and is disabled while CLI readings are on.
+        official provider APIs. Falls back to local estimates if a CLI isn't signed in. Ollama Cloud
+        has no CLI, so it always uses web readings — turn them on and sign in below.
       </p>
+      {#if config.enabledServices.ollama}
+        <button
+          class="btn btn-sm"
+          type="button"
+          disabled={loggingIn === "ollama"}
+          onclick={() => startProviderLogin("ollama")}
+        >
+          {loggingIn === "ollama" ? "Opening…" : "Sign in to Ollama"}
+        </button>
+        <p class="hint">
+          Reads the session and weekly limits from your signed-in ollama.com page — no API key,
+          nothing leaves this machine except the page load.
+        </p>
+      {/if}
     </div>
 
     <div class="card group">
       <h4>App</h4>
-      <label class="field">
+      <div class="field">
         <span>Theme</span>
-        <select
-          class="select"
-          bind:value={config.ui.theme}
-          onchange={() => void setTheme(config.ui.theme)}
-        >
-          <option value="system">System</option>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-        </select>
-      </label>
+        <div class="segmented" role="group" aria-label="Theme">
+          {#each themeOptions as option (option.value)}
+            <button
+              type="button"
+              class="segment"
+              class:active={config.ui.theme === option.value}
+              aria-pressed={config.ui.theme === option.value}
+              onclick={() => selectTheme(option.value)}
+            >
+              {option.label}
+            </button>
+          {/each}
+        </div>
+      </div>
       <label class="switch">
         <input type="checkbox" bind:checked={config.autostart.enabled} />
         <span class="track"></span>
@@ -318,11 +390,11 @@
       </div>
     </div>
 
-    {#each ["codex", "claude"] as service (service)}
+    {#each calibratedServices as service (service)}
       <div class="card group">
-        <h4>{serviceLabels[service as Service]} calibration</h4>
+        <h4>{serviceLabels[service]} calibration</h4>
         <label class="switch">
-          <input type="checkbox" bind:checked={config.localQuotas[service as Service].enabled} />
+          <input type="checkbox" bind:checked={config.localQuotas[service].enabled} />
           <span class="track"></span>
           Calibrate local estimates
         </label>
@@ -335,8 +407,8 @@
               autocomplete="off"
               spellcheck="false"
               placeholder="Optional"
-              value={config.localQuotas[service as Service].planLabel}
-              oninput={(event) => updateQuotaLabel(service as Service, event)}
+              value={config.localQuotas[service].planLabel}
+              oninput={(event) => updateQuotaLabel(service, event)}
             />
           </label>
           <label class="field">
@@ -346,7 +418,7 @@
               type="number"
               min="0"
               step="1"
-              bind:value={config.localQuotas[service as Service].limit}
+              bind:value={config.localQuotas[service].limit}
             />
           </label>
           <label class="field">
@@ -357,7 +429,7 @@
               min="1"
               max="744"
               step="1"
-              bind:value={config.localQuotas[service as Service].windowHours}
+              bind:value={config.localQuotas[service].windowHours}
             />
           </label>
         </div>
@@ -392,7 +464,7 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.codexPath)}
           oninput={(event) => updateProfilePath("codexPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
+          disabled={cliProvidedProfilePathsDisabled}
         />
       </label>
       <label class="field">
@@ -405,6 +477,19 @@
           placeholder="Default under root"
           value={profilePathValue(config.browserProfiles.claudePath)}
           oninput={(event) => updateProfilePath("claudePath", event)}
+          disabled={cliProvidedProfilePathsDisabled}
+        />
+      </label>
+      <label class="field">
+        <span>Ollama profile</span>
+        <input
+          class="input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Default under root"
+          value={profilePathValue(config.browserProfiles.ollamaPath)}
+          oninput={(event) => updateProfilePath("ollamaPath", event)}
           disabled={webControls.profilePathInputsDisabled}
         />
       </label>
@@ -413,15 +498,15 @@
     <div class="card group">
       <h4>Maintenance</h4>
       <div class="actions">
-        <button class="btn small" type="button" disabled={clearingSnapshots} onclick={clearSnapshotCache}>
+        <button class="btn btn-sm" type="button" disabled={clearingSnapshots} onclick={clearSnapshotCache}>
           {clearingSnapshots ? "Clearing…" : "Clear cache"}
         </button>
-        <button class="btn small" type="button" disabled={locatingLogs} onclick={showLogLocation}>
+        <button class="btn btn-sm" type="button" disabled={locatingLogs} onclick={showLogLocation}>
           {locatingLogs ? "Checking…" : "Log location"}
         </button>
-        {#each ["codex", "claude"] as service (service)}
+        {#each ["codex", "claude", "ollama"] as service (service)}
           <button
-            class="btn small"
+            class="btn btn-sm"
             type="button"
             disabled={inspectingProfile === service}
             onclick={() => inspectProviderProfile(service as Service)}
@@ -429,7 +514,7 @@
             {inspectingProfile === service ? "Inspecting…" : `Inspect ${serviceLabels[service as Service]}`}
           </button>
           <button
-            class="btn small btn-danger"
+            class="btn btn-sm btn-danger"
             type="button"
             disabled={clearingProfile === service}
             onclick={() => resetProviderSession(service as Service)}
@@ -445,8 +530,8 @@
     <div class="save-bar glass" role="status">
       <span class="save-dot"></span>
       <span class="save-text">Unsaved changes</span>
-      <button class="btn btn-ghost small" type="button" onclick={discardSettings}>Discard</button>
-      <button class="btn btn-primary small" type="button" disabled={saving} onclick={saveSettings}>
+      <button class="btn btn-ghost btn-sm" type="button" onclick={discardSettings}>Discard</button>
+      <button class="btn btn-primary btn-sm" type="button" disabled={saving} onclick={saveSettings}>
         {saving ? "Saving…" : "Save settings"}
       </button>
     </div>
@@ -502,6 +587,44 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
     gap: 10px;
+  }
+
+  .segmented {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text) 4%, transparent);
+  }
+
+  .segment {
+    flex: 1;
+    padding: 7px 6px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      color 160ms var(--ease-forge),
+      background 160ms var(--ease-forge);
+  }
+
+  .segment:hover {
+    color: var(--text);
+  }
+
+  .segment.active {
+    background: color-mix(in srgb, var(--ember) 18%, transparent);
+    color: var(--text);
+  }
+
+  .segment:focus-visible {
+    outline: 2px solid var(--ember);
+    outline-offset: 2px;
   }
 
   .actions {

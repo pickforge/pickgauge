@@ -55,7 +55,7 @@ try {
 }
 
 function startViteServer() {
-  const child = spawn("npm", ["run", "dev", "--", "--strictPort"], {
+  const child = spawn("bun", ["run", "dev", "--strictPort"], {
     cwd: repoRoot,
     detached: process.platform !== "win32",
     env: {

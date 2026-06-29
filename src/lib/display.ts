@@ -10,6 +10,7 @@ import type {
 export const serviceLabels: Record<Service, string> = {
   codex: "Codex",
   claude: "Claude Code",
+  ollama: "Ollama",
 };
 
 export const sourceLabels: Record<UsageSource, string> = {

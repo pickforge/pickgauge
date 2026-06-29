@@ -4,11 +4,24 @@ import {
   BACKEND_ID,
   PROTOCOL_VERSION,
   detectPageState,
+  extractOllamaUsageFromHtml,
   extractVisibleUsage,
   runLaunchRequest,
   sanitizedAcceptedResponse,
   validateLaunchRequest,
 } from "./pickgauge-playwright-sidecar.mjs";
+
+function ollamaUsageHtml({ session, weekly } = {}) {
+  const meter = (label, time) =>
+    `<div data-usage-meter><div data-usage-track aria-label="${label}"></div></div>` +
+    (time ? `<div class="local-time" data-time="${time}">Resets</div>` : "");
+  return [
+    "<html><body>",
+    session ? meter(`Session usage ${session.percent}% used`, session.resetAt) : "",
+    weekly ? meter(`Weekly usage ${weekly.percent}% used`, weekly.resetAt) : "",
+    "</body></html>",
+  ].join("");
+}
 
 function request(overrides = {}) {
   return {
@@ -49,6 +62,39 @@ test("accepts sanitized headless Playwright usage refresh requests", () => {
   assert.equal(validation.ok, true);
   assert.equal(validation.request.action, "refreshUsage");
   assert.equal(validation.request.headless, true);
+});
+
+test("accepts headless http usage refresh requests", () => {
+  const validation = validateLaunchRequest(
+    request({ action: "httpRefreshUsage", service: "ollama", headless: true }),
+  );
+
+  assert.equal(validation.ok, true);
+  assert.equal(validation.request.action, "httpRefreshUsage");
+});
+
+test("rejects visible http usage refresh requests", () => {
+  const validation = validateLaunchRequest(
+    request({ action: "httpRefreshUsage", service: "ollama", headless: false }),
+  );
+
+  assert.deepEqual(validation, { ok: false, code: "headless_mode_required" });
+});
+
+test("http refresh reports logged_out when no session has been harvested", async () => {
+  const result = await runLaunchRequest(
+    request({
+      action: "httpRefreshUsage",
+      service: "ollama",
+      headless: true,
+      url: "https://ollama.com/settings",
+      userDataDir: "/tmp/pickgauge-nonexistent-profile-xyz",
+    }),
+  );
+
+  assert.equal(result.status, "checked");
+  assert.equal(result.pageState, "logged_out");
+  assert.equal(result.visibleFields.length, 0);
 });
 
 test("dry-run response omits raw user data directory and launch args", async () => {
@@ -154,7 +200,48 @@ test("extracts sanitized visible usage fields from page text", async () => {
       "plan_label",
       "quota_window",
     ],
+    weekly: null,
   });
+});
+
+test("parses the ollama session window as the headline gauge with weekly secondary", () => {
+  const usage = extractOllamaUsageFromHtml(
+    ollamaUsageHtml({
+      session: { percent: 1, resetAt: "2026-06-19T18:00:00Z" },
+      weekly: { percent: 37.5, resetAt: "2026-06-22T00:00:00Z" },
+    }),
+  );
+
+  assert.deepEqual(usage, {
+    remainingPercent: 99,
+    resetAt: "2026-06-19T18:00:00Z",
+    usedPercent: 1,
+    visibleFields: ["used_percent", "remaining_percent", "reset_at", "quota_window"],
+    weekly: {
+      remainingPercent: 62.5,
+      resetAt: "2026-06-22T00:00:00Z",
+      usedPercent: 37.5,
+    },
+  });
+});
+
+test("falls back to the ollama weekly window when the session meter is absent", () => {
+  const usage = extractOllamaUsageFromHtml(
+    ollamaUsageHtml({ weekly: { percent: 37.5, resetAt: "2026-06-22T00:00:00Z" } }),
+  );
+
+  assert.equal(usage.usedPercent, 37.5);
+  assert.equal(usage.remainingPercent, 62.5);
+  assert.equal(usage.resetAt, "2026-06-22T00:00:00Z");
+  assert.equal(usage.weekly, null);
+});
+
+test("returns no ollama usage fields when the meters are missing", () => {
+  const usage = extractOllamaUsageFromHtml("<html><body>no meters</body></html>");
+
+  assert.deepEqual(usage.visibleFields, []);
+  assert.equal(usage.usedPercent, null);
+  assert.equal(usage.remainingPercent, null);
 });
 
 test("classifies synthetic visible page states without authenticated page content", async () => {
@@ -199,7 +286,12 @@ function emptyVisibleUsage() {
   };
 }
 
-function fakePage({ bodyText = "", url = "https://example.com/usage", visibleTexts = [] } = {}) {
+function fakePage({
+  bodyText = "",
+  url = "https://example.com/usage",
+  visibleTexts = [],
+  evaluateResult = null,
+} = {}) {
   const locatorForText = (pattern) => fakeLocator(visibleTexts.some((text) => pattern.test(text)));
 
   return {
@@ -208,6 +300,7 @@ function fakePage({ bodyText = "", url = "https://example.com/usage", visibleTex
     locator: (selector) => ({
       innerText: async () => (selector === "body" ? bodyText : ""),
     }),
+    evaluate: async () => evaluateResult,
     url: () => url,
   };
 }

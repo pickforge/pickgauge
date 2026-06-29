@@ -30,7 +30,7 @@ use usage::{
     Service, UsageDisplayState, UsageEngine, UsageProviderError, UsageProviderErrorEvent,
     UsageRefreshEvent, UsageRefreshStatus, UsageSnapshot, UsageSource,
 };
-use web_provider::{VisiblePageState, VisibleUsageInput};
+use web_provider::{VisiblePageState, VisibleUsageInput, VisibleWindowInput};
 
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
@@ -47,6 +47,7 @@ const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_availa
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
+const OLLAMA_USAGE_URL: &str = "https://ollama.com/settings";
 const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
 const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const LOG_FILE_NAME: &str = "pickgauge.log";
@@ -57,6 +58,7 @@ const TRAY_ICON_OUTER_RADIUS: f32 = 30.0;
 const TRAY_ICON_INNER_RADIUS: f32 = 21.0;
 const TRAY_CODEX_ACCENT: [u8; 4] = [242, 242, 243, 255];
 const TRAY_CLAUDE_ACCENT: [u8; 4] = [255, 122, 26, 255];
+const TRAY_OLLAMA_ACCENT: [u8; 4] = [37, 99, 235, 255];
 const TRAY_LOW_ACCENT: [u8; 4] = [194, 65, 12, 255];
 // Solid, not translucent: the icon must stay a self-contained dark coin so
 // the gauge ring keeps contrast on light desktop panels too.
@@ -349,6 +351,7 @@ fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
         Service::Claude => CLAUDE_USAGE_URL,
+        Service::Ollama => OLLAMA_USAGE_URL,
     }
 }
 
@@ -356,6 +359,7 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
     match service {
         Service::Codex => browser_profile::BrowserProfileService::Codex,
         Service::Claude => browser_profile::BrowserProfileService::Claude,
+        Service::Ollama => browser_profile::BrowserProfileService::Ollama,
     }
 }
 
@@ -474,6 +478,7 @@ fn prepare_managed_browser_profiles(
     let paths = browser_profile::prepare_browser_profiles(&config.browser_profiles, app_data_dir)?;
     browser_session::prepare_chromium_profile_preferences(&paths.codex)?;
     browser_session::prepare_chromium_profile_preferences(&paths.claude)?;
+    browser_session::prepare_chromium_profile_preferences(&paths.ollama)?;
 
     Ok(Some(paths))
 }
@@ -719,6 +724,7 @@ fn provider_login_start_plan(
         let profile_path = match service {
             Service::Codex => &paths.codex,
             Service::Claude => &paths.claude,
+            Service::Ollama => &paths.ollama,
         };
         let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
         browser_session::playwright_launch_request(&launch_plan)
@@ -938,6 +944,7 @@ fn inspect_provider_profile_for_service(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
+        Service::Ollama => &paths.ollama,
     };
     let inspection = browser_session::inspect_chromium_profile_storage(profile_path)?;
 
@@ -988,6 +995,7 @@ fn provider_profile_label(service: Service) -> &'static str {
     match service {
         Service::Codex => "codex-profile",
         Service::Claude => "claude-profile",
+        Service::Ollama => "ollama-profile",
     }
 }
 
@@ -1189,7 +1197,26 @@ fn headless_web_usage_response(
         .path()
         .app_data_dir()
         .map_err(|_| "Could not resolve app data directory".to_string())?;
-    let sidecar_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service)?;
+
+    // Ollama is server-rendered and not behind a bot-managed edge, so once a
+    // session has been harvested we can refresh it over plain HTTP inside the
+    // sidecar without launching Chromium. Any non-`usage` outcome (no cookie
+    // yet, or an expired one) falls back to the browser refresh, which logs in
+    // and re-harvests the cookie.
+    if service == Service::Ollama {
+        if let Ok(http_request) =
+            web_usage_refresh_sidecar_request(&config, &app_data_dir, service, true)
+        {
+            if let Ok(response) = run_playwright_sidecar_usage_refresh(app, sessions, &http_request)
+            {
+                if response.page_state == "usage" {
+                    return Ok(response);
+                }
+            }
+        }
+    }
+
+    let sidecar_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service, false)?;
 
     run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)
 }
@@ -1198,6 +1225,7 @@ fn web_usage_refresh_sidecar_request(
     config: &config::AppConfig,
     app_data_dir: &Path,
     service: Service,
+    http: bool,
 ) -> Result<browser_session::PlaywrightSidecarLaunchRequest, String> {
     let paths = prepare_managed_browser_profiles(config, app_data_dir)?;
     let Some(paths) = paths else {
@@ -1206,14 +1234,17 @@ fn web_usage_refresh_sidecar_request(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
+        Service::Ollama => &paths.ollama,
     };
     let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
     let launch_request = browser_session::playwright_launch_request(&launch_plan);
+    let url = official_usage_url(service);
 
-    browser_session::playwright_sidecar_refresh_request(
-        &launch_request,
-        official_usage_url(service),
-    )
+    if http {
+        browser_session::playwright_sidecar_http_refresh_request(&launch_request, url)
+    } else {
+        browser_session::playwright_sidecar_refresh_request(&launch_request, url)
+    }
 }
 
 fn run_playwright_sidecar_usage_refresh(
@@ -1272,6 +1303,11 @@ fn usage_snapshot_from_sidecar_usage_response(
             used_percent: response.used_percent,
             reset_at: response.reset_at,
             visible_fields: response.visible_fields,
+            second_window: response.weekly.map(|window| VisibleWindowInput {
+                remaining_percent: window.remaining_percent,
+                used_percent: window.used_percent,
+                reset_at: window.reset_at,
+            }),
         },
         observed_at,
     ))
@@ -1351,6 +1387,7 @@ fn refresh_all_with_headless_web(
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
                 Service::Claude => config.enabled_services.claude,
+                Service::Ollama => config.enabled_services.ollama,
             };
 
             if !service_enabled {
@@ -1360,6 +1397,14 @@ fn refresh_all_with_headless_web(
             if let Ok(updated) = refresh_web_provider_headless(app, engine, sessions, service) {
                 display_state = updated;
             }
+        }
+    }
+
+    // Ollama Cloud is web-only, so it refreshes whenever it is enabled and web
+    // readings are on, independent of the Codex/Claude CLI toggle.
+    if config.providers.web_enabled && config.enabled_services.ollama {
+        if let Ok(updated) = refresh_web_provider_headless(app, engine, sessions, Service::Ollama) {
+            display_state = updated;
         }
     }
 
@@ -1382,12 +1427,17 @@ fn refresh_due_with_headless_web(
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
                 Service::Claude => config.enabled_services.claude,
+                Service::Ollama => config.enabled_services.ollama,
             };
 
             if service_enabled {
                 refresh_due_web_provider_headless(app, engine, sessions, service)?;
             }
         }
+    }
+
+    if config.providers.web_enabled && config.enabled_services.ollama {
+        let _ = refresh_due_web_provider_headless(app, engine, sessions, Service::Ollama);
     }
 
     let display_state = engine.refresh_due().map_err(map_usage_refresh_error)?;
@@ -1518,6 +1568,7 @@ fn tray_accent_for(service: Service, remaining_percent: f32, low_usage_threshold
     match service {
         Service::Codex => TRAY_CODEX_ACCENT,
         Service::Claude => TRAY_CLAUDE_ACCENT,
+        Service::Ollama => TRAY_OLLAMA_ACCENT,
     }
 }
 
@@ -2116,7 +2167,9 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let (config, config_error) = match config::load(&app_handle) {
@@ -2454,6 +2507,37 @@ mod tests {
     }
 
     #[test]
+    fn ollama_sidecar_usage_response_carries_both_windows() {
+        let response = browser_session::PlaywrightSidecarUsageResponse {
+            remaining_percent: Some(83.0),
+            used_percent: Some(17.0),
+            reset_at: Some("2026-06-20T19:00:00Z".to_string()),
+            visible_fields: vec![
+                "remaining_percent".to_string(),
+                "used_percent".to_string(),
+                "reset_at".to_string(),
+                "quota_window".to_string(),
+            ],
+            weekly: Some(browser_session::PlaywrightSidecarUsageWindow {
+                remaining_percent: Some(43.0),
+                used_percent: Some(57.0),
+                reset_at: Some("2026-06-22T00:00:00Z".to_string()),
+            }),
+            ..sidecar_usage_response(Service::Ollama, "usage")
+        };
+
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect("snapshot is built");
+
+        assert_eq!(snapshot.service, Service::Ollama);
+        assert_eq!(snapshot.remaining_percent, Some(83.0));
+        let windows = &snapshot.details["windows"];
+        assert_eq!(windows["fiveHour"]["remainingPercent"], 83.0);
+        assert_eq!(windows["week"]["remainingPercent"], 43.0);
+        assert_eq!(windows["week"]["resetAt"], "2026-06-22T00:00:00Z");
+    }
+
+    #[test]
     fn sidecar_usage_response_with_missing_visible_data_maps_to_unknown_snapshot() {
         let response = sidecar_usage_response(Service::Claude, "usage");
         let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
@@ -2540,6 +2624,7 @@ mod tests {
             used_percent: None,
             reset_at: None,
             visible_fields: Vec::new(),
+            weekly: None,
         }
     }
 
@@ -2924,7 +3009,7 @@ mod tests {
         let mut config = config::AppConfig::default();
         config.providers.web_enabled = true;
 
-        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Claude)
+        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Claude, false)
             .expect("refresh request is built");
         let debug = format!("{request:?}");
 
@@ -2945,6 +3030,26 @@ mod tests {
         assert_eq!(request.diagnostics.user_data_dir, "<claude-profile>");
         assert!(request.diagnostics.headless);
         assert!(!debug.contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn web_usage_http_refresh_sidecar_request_targets_ollama_http_action() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+        config.enabled_services.ollama = true;
+
+        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Ollama, true)
+            .expect("http refresh request is built");
+
+        assert_eq!(
+            request.action,
+            browser_session::PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE
+        );
+        assert_eq!(request.service, Service::Ollama);
+        assert_eq!(request.url, official_usage_url(Service::Ollama));
+        assert!(request.headless);
+        assert!(request.user_data_dir.contains("browser-profiles/ollama"));
     }
 
     #[test]

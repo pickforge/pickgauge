@@ -9,7 +9,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 const CONFIG_FILE_NAME: &str = "config.json";
-const CONFIG_VERSION: u32 = 5;
+const CONFIG_VERSION: u32 = 6;
 const MAX_PLAN_LABEL_LENGTH: usize = 80;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -31,6 +31,7 @@ pub struct AppConfig {
 pub struct ServiceToggles {
     pub codex: bool,
     pub claude: bool,
+    pub ollama: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -58,6 +59,7 @@ pub struct BrowserProfileSettings {
     pub root_path: Option<String>,
     pub codex_path: Option<String>,
     pub claude_path: Option<String>,
+    pub ollama_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -121,6 +123,7 @@ impl Default for AppConfig {
             enabled_services: ServiceToggles {
                 codex: true,
                 claude: true,
+                ollama: false,
             },
             providers: ProviderSettings {
                 local_enabled: true,
@@ -138,6 +141,7 @@ impl Default for AppConfig {
                 root_path: None,
                 codex_path: None,
                 claude_path: None,
+                ollama_path: None,
             },
             local_quotas: LocalQuotaSettings::default(),
             autostart: AutostartSettings::default(),
@@ -295,6 +299,7 @@ fn migrate_config_value(value: &mut Value) -> Result<(), String> {
             2 => migrate_v2_to_v3(value)?,
             3 => migrate_v3_to_v4(value)?,
             4 => migrate_v4_to_v5(value)?,
+            5 => migrate_v5_to_v6(value)?,
             _ => {
                 return Err(format!(
                     "No migration is available for config version {version}"
@@ -351,6 +356,14 @@ fn migrate_v4_to_v5(value: &mut Value) -> Result<(), String> {
         .entry("ui".to_string())
         .or_insert_with(default_ui_value);
     object.insert("version".to_string(), Value::from(5));
+    Ok(())
+}
+
+fn migrate_v5_to_v6(value: &mut Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Config root must be a JSON object".to_string())?;
+    object.insert("version".to_string(), Value::from(6));
     Ok(())
 }
 
@@ -561,6 +574,7 @@ mod tests {
             enabled_services: ServiceToggles {
                 codex: false,
                 claude: true,
+                ollama: false,
             },
             providers: ProviderSettings {
                 local_enabled: false,
@@ -632,6 +646,7 @@ mod tests {
                 root_path: None,
                 codex_path: None,
                 claude_path: None,
+                ollama_path: None,
             }
         );
         assert_eq!(config.local_quotas, LocalQuotaSettings::default());
@@ -677,6 +692,7 @@ mod tests {
                 root_path: None,
                 codex_path: None,
                 claude_path: None,
+                ollama_path: None,
             }
         );
         assert_eq!(config.local_quotas, LocalQuotaSettings::default());
@@ -821,6 +837,55 @@ mod tests {
     }
 
     #[test]
+    fn v5_config_migrates_to_current_with_ollama_defaults() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        fs::write(
+            &path,
+            r#"{
+  "version": 5,
+  "enabledServices": {
+    "codex": true,
+    "claude": true
+  },
+  "providers": {
+    "localEnabled": true,
+    "webEnabled": false
+  },
+  "intervals": {
+    "localSeconds": 45,
+    "webMinutes": 30,
+    "manualWebRefreshCooldownSeconds": 60,
+    "gaugeSwitchSeconds": 6
+  },
+  "lowUsageThreshold": 20,
+  "browserProfiles": {
+    "rootPath": null,
+    "codexPath": null,
+    "claudePath": null
+  },
+  "autostart": {
+    "enabled": false
+  },
+  "ui": {
+    "sounds": true,
+    "floatButton": true,
+    "theme": "system"
+  }
+}"#,
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("v5 config migrates");
+
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert!(config.enabled_services.codex);
+        assert!(config.enabled_services.claude);
+        assert!(!config.enabled_services.ollama);
+        assert_eq!(config.browser_profiles.ollama_path, None);
+    }
+
+    #[test]
     fn failed_migration_preserves_previous_config_file() {
         let dir = TestDir::new();
         let path = dir.config_path();
@@ -847,6 +912,7 @@ mod tests {
                 root_path: Some("/tmp/pickgauge/browser".to_string()),
                 codex_path: Some("/tmp/pickgauge/codex".to_string()),
                 claude_path: Some("/tmp/pickgauge/claude".to_string()),
+                ollama_path: None,
             },
             ..AppConfig::default()
         };

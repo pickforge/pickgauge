@@ -46,6 +46,12 @@ export type WindowVisibility = {
   updatedAt: string;
 };
 
+export const EVENT_SNAPSHOTS = "usage://snapshots-updated";
+export const EVENT_SETTINGS = "settings://updated";
+export const EVENT_LOGIN_REQUIRED = "login://required";
+export const EVENT_REFRESH_STARTED = "usage://refresh-started";
+export const EVENT_REFRESH_FINISHED = "usage://refresh-finished";
+
 export function desktopApiAvailable() {
   return (
     typeof window !== "undefined" &&
@@ -74,6 +80,7 @@ export const api = {
   inspectProviderProfile: (service: Service) =>
     invoke<ProviderProfileInspection>("inspect_provider_profile", { service }),
   getLogLocation: () => invoke<LogLocation>("get_log_location"),
+  getSystemTheme: () => invoke<string>("get_system_theme"),
   hideMainWindow: () => invoke<WindowVisibility>("hide_main_window"),
   showMainWindow: () => invoke<WindowVisibility>("show_main_window"),
   toggleFloatButton: () => invoke<boolean>("toggle_float_button"),

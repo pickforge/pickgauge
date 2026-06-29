@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const BACKEND_ID = "playwright-headed-chromium-sidecar";
 export const PROTOCOL_VERSION = 1;
 
-const allowedServices = new Set(["codex", "claude"]);
-const allowedActions = new Set(["launchLogin", "refreshUsage"]);
+const allowedServices = new Set(["codex", "claude", "ollama"]);
+const allowedActions = new Set(["launchLogin", "refreshUsage", "httpRefreshUsage"]);
 const navigationTimeoutMs = 30_000;
+const ollamaHttpUserAgent =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
 export function validateLaunchRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -48,7 +50,10 @@ export function validateLaunchRequest(input) {
     return rejected("headed_mode_required");
   }
 
-  if (input.action === "refreshUsage" && input.headless !== true) {
+  if (
+    (input.action === "refreshUsage" || input.action === "httpRefreshUsage") &&
+    input.headless !== true
+  ) {
     return rejected("headless_mode_required");
   }
 
@@ -114,6 +119,10 @@ export async function runLaunchRequest(input, { dryRun = false } = {}) {
   let context;
 
   try {
+    if (request.action === "httpRefreshUsage") {
+      return await runHttpRefreshUsageRequest(request);
+    }
+
     if (request.action === "refreshUsage") {
       return await runRefreshUsageRequest(request);
     }
@@ -164,6 +173,12 @@ async function runRefreshUsageRequest(request) {
     const visibleUsage = await extractVisibleUsage(page, request.service);
     const pageState = await detectPageState(page, visibleUsage, existingCookieCount);
 
+    if (request.service === "ollama" && pageState === "usage") {
+      // Harvest the authenticated session so later refreshes can skip Chromium
+      // and fetch the page over plain HTTP. The cookie never leaves the sidecar.
+      await persistOllamaSession(context, request);
+    }
+
     return {
       ...sanitizedAcceptedResponse(request),
       status: "checked",
@@ -172,6 +187,7 @@ async function runRefreshUsageRequest(request) {
       resetAt: pageState === "usage" ? visibleUsage.resetAt : null,
       usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
       visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
+      weekly: pageState === "usage" ? visibleUsage.weekly : null,
     };
   } catch (error) {
     if (context) {
@@ -195,6 +211,7 @@ function sanitizedCheckedResponse(request, pageState, visibleUsage = emptyVisibl
     resetAt: pageState === "usage" ? visibleUsage.resetAt : null,
     usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
     visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
+    weekly: pageState === "usage" ? visibleUsage.weekly : null,
   };
 }
 
@@ -204,7 +221,102 @@ function emptyVisibleUsage() {
     resetAt: null,
     usedPercent: null,
     visibleFields: [],
+    weekly: null,
   };
+}
+
+// Lightweight refresh: replay the harvested session cookie over plain HTTP and
+// parse the same server-rendered HTML, with no Chromium launched. Ollama only —
+// the page is server-rendered and not behind a bot-managed edge. A missing or
+// expired session reports `logged_out` so the caller falls back to the browser.
+async function runHttpRefreshUsageRequest(request) {
+  if (request.service !== "ollama") {
+    return sanitizedCheckedResponse(request, "unexpected_ui");
+  }
+
+  const cookies = readOllamaSession(request);
+
+  if (cookies === null) {
+    return sanitizedCheckedResponse(request, "logged_out");
+  }
+
+  let response;
+
+  try {
+    response = await fetch(request.url, {
+      headers: {
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
+        "user-agent": ollamaHttpUserAgent,
+      },
+      redirect: "manual",
+    });
+  } catch (error) {
+    return sanitizedCheckedResponse(request, refreshFailurePageState(error));
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    // Redirected to sign-in: the harvested session expired.
+    return sanitizedCheckedResponse(request, "logged_out");
+  }
+
+  if (!response.ok) {
+    return sanitizedCheckedResponse(request, "unexpected_ui");
+  }
+
+  const html = await response.text().catch(() => "");
+  const usage = extractOllamaUsageFromHtml(html);
+  const pageState = usage.visibleFields.length > 0 ? "usage" : "unexpected_ui";
+
+  return sanitizedCheckedResponse(request, pageState, usage);
+}
+
+function sessionStorePath(request) {
+  return `${request.userDataDir}.session.json`;
+}
+
+async function persistOllamaSession(context, request) {
+  try {
+    const cookies = await context.cookies(request.url);
+    const pairs = cookies
+      .filter((cookie) => typeof cookie.name === "string" && typeof cookie.value === "string")
+      .map((cookie) => ({ name: cookie.name, value: cookie.value }));
+
+    if (pairs.length === 0) {
+      return;
+    }
+
+    const path = sessionStorePath(request);
+    writeFileSync(path, JSON.stringify(pairs), { mode: 0o600 });
+    chmodSync(path, 0o600);
+  } catch {
+    // A failed harvest just means the next refresh falls back to the browser.
+  }
+}
+
+function readOllamaSession(request) {
+  try {
+    const path = sessionStorePath(request);
+
+    if (!existsSync(path)) {
+      return null;
+    }
+
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    const pairs = parsed.filter(
+      (entry) => entry && typeof entry.name === "string" && typeof entry.value === "string",
+    );
+
+    return pairs.length > 0 ? pairs : null;
+  } catch {
+    return null;
+  }
 }
 
 function refreshFailurePageState(error) {
@@ -258,6 +370,7 @@ async function urlLooksLoggedOut(page) {
     return (
       host.includes("auth") ||
       host.includes("login") ||
+      host.includes("signin") ||
       path.includes("login") ||
       path.includes("signin") ||
       path.includes("sign-in") ||
@@ -306,6 +419,11 @@ async function hasAnyVisibleLocator(locators) {
 }
 
 export async function extractVisibleUsage(page, service) {
+  if (service === "ollama") {
+    const html = await page.content().catch(() => "");
+    return { ...extractOllamaUsageFromHtml(html), service };
+  }
+
   const text = await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
   const percentages = visiblePercentages(text);
   const resetAt = visibleResetAt(text);
@@ -337,6 +455,7 @@ export async function extractVisibleUsage(page, service) {
     service,
     usedPercent: percentages.usedPercent,
     visibleFields: [...new Set(visibleFields)],
+    weekly: null,
   };
 }
 
@@ -414,6 +533,133 @@ function visibleResetAt(text) {
 
   const value = iso[0].endsWith("Z") ? iso[0] : `${iso[0]}:00Z`;
   return Number.isNaN(Date.parse(value)) ? null : value;
+}
+
+// Parse the two Ollama usage meters straight from the server-rendered HTML.
+// Both the browser refresh (via page.content()) and the lightweight HTTP refresh
+// feed this single parser, so there is one extraction code path to maintain.
+export function parseOllamaUsageHtml(html) {
+  if (typeof html !== "string" || html.length === 0) {
+    return null;
+  }
+
+  return {
+    session: readOllamaMeter(html, "Session usage"),
+    weekly: readOllamaMeter(html, "Weekly usage"),
+  };
+}
+
+function readOllamaMeter(html, prefix) {
+  const label = new RegExp(
+    `aria-label="${prefix}\\s+([0-9]{1,3}(?:\\.[0-9]+)?)\\s*%\\s*used"`,
+    "i",
+  ).exec(html);
+
+  if (label === null) {
+    return null;
+  }
+
+  // The reset timestamp is the first data-time attribute after this meter's
+  // label; the next window's block (and its own data-time) appears later.
+  const reset = /data-time="([^"]+)"/i.exec(html.slice(label.index + label[0].length));
+
+  return {
+    usedPercent: Number.parseFloat(label[1]),
+    resetAt: reset === null ? null : reset[1],
+  };
+}
+
+export function extractOllamaUsageFromHtml(html) {
+  const { primary, secondary } = pickOllamaWindows(parseOllamaUsageHtml(html));
+
+  if (primary === null) {
+    return emptyVisibleUsage();
+  }
+
+  const usedPercent = validPercent(primary.usedPercent) ? primary.usedPercent : null;
+  const resetAt = normalizeIsoReset(primary.resetAt);
+  const weekly = ollamaWindow(secondary);
+  const visibleFields = [];
+
+  if (usedPercent !== null) {
+    visibleFields.push("used_percent", "remaining_percent");
+  }
+
+  if (resetAt !== null) {
+    visibleFields.push("reset_at");
+  }
+
+  if (weekly !== null) {
+    visibleFields.push("quota_window");
+  }
+
+  return {
+    remainingPercent: usedPercent === null ? null : 100 - usedPercent,
+    resetAt,
+    usedPercent,
+    visibleFields,
+    weekly,
+  };
+}
+
+// The session window is the headline gauge (it resets in hours, like the other
+// services' 5-hour window) and the weekly window is the secondary bar. When the
+// session meter is absent the weekly window becomes the headline with no
+// secondary, mirroring the previous single-window fallback.
+function pickOllamaWindows(meters) {
+  if (!meters) {
+    return { primary: null, secondary: null };
+  }
+
+  const session = validOllamaMeter(meters.session) ? meters.session : null;
+  const weekly = validOllamaMeter(meters.weekly) ? meters.weekly : null;
+
+  if (session !== null) {
+    return { primary: session, secondary: weekly };
+  }
+
+  return { primary: weekly, secondary: null };
+}
+
+function validOllamaMeter(window) {
+  return (
+    Boolean(window) && typeof window.usedPercent === "number" && validPercent(window.usedPercent)
+  );
+}
+
+// Shape a secondary meter into the window payload the web provider expects,
+// dropping it when the percentage is missing or out of range.
+function ollamaWindow(window) {
+  if (window === null) {
+    return null;
+  }
+
+  const usedPercent = validPercent(window.usedPercent) ? window.usedPercent : null;
+
+  if (usedPercent === null) {
+    return null;
+  }
+
+  return {
+    remainingPercent: 100 - usedPercent,
+    resetAt: normalizeIsoReset(window.resetAt),
+    usedPercent,
+  };
+}
+
+function normalizeIsoReset(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const match = value.match(/\b20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]/u);
+
+  if (!match) {
+    return null;
+  }
+
+  const iso = match[0].endsWith("Z") ? match[0] : `${match[0]}:00Z`;
+  return Number.isNaN(Date.parse(iso)) ? null : iso;
 }
 
 function rejected(code) {

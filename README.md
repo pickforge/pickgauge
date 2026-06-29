@@ -19,14 +19,14 @@ Release artifacts are built from `main` by GitHub Actions: Linux AppImage, Windo
 On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:
 
 ```bash
-npm run build:appimage
+bun run build:appimage
 ```
 
 The AppImage script also prepares the Linux Playwright sidecar executable under `src-tauri/binaries/` before invoking Tauri. Real headed web-provider login still requires a working local Node/Playwright runtime. For local sidecar launch validation:
 
 ```bash
-npx playwright install chromium
-npm run test:sidecar-launch
+bunx playwright install chromium
+bun run test:sidecar-launch
 ```
 
 ## The desktop app
@@ -65,15 +65,16 @@ Official usage pages:
 - Codex: <https://chatgpt.com/codex/cloud/settings/analytics>
 - Claude Code: <https://claude.ai/new#settings/usage>
 
-## Privacy principles
+## Security / Privacy
 
-| Principle | Behavior |
-| --- | --- |
-| No password storage | Users authenticate manually in isolated browser profiles. |
-| Opt-in web reads | Browser-based official usage checks are disabled by default. |
-| Local-first estimates | CLI/session files are used passively where possible. |
-| Data minimization | No raw page HTML, auth headers, cookies, tokens, or account identifiers in app logs or fixtures. |
-| Honest confidence | The UI shows whether usage is official, estimated, merged, stale, or unavailable. |
+PickGauge reads how much quota you have left without ever holding your account.
+
+- **No passwords, ever.** PickGauge never asks for, sees, or stores provider passwords. For its default readings it reuses the OAuth tokens the Codex and Claude Code CLIs already wrote to disk (`~/.codex/auth.json`, `~/.claude/.credentials.json`).
+- **Tokens stay in memory.** Tokens are read at refresh time, used to call the provider's own usage endpoint, refreshed in memory when they expire, and never copied into PickGauge's config, cache, logs, or local history.
+- **What leaves the machine, and only this.** To compute real remaining quota, PickGauge calls the same official endpoints the CLIs use — `chatgpt.com/backend-api/codex/usage` and `api.anthropic.com/api/oauth/usage`, plus the providers' OAuth refresh endpoints. No telemetry, no analytics, no third parties.
+- **Web reads are opt-in and isolated.** Browser-based reading of the official usage pages is disabled by default. When enabled, it runs only in dedicated, app-owned browser profiles (under `com.pickforge.pickgauge`) that you log into yourself — never your personal browser, never a shared cookie jar.
+- **Data minimization.** No raw page HTML, auth headers, cookies, tokens, or account identifiers are written to PickGauge logs, fixtures, or its local SQLite history — only computed percentages, confidence, source, and timestamps.
+- **Honest confidence.** Every reading is labeled official, estimated, merged, stale, or unavailable, so you always know how much to trust the number.
 
 ## Architecture
 
@@ -112,7 +113,7 @@ Brand assets live in `assets/branding/`. The app uses the Pickforge Studio v2 da
 After changing the source app icon, regenerate platform icons with:
 
 ```bash
-npm run tauri -- icon assets/branding/app-icon.svg
+bun run tauri icon assets/branding/app-icon.svg
 ```
 
 ## Roadmap
@@ -128,6 +129,22 @@ npm run tauri -- icon assets/branding/app-icon.svg
 9. Package for daily Linux desktop use, then expand automated Windows and macOS release artifacts.
 
 Project documents: [`docs/plans/pickgauge-implementation-plan.md`](docs/plans/pickgauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.
+
+## Development
+
+```bash
+bun install              # install dependencies
+bun run dev              # Vite dev server on 127.0.0.1:1420
+bun run build            # build the Svelte front-end
+bun run build:appimage   # bundle the Linux AppImage (prepares the Playwright sidecar)
+bun run test             # unit tests, sidecar node tests, and sidecar package checks
+bun run lint             # ESLint over src, scripts, and sidecars
+bun run check            # svelte-check type checking
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ---
 

@@ -18,6 +18,13 @@ const CLAUDE_VISIBLE_FIELDS: &[&str] = &[
     "quota_window",
     "plan_label",
 ];
+const OLLAMA_VISIBLE_FIELDS: &[&str] = &[
+    "remaining_percent",
+    "used_percent",
+    "reset_at",
+    "quota_window",
+    "plan_label",
+];
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +35,19 @@ pub struct VisibleUsageInput {
     pub used_percent: Option<f32>,
     pub reset_at: Option<String>,
     pub visible_fields: Vec<String>,
+    #[serde(default)]
+    pub second_window: Option<VisibleWindowInput>,
+}
+
+/// A secondary rate-limit window. When present and valid it is rendered as the
+/// second bar on the dashboard card, with the headline staying on the primary
+/// window. Providers that expose a single window simply leave this `None`.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VisibleWindowInput {
+    pub remaining_percent: Option<f32>,
+    pub used_percent: Option<f32>,
+    pub reset_at: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -163,6 +183,24 @@ fn parse_usage_state(
         }
     }
 
+    let windows = build_windows(
+        remaining_percent,
+        used_percent,
+        input.reset_at.as_deref(),
+        input.second_window.as_ref(),
+    );
+
+    let mut details = serde_json::json!({
+        "status": "parsed",
+        "providerId": provider_id.code(),
+        "source": UsageSource::Web.code(),
+        "lastOfficialCheckAt": observed_at,
+        "visibleFields": visible_fields,
+    });
+    if let (Some(windows), Some(object)) = (windows, details.as_object_mut()) {
+        object.insert("windows".into(), windows);
+    }
+
     UsageSnapshot {
         service: input.service,
         remaining_percent: Some(remaining_percent),
@@ -171,14 +209,66 @@ fn parse_usage_state(
         source: UsageSource::Web,
         confidence: UsageConfidence::High,
         last_updated: observed_at.to_string(),
-        details: serde_json::json!({
-            "status": "parsed",
-            "providerId": provider_id.code(),
-            "source": UsageSource::Web.code(),
-            "lastOfficialCheckAt": observed_at,
-            "visibleFields": visible_fields,
-        }),
+        details,
     }
+}
+
+/// Build the dual-window detail block when a valid secondary window is present.
+/// The headline (primary) window is mirrored as `fiveHour` so the card renders
+/// it as the first bar, and the secondary becomes `week`. Returns `None` when
+/// there is no secondary window, leaving single-window providers byte-identical.
+fn build_windows(
+    primary_remaining: f32,
+    primary_used: f32,
+    primary_reset_at: Option<&str>,
+    second: Option<&VisibleWindowInput>,
+) -> Option<serde_json::Value> {
+    let second = second?;
+    let week = window_detail(
+        second.remaining_percent,
+        second.used_percent,
+        second.reset_at.as_deref(),
+    )?;
+
+    Some(serde_json::json!({
+        "fiveHour": window_json(primary_remaining, primary_used, primary_reset_at),
+        "week": week,
+    }))
+}
+
+fn window_json(remaining: f32, used: f32, reset_at: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "remainingPercent": remaining,
+        "usedPercent": used,
+        "resetAt": reset_at,
+    })
+}
+
+/// Validate and shape a secondary window with the same rules as the headline.
+/// Returns `None` (dropping the window) when the percentages are missing,
+/// inconsistent, or the reset timestamp is not RFC 3339, so a malformed weekly
+/// meter degrades to a single bar rather than failing the whole snapshot.
+fn window_detail(
+    remaining_percent: Option<f32>,
+    used_percent: Option<f32>,
+    reset_at: Option<&str>,
+) -> Option<serde_json::Value> {
+    if has_invalid_percent(remaining_percent)
+        || has_invalid_percent(used_percent)
+        || has_inconsistent_percentages(remaining_percent, used_percent)
+    {
+        return None;
+    }
+
+    let (remaining, used) = visible_percentages(remaining_percent, used_percent)?;
+
+    if let Some(reset) = reset_at {
+        if time::OffsetDateTime::parse(reset, &Rfc3339).is_err() {
+            return None;
+        }
+    }
+
+    Some(window_json(remaining, used, reset_at))
 }
 
 fn visible_percentages(
@@ -224,6 +314,7 @@ fn sanitized_visible_fields(
     let allowed = match service {
         Service::Codex => CODEX_VISIBLE_FIELDS,
         Service::Claude => CLAUDE_VISIBLE_FIELDS,
+        Service::Ollama => OLLAMA_VISIBLE_FIELDS,
     };
     let rejected_field_count = visible_fields
         .iter()
@@ -328,6 +419,66 @@ mod tests {
         assert_eq!(snapshot.used_percent, Some(37.0));
         assert_eq!(snapshot.details["status"], "parsed");
         assert_eq!(snapshot.details["providerId"], "claude.web");
+    }
+
+    #[test]
+    fn secondary_window_is_carried_as_dual_windows_with_session_headline() {
+        let input = VisibleUsageInput {
+            service: Service::Ollama,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: Some(83.0),
+            used_percent: Some(17.0),
+            reset_at: Some("2026-06-20T19:00:00Z".to_string()),
+            visible_fields: vec![
+                "used_percent".to_string(),
+                "remaining_percent".to_string(),
+                "reset_at".to_string(),
+                "quota_window".to_string(),
+            ],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(43.0),
+                used_percent: Some(57.0),
+                reset_at: Some("2026-06-22T00:00:00Z".to_string()),
+            }),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        // The headline stays on the session window so the float and tray are unchanged.
+        assert_eq!(snapshot.remaining_percent, Some(83.0));
+        assert_eq!(snapshot.reset_at.as_deref(), Some("2026-06-20T19:00:00Z"));
+
+        let windows = &snapshot.details["windows"];
+        assert_eq!(windows["fiveHour"]["remainingPercent"], 83.0);
+        assert_eq!(windows["fiveHour"]["resetAt"], "2026-06-20T19:00:00Z");
+        assert_eq!(windows["week"]["remainingPercent"], 43.0);
+        assert_eq!(windows["week"]["usedPercent"], 57.0);
+        assert_eq!(windows["week"]["resetAt"], "2026-06-22T00:00:00Z");
+    }
+
+    #[test]
+    fn invalid_secondary_window_degrades_to_single_window() {
+        let input = VisibleUsageInput {
+            service: Service::Ollama,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: Some(83.0),
+            used_percent: Some(17.0),
+            reset_at: Some("2026-06-20T19:00:00Z".to_string()),
+            visible_fields: vec!["used_percent".to_string(), "remaining_percent".to_string()],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(10.0),
+                used_percent: Some(80.0),
+                reset_at: None,
+            }),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+
+        // The malformed weekly window is dropped rather than failing the snapshot.
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.remaining_percent, Some(83.0));
+        assert!(snapshot.details.get("windows").is_none());
     }
 
     #[test]

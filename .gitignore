@@ -4,5 +4,6 @@ src-tauri/target/
 src-tauri/gen/
 *.log
 .svelte-kit/
+src-tauri/pickgauge-updater.key*
 .playwright-mcp/
 .worktrees/

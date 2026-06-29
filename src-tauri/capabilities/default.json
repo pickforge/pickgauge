@@ -3,5 +3,10 @@
   "identifier": "default",
   "description": "Default PickGauge permissions",
   "windows": ["main", "float"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "updater:default",
+    "process:default"
+  ]
 }

@@ -21,12 +21,14 @@
     "test:synthetic-fail-closed": "node scripts/validate-playwright-synthetic-fail-closed.mjs",
     "test:sidecar-launch": "node scripts/validate-playwright-sidecar-launch.mjs",
     "tauri": "tauri",
-    "build:appimage": "npm run prepare:sidecar && NO_STRIP=1 tauri build --bundles appimage"
+    "build:appimage": "bun run prepare:sidecar && NO_STRIP=1 tauri build --bundles appimage"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.8",
     "@fontsource/geist-sans": "^5.2.5",
     "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "phosphor-svelte": "^3.1.0",
     "playwright": "^1.60.0",
     "svelte": "^5.43.0"

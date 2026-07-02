@@ -14,7 +14,7 @@ Local-first. Open source. Built for people who ship.
 
 ## Install
 
-Release artifacts are built from `main` by GitHub Actions: Linux AppImage, Windows installers, macOS Intel and Apple Silicon builds. PickGauge is still **Linux/KDE-first** — Windows and macOS builds are produced automatically but currently **untested**; experience reports are welcome.
+Release artifacts are built from `main` by GitHub Actions: Linux AppImage, Windows installers, macOS Intel and Apple Silicon builds. Download the latest from [Releases](https://github.com/pickforge/pickgauge/releases/latest). PickGauge is still **Linux/KDE-first** — Linux is the tested platform; the Windows and macOS builds are produced automatically but currently **untested**; experience reports are welcome.
 
 On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:
 
@@ -126,7 +126,7 @@ bun run tauri icon assets/branding/app-icon.svg
 6. Spike browser automation for official-page reads.
 7. Add opt-in web providers with isolated sessions.
 8. Merge official baselines with local usage deltas.
-9. Package for daily Linux desktop use, then expand automated Windows and macOS release artifacts.
+9. Packaged releases exist for Linux, Windows, and macOS; validate the macOS and Windows builds on native hosts.
 
 Project documents: [`docs/plans/pickgauge-implementation-plan.md`](docs/plans/pickgauge-implementation-plan.md) — consolidated product spec, implementation plan, validation gates, and security checklist.
 

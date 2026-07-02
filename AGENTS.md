@@ -1,0 +1,32 @@
+# AGENTS
+
+Repo-local guide for agents working in PickGauge — local AI-usage visibility
+from the tray (Tauri v2: Rust backend + sidecar, SvelteKit/Svelte 5 frontend,
+bun).
+
+## Commands
+
+- `bun install` then `bun run tauri dev` to develop.
+- `bun run build` type-checks and builds the frontend; `cargo test` covers the
+  Rust side. Run both before calling work done.
+
+## Invariants
+
+- Privacy-first: provider tokens are read, never stored or logged; web reads
+  are opt-in and use isolated profiles. Never widen what the app touches
+  without updating README's privacy section.
+- Follow the Pickforge design system: ember `#FF7A1A` accent, Geist/Geist Mono,
+  tokens over raw values.
+
+## Releasing
+
+- Bump the version in `src-tauri/tauri.conf.json` and `package.json`, land on
+  `main`, tag `vX.Y.Z`, push the tag. CI builds Linux/macOS/Windows bundles,
+  signs the updater artifacts, and **auto-publishes** the release at the end
+  of the workflow — make sure `main` is ready before tagging.
+- The GitHub release description is the single source of release notes; polish
+  it right after the workflow finishes. pickforge.dev/pickgauge shows the
+  latest release via the GitHub API — no website change needed for a normal
+  release.
+- Only touch `landing-page` (`src/pages/products.ts`) when install methods,
+  platforms, or positioning change.

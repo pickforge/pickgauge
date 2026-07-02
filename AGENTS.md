@@ -7,8 +7,10 @@ bun).
 ## Commands
 
 - `bun install` then `bun run tauri dev` to develop.
-- `bun run build` type-checks and builds the frontend; `cargo test` covers the
-  Rust side. Run both before calling work done.
+- `bun run check` type-checks the Svelte frontend (`build` alone is just
+  `vite build`); `bun run test` runs the JS suite;
+  `cargo test --manifest-path src-tauri/Cargo.toml` covers the Rust side.
+  Run these before calling work done.
 
 ## Invariants
 

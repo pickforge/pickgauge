@@ -7,6 +7,9 @@ set -eu
 REPO="pickforge/pickgauge"
 APP_NAME="PickGauge"
 BIN_NAME="pickgauge"
+# The window's app_id (bundle identifier). The .desktop basename and
+# StartupWMClass must equal it or the running window shows a generic icon.
+APP_ID="pickgauge"
 
 # Environment overrides:
 #   PICKGAUGE_INSTALL_DIR  Linux AppImage target dir. Default: $HOME/.local/bin.
@@ -170,6 +173,11 @@ path_must_be_in_home() {
   checked_path=$1
 
   case "$checked_path" in
+    *..*)
+      die "install path must not contain '..': $checked_path"
+      ;;
+  esac
+  case "$checked_path" in
     "$HOME"|"$HOME"/*)
       ;;
     *)
@@ -217,13 +225,17 @@ verify_archive_paths() {
 write_desktop_launcher() {
   launcher_appimage=$1
   launcher_dir="$HOME/.local/share/applications"
-  launcher_file="$launcher_dir/$BIN_NAME.desktop"
+  # Basename and StartupWMClass must equal the window's app_id so the desktop
+  # environment ties the running window to this entry (and its icon).
+  launcher_file="$launcher_dir/$APP_ID.desktop"
 
   mkdir -p "$launcher_dir" 2>/dev/null || return 0
   {
     printf '[Desktop Entry]\n'
     printf 'Name=%s\n' "$APP_NAME"
     printf 'Exec="%s"\n' "$launcher_appimage"
+    printf 'Icon=%s\n' "$APP_ID"
+    printf 'StartupWMClass=%s\n' "$APP_ID"
     printf 'Terminal=false\n'
     printf 'Type=Application\n'
     printf 'Categories=Development;\n'
@@ -268,13 +280,17 @@ install_macapp() {
   applications_dir="$HOME/Applications"
   app_path="$applications_dir/$APP_NAME.app"
 
-  mkdir -p "$applications_dir"
+  staging="$tmp/extract"
+
+  mkdir -p "$applications_dir" "$staging"
   verify_archive_paths
-  # Replace any existing bundle rather than extracting over it: a merge would
-  # keep stale files from the previous release inside the new .app.
+  # Extract into staging first, then swap: the existing install is destroyed
+  # only after a successful extraction, so a failed/partial extract never
+  # leaves the user without a working app, and no stale files are merged in.
+  tar -xzf "$asset_path" -C "$staging"
+  [ -d "$staging/$APP_NAME.app" ] || die "$APP_NAME.app was not found after extracting $asset_name"
   rm -rf "$app_path"
-  tar -xzf "$asset_path" -C "$applications_dir"
-  [ -d "$app_path" ] || die "$APP_NAME.app was not found after extracting $asset_name"
+  mv "$staging/$APP_NAME.app" "$app_path"
   xattr -dr com.apple.quarantine "$app_path" 2>/dev/null || true
 
   printf '%s %s installed to %s.\n' "$APP_NAME" "$release_tag" "$app_path"

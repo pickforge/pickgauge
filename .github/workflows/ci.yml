@@ -99,14 +99,24 @@ jobs:
           mkdir -p src-tauri/target/llvm-cov
           cargo llvm-cov --manifest-path src-tauri/Cargo.toml --locked --all-targets --fail-under-lines 80 --html --output-dir src-tauri/target/llvm-cov/html
           cargo llvm-cov report --manifest-path src-tauri/Cargo.toml --lcov --output-path src-tauri/target/llvm-cov/lcov.info
-          cargo llvm-cov report --manifest-path src-tauri/Cargo.toml --text --output-path src-tauri/target/llvm-cov/summary.txt
 
       - name: Summarize Rust coverage
         run: |
+          rust_lines=$(awk '
+            /^LF:/ { lines += substr($0, 4) }
+            /^LH:/ { hit += substr($0, 4) }
+            END {
+              if (lines > 0) {
+                printf "%.2f%% (%d/%d)", hit * 100 / lines, hit, lines
+              } else {
+                printf "no line data"
+              }
+            }
+          ' src-tauri/target/llvm-cov/lcov.info)
           {
             echo
             echo "### Rust"
-            cat src-tauri/target/llvm-cov/summary.txt
+            echo "Lines: ${rust_lines}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Rust coverage
@@ -116,4 +126,3 @@ jobs:
           path: |
             src-tauri/target/llvm-cov/lcov.info
             src-tauri/target/llvm-cov/html/
-            src-tauri/target/llvm-cov/summary.txt

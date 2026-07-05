@@ -8,9 +8,16 @@ bun).
 
 - `bun install` then `bun run tauri dev` to develop.
 - `bun run check` type-checks the Svelte frontend (`build` alone is just
-  `vite build`); `bun run test` runs the JS suite;
-  `cargo test --manifest-path src-tauri/Cargo.toml` covers the Rust side.
-  Run these before calling work done.
+  `vite build`); `bun run test` runs the JS suite; `bun run test:coverage`
+  enforces the frontend coverage ratchet; `cargo test --manifest-path
+  src-tauri/Cargo.toml --locked --all-targets` covers the Rust side. Run these
+  before calling work done.
+- Write tests in the same PR as behavior changes. For bugs, start with a
+  failing regression test when practical. For risky refactors, add
+  characterization tests first.
+- Do not lower coverage thresholds without explicit maintainer approval.
+- Keep durable business/domain behavior in the existing Rust core or shared
+  `src/lib` layers, not UI components. Do not add DDD ceremony.
 
 ## Invariants
 

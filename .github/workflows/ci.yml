@@ -30,6 +30,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -56,12 +58,62 @@ jobs:
       - name: Svelte type check
         run: bun run check
 
+      - name: Frontend and sidecar tests
+        run: bun run test
+
+      - name: Frontend coverage
+        run: bun run test:coverage
+
+      - name: Summarize frontend coverage
+        run: |
+          node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require("fs");
+          const lcov = fs.readFileSync("coverage/lcov.info", "utf8");
+          let found = 0;
+          let hit = 0;
+          for (const line of lcov.split("\n")) {
+            if (line.startsWith("LF:")) found += Number(line.slice(3));
+            if (line.startsWith("LH:")) hit += Number(line.slice(3));
+          }
+          const pct = found === 0 ? "0.00" : ((hit / found) * 100).toFixed(2);
+          console.log(`## Coverage\n\nFrontend lines: ${pct}% (${hit}/${found})`);
+          NODE
+
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: |
+            coverage/lcov.info
+            coverage/index.html
+            coverage/
+
       - name: Build frontend
         run: bun run build
 
-      - name: Sidecar tests
-        run: bun run test
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets
 
-      - name: Rust check
-        working-directory: src-tauri
-        run: cargo check --all-targets
+      - name: Rust coverage
+        run: |
+          mkdir -p src-tauri/target/llvm-cov
+          cargo llvm-cov --manifest-path src-tauri/Cargo.toml --locked --all-targets --fail-under-lines 80 --html --output-dir src-tauri/target/llvm-cov/html
+          cargo llvm-cov report --manifest-path src-tauri/Cargo.toml --lcov --output-path src-tauri/target/llvm-cov/lcov.info
+          cargo llvm-cov report --manifest-path src-tauri/Cargo.toml --text --output-path src-tauri/target/llvm-cov/summary.txt
+
+      - name: Summarize Rust coverage
+        run: |
+          {
+            echo
+            echo "### Rust"
+            cat src-tauri/target/llvm-cov/summary.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Rust coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-coverage
+          path: |
+            src-tauri/target/llvm-cov/lcov.info
+            src-tauri/target/llvm-cov/html/
+            src-tauri/target/llvm-cov/summary.txt

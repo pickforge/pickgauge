@@ -14,7 +14,6 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
-      all: true,
       include: ["src/**/*.{svelte,ts}"],
       exclude: ["src/**/*.test.ts", "src/vite-env.d.ts"],
       thresholds: {

@@ -14,6 +14,14 @@ Local-first. Open source. Built for people who ship.
 
 ## Install
 
+**Quick install** (Linux AppImage, no sudo):
+
+```sh
+curl -fsSL https://pickforge.dev/pickgauge/install.sh | sh
+```
+
+Pulls the latest [release](https://github.com/pickforge/pickgauge/releases) AppImage into your home. macOS `.app` bundles install the same way; Windows and macOS builds are still **untested**.
+
 Release artifacts are built from `main` by GitHub Actions: Linux AppImage, Windows installers, macOS Intel and Apple Silicon builds. Download the latest from [Releases](https://github.com/pickforge/pickgauge/releases/latest). PickGauge is still **Linux/KDE-first** — Linux is the tested platform; the Windows and macOS builds are produced automatically but currently **untested**; experience reports are welcome.
 
 On CachyOS/Arch-like systems, local AppImage bundling can fail because the linuxdeploy `strip` binary does not understand newer `.relr.dyn` ELF sections. Use the project script, which disables linuxdeploy stripping:

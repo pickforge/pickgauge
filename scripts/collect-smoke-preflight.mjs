@@ -7,9 +7,12 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const packageJson = readJson(resolve(repoRoot, "package.json"));
+const tauriConfig = readJson(resolve(repoRoot, "src-tauri/tauri.conf.json"));
+const appVersion = tauriConfig?.version ?? packageJson?.version ?? "unknown";
 const appImagePath = resolve(
   repoRoot,
-  "src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage",
+  `src-tauri/target/release/bundle/appimage/PickGauge_${appVersion}_amd64.AppImage`,
 );
 const sidecarPath = resolve(
   repoRoot,
@@ -22,8 +25,6 @@ const displayHelperPath = resolve(repoRoot, "src/lib/display.ts");
 const displayTestPath = resolve(repoRoot, "src/lib/display.test.ts");
 const browserPreviewValidationPath = resolve(repoRoot, "scripts/validate-browser-preview.mjs");
 const rustAppPath = resolve(repoRoot, "src-tauri/src/lib.rs");
-const packageJson = readJson(resolve(repoRoot, "package.json"));
-const tauriConfig = readJson(resolve(repoRoot, "src-tauri/tauri.conf.json"));
 const officialUsageUrls = [
   "https://chatgpt.com/codex/cloud/settings/analytics",
   "https://claude.ai/new#settings/usage",

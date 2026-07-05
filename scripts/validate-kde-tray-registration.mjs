@@ -19,9 +19,12 @@ import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const tauriConfig = JSON.parse(
+  readFileSync(resolve(repoRoot, "src-tauri/tauri.conf.json"), "utf8"),
+);
 const appImagePath = resolve(
   repoRoot,
-  "src-tauri/target/release/bundle/appimage/PickGauge_0.1.0_amd64.AppImage",
+  `src-tauri/target/release/bundle/appimage/PickGauge_${tauriConfig.version}_amd64.AppImage`,
 );
 const itemTimeoutMs = 12_000;
 const menuTimeoutMs = 5_000;

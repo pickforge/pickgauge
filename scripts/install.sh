@@ -226,6 +226,7 @@ verify_archive_paths() {
 
 write_desktop_launcher() {
   launcher_appimage=$1
+  launcher_icon=$2
   launcher_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   # Basename and StartupWMClass must equal the window's app_id so the desktop
   # environment ties the running window to this entry (and its icon).
@@ -236,12 +237,48 @@ write_desktop_launcher() {
     printf '[Desktop Entry]\n'
     printf 'Name=%s\n' "$APP_NAME"
     printf 'Exec="%s"\n' "$launcher_appimage"
-    printf 'Icon=%s\n' "$APP_ID"
+    printf 'Icon=%s\n' "$launcher_icon"
     printf 'StartupWMClass=%s\n' "$APP_ID"
     printf 'Terminal=false\n'
     printf 'Type=Application\n'
     printf 'Categories=Development;\n'
   } > "$launcher_file" 2>/dev/null || return 0
+}
+
+install_launcher_icon() {
+  icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
+  icon_path="$icon_dir/$APP_ID.svg"
+
+  mkdir -p "$icon_dir" 2>/dev/null || {
+    printf '%s\n' "$APP_ID"
+    return 0
+  }
+
+  if ! cat > "$icon_path" <<'SVG' 2>/dev/null
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="PickGauge mark">
+  <title>PickGauge mark</title>
+  <rect width="128" height="128" rx="24" fill="#0A0A0B"/>
+  <g stroke="#F2F2F3" stroke-width="3" stroke-linecap="square" fill="none">
+    <path d="M30 48 V32 H46"/>
+    <path d="M30 80 V96 H46"/>
+    <path d="M82 96 H98 V80"/>
+    <path d="M82 32 H98 V48"/>
+  </g>
+  <path d="M44 76 A28 28 0 1 1 84 76" stroke="#F2F2F3" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.55"/>
+  <path d="M64 64 L82 48" stroke="#F2F2F3" stroke-width="2.4" stroke-linecap="round" opacity="0.65"/>
+  <g stroke="#F2F2F3" stroke-width="1.5" stroke-linecap="round" opacity="0.35">
+    <line x1="64" y1="37" x2="64" y2="45"/>
+    <line x1="42" y1="55" x2="50" y2="58"/>
+    <line x1="86" y1="55" x2="78" y2="58"/>
+  </g>
+  <circle cx="84" cy="46" r="6" fill="#FF7A1A"/>
+</svg>
+SVG
+  then
+    printf '%s\n' "$APP_ID"
+    return 0
+  fi
+  printf '%s\n' "$icon_path"
 }
 
 path_has_dir() {
@@ -267,7 +304,8 @@ install_appimage() {
   mv "$asset_path" "$appimage_path"
   chmod +x "$appimage_path"
   ln -sf "$appimage_path" "$command_path"
-  write_desktop_launcher "$appimage_path" || true
+  launcher_icon=$(install_launcher_icon)
+  write_desktop_launcher "$appimage_path" "$launcher_icon" || true
 
   [ -x "$appimage_path" ] || die "installed AppImage is not executable: $appimage_path"
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-label="PickGauge tray icon recording">
+  <title>PickGauge tray icon recording</title>
+  <path d="M16 25 V14 H27" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>
+  <path d="M16 39 V50 H27" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>
+  <path d="M37 14 H48 V25" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>
+  <path d="M37 50 H48 V39" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>
+  <path d="M24 40 A12 12 0 1 1 40 40" stroke="#F2F2F3" stroke-width="2.5" stroke-linecap="round" opacity="0.75"/><path d="M32 32 L41 23" stroke="#F2F2F3" stroke-width="2" stroke-linecap="round" opacity="0.75"/>
+  <circle cx="42" cy="22" r="4.5" fill="#FF7A1A"/>
+</svg>

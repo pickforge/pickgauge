@@ -301,6 +301,8 @@ install_appimage() {
 
   path_must_be_in_home "$install_dir"
   mkdir -p "$install_dir"
+  [ ! -d "$appimage_path" ] || die "install destination is a directory: $appimage_path"
+  [ ! -d "$command_path" ] || die "command path is a directory: $command_path"
   mv "$asset_path" "$appimage_path"
   chmod +x "$appimage_path"
   ln -sf "$appimage_path" "$command_path"
@@ -331,7 +333,6 @@ install_macapp() {
   [ -d "$staging/$APP_NAME.app" ] || die "$APP_NAME.app was not found after extracting $asset_name"
   rm -rf "$app_path"
   mv "$staging/$APP_NAME.app" "$app_path"
-  xattr -dr com.apple.quarantine "$app_path" 2>/dev/null || true
 
   printf '%s %s installed to %s.\n' "$APP_NAME" "$release_tag" "$app_path"
   printf 'Open it with: open "%s"\n' "$app_path"

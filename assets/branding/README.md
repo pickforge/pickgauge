@@ -35,8 +35,6 @@ PickGauge uses the Pickforge Studio bracket mark with a compact gauge needle and
 | `palette.svg` and `palette.png` | Brand color palette |
 | `brand-pattern.svg` and `brand-pattern.png` | Subtle background pattern |
 
-The `pickgauge-*` files are canonical copies from `branding-visual/assets/pickgauge/`. The shorter `logo-*`, `app-icon*`, and `tray-*` names are app-local compatibility aliases used by the UI and packaging scripts.
-
 ## Generated Hero Prompt
 
 Use case: stylized-concept

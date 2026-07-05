@@ -146,21 +146,13 @@ resolve_release() {
     candidate_name=${candidate_url##*/}
 
     candidate_matches_kind=0
-    case "$install_kind" in
-      appimage)
-        case "$candidate_name" in
-          *.AppImage) candidate_matches_kind=1 ;;
-        esac
-        ;;
-      macapp)
-        case "$candidate_name" in
-          *.app.tar.gz) candidate_matches_kind=1 ;;
-        esac
-        ;;
-    esac
-    [ "$candidate_matches_kind" -eq 1 ] || continue
+    if [ "$install_kind" = "appimage" ] && printf '%s\n' "$candidate_name" | grep -Eq '\.AppImage$'; then
+      candidate_matches_kind=1
+    elif [ "$install_kind" = "macapp" ] && printf '%s\n' "$candidate_name" | grep -Eq '\.app\.tar\.gz$'; then
+      candidate_matches_kind=1
+    fi
 
-    if printf '%s\n' "$candidate_name" | grep -Eiq "$arch_pattern"; then
+    if [ "$candidate_matches_kind" -eq 1 ] && printf '%s\n' "$candidate_name" | grep -Eiq "$arch_pattern"; then
       printf '%s\n' "$candidate_url"
       break
     fi

@@ -145,20 +145,20 @@ resolve_release() {
   asset_url=$(printf '%s\n' "$download_urls" | while IFS= read -r candidate_url; do
     candidate_name=${candidate_url##*/}
 
+    candidate_matches_kind=0
     case "$install_kind" in
       appimage)
         case "$candidate_name" in
-          *.AppImage) ;;
-          *) continue ;;
+          *.AppImage) candidate_matches_kind=1 ;;
         esac
         ;;
       macapp)
         case "$candidate_name" in
-          *.app.tar.gz) ;;
-          *) continue ;;
+          *.app.tar.gz) candidate_matches_kind=1 ;;
         esac
         ;;
     esac
+    [ "$candidate_matches_kind" -eq 1 ] || continue
 
     if printf '%s\n' "$candidate_name" | grep -Eiq "$arch_pattern"; then
       printf '%s\n' "$candidate_url"

@@ -29,6 +29,11 @@ bun).
 
 ## Releasing
 
+- Keep [`docs/releases/UNRELEASED.md`](docs/releases/UNRELEASED.md) current on
+  PRs with user-facing or release-relevant changes. Track user-facing changes,
+  internal/release changes, what was tested, what was not tested yet, and known
+  blockers. At release time, copy and polish it into the GitHub release
+  description, then reset the draft.
 - Bump the version in `src-tauri/tauri.conf.json` and `package.json`, land on
   `main`, tag `vX.Y.Z`, push the tag. CI builds Linux/macOS/Windows bundles,
   signs the updater artifacts, and **auto-publishes** the release at the end

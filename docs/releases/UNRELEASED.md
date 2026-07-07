@@ -6,22 +6,30 @@ reset this file.
 
 ## User-facing changes
 
-- None yet.
+- Linux curl installs now use a rootless AppImage wrapper that falls back on
+  FUSE3-only systems and installs a launcher icon/menu entry.
 
 ## Internal/release changes
 
 - Added repo-local release tracking in `docs/releases/UNRELEASED.md`.
+- Added installer smoke tests for AppImage desktop integration and symlink-safe
+  upgrades.
 
 ## Validation
 
 ### Tested
 
 - Reviewed the release tracking docs.
+- `bun run test:installer`
+- `bun run check`
+- `bun run test`
+- `sh -n scripts/install.sh`
+- `git diff --check`
 
 ### Not tested yet
 
 - App build.
-- Installer or updater flow.
+- Updater flow.
 - Windows and macOS bundles.
 
 ### Release blockers

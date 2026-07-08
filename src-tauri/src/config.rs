@@ -259,7 +259,7 @@ fn load_existing_or_default_from_path(path: &Path) -> AppConfig {
         Err(_) => return crash_reports_disabled_config(),
     };
 
-    parse_config_raw(&raw).unwrap_or_else(|_| AppConfig::default())
+    parse_config_raw(&raw).unwrap_or_else(|_| crash_reports_disabled_config())
 }
 
 fn parse_config_raw(raw: &str) -> Result<AppConfig, String> {
@@ -647,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_config_load_defaults_for_malformed_file_without_overwriting() {
+    fn startup_config_load_disables_crash_reports_for_malformed_file_without_overwriting() {
         let dir = TestDir::new();
         let path = dir.config_path();
         let raw = "{ invalid";
@@ -655,7 +655,7 @@ mod tests {
 
         let config = load_existing_or_default_from_path(&path);
 
-        assert_eq!(config, AppConfig::default());
+        assert!(!config.crash_reports);
         assert_eq!(fs::read_to_string(&path).expect("config remains"), raw);
     }
 

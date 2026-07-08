@@ -21,19 +21,28 @@ PickGauge uses the Pickforge Studio bracket mark with a compact gauge needle and
 
 | File | Purpose |
 | --- | --- |
-| `logo-mark.svg` | Primary transparent logo mark |
-| `logo-lockup.svg` | Horizontal wordmark lockup |
-| `logo-lockup-on-dark.svg` | Dark-surface wordmark lockup |
-| `logo-lockup-on-surface.png` | Raster lockup for README/app usage |
-| `logo-lockup-on-charcoal.png` | Raster lockup for dark surfaces |
-| `app-icon.svg` | Source app icon |
-| `app-icon-*.png` | App icon PNG exports |
-| `tray-*.svg` and `tray-*.png` | Tray state icons |
-| `favicon.svg` and `favicon-*.png` | Browser/repository favicon assets |
-| `hero-art.png` | Croppable social-card artwork used inside the tray popup |
-| `social-card.svg` and `social-card.png` | Repository/social preview image |
-| `palette.svg` and `palette.png` | Brand color palette |
-| `brand-pattern.svg` and `brand-pattern.png` | Subtle background pattern |
+| `pickgauge-mark-128.svg` | Primary transparent logo mark |
+| `pickgauge-mark-1024.png` | High-resolution raster logo mark |
+| `pickgauge-lockup-horizontal.svg` and `.png` | Horizontal wordmark lockup |
+| `pickgauge-lockup-on-dark.svg` and `.png` | Dark-surface wordmark lockup |
+| `pickgauge-lockup-on-surface.png` | Raster lockup for README/app usage |
+| `pickgauge-lockup-on-charcoal.png` | Raster lockup for charcoal surfaces |
+| `pickgauge-app-icon.svg` | Source app icon |
+| `pickgauge-app-icon-*.png` | App icon PNG exports |
+| `pickgauge-tray-*.svg` and `pickgauge-tray-*.png` | Tray state icons |
+| `pickgauge-favicon.svg` and `pickgauge-favicon-*.png` | Browser/repository favicon assets |
+| `pickgauge-hero-art.png` | Croppable social preview artwork used inside the tray popup |
+| `pickgauge-og-image.svg` and `pickgauge-og-image.png` | Repository/social preview image |
+| `pickgauge-palette.svg` and `pickgauge-palette.png` | Brand color palette |
+| `pickgauge-brand-pattern.svg` and `pickgauge-brand-pattern.png` | Subtle background pattern |
+
+## Icon Provenance
+
+After changing `pickgauge-app-icon.svg`, regenerate platform icons with:
+
+```bash
+bun run tauri icon assets/branding/pickgauge-app-icon.svg
+```
 
 ## Generated Hero Prompt
 

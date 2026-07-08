@@ -33,6 +33,7 @@ reset this file.
 - Sentry events strip hostnames and breadcrumbs before upload.
 - Added installer smoke tests for AppImage desktop integration and symlink-safe
   upgrades.
+- Renamed brand assets to the canonical `pickgauge-*` scheme.
 
 ## Validation
 

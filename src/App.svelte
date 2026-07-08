@@ -4,7 +4,7 @@
   import ClockCounterClockwise from "phosphor-svelte/lib/ClockCounterClockwise";
   import Gauge from "phosphor-svelte/lib/Gauge";
   import GearSix from "phosphor-svelte/lib/GearSix";
-  import logoUrl from "../assets/branding/logo-mark.svg";
+  import logoUrl from "../assets/branding/pickgauge-mark-128.svg";
   import ResizeHandles from "./lib/components/ResizeHandles.svelte";
   import Titlebar from "./lib/components/Titlebar.svelte";
   import {

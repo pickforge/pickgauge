@@ -70,6 +70,48 @@ const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 const POPUP_ANCHOR_GAP: i32 = 10;
 const FLOAT_WINDOW_LABEL: &str = "float";
 
+fn sanitize_sentry_event(
+    mut event: sentry::protocol::Event<'static>,
+) -> sentry::protocol::Event<'static> {
+    event.server_name = None;
+    event.breadcrumbs = Default::default();
+    strip_sentry_debug_image_paths(event.debug_meta.to_mut());
+    event
+}
+
+fn strip_sentry_debug_image_paths(debug_meta: &mut sentry::protocol::DebugMeta) {
+    for image in &mut debug_meta.images {
+        match image {
+            sentry::protocol::DebugImage::Symbolic(image) => {
+                image.name = sentry_file_name(&image.name);
+                if let Some(debug_file) = image.debug_file.as_mut() {
+                    *debug_file = sentry_file_name(debug_file);
+                }
+            }
+            sentry::protocol::DebugImage::Wasm(image) => {
+                image.code_file = sentry_file_name(&image.code_file);
+                if let Some(debug_file) = image.debug_file.as_mut() {
+                    *debug_file = sentry_file_name(debug_file);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn sentry_file_name(path: &str) -> String {
+    let trimmed = path.trim_end_matches(|ch| ch == '/' || ch == '\\');
+    if trimmed.is_empty() {
+        return path.to_string();
+    }
+
+    trimmed
+        .rsplit(|ch| ch == '/' || ch == '\\')
+        .next()
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
 #[derive(Clone, Copy)]
 enum StartupWarning {
     AutostartSync,
@@ -2159,11 +2201,7 @@ pub fn run() {
         if sentry_enabled { SENTRY_DSN } else { "" },
         sentry::ClientOptions {
             release: Some(release.into()),
-            before_send: Some(Arc::new(|mut event| {
-                event.server_name = None;
-                event.breadcrumbs = Default::default();
-                Some(event)
-            })),
+            before_send: Some(Arc::new(|event| Some(sanitize_sentry_event(event)))),
             ..Default::default()
         },
     ));
@@ -2285,6 +2323,7 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::{
+        borrow::Cow,
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
     };
@@ -2317,6 +2356,65 @@ mod tests {
         usage::TrayGaugeState {
             service,
             remaining_percent,
+        }
+    }
+
+    #[test]
+    fn sentry_event_sanitizer_strips_debug_image_paths() {
+        let symbolic_id = "494f3aea-88fa-4296-9644-fa8ef5d139b6-1234";
+        let wasm_id = "8c954262-f905-4992-8a61-f60825f4553b";
+        let event = sentry::protocol::Event {
+            server_name: Some("workstation".into()),
+            breadcrumbs: vec![sentry::protocol::Breadcrumb::default()].into(),
+            debug_meta: Cow::Owned(sentry::protocol::DebugMeta {
+                images: vec![
+                    sentry::protocol::SymbolicDebugImage {
+                        name: "/home/alice/Applications/PickGauge.AppImage".into(),
+                        arch: Some("x86_64".into()),
+                        image_addr: 0.into(),
+                        image_size: 4096,
+                        image_vmaddr: 0.into(),
+                        id: symbolic_id.parse().unwrap(),
+                        code_id: None,
+                        debug_file: Some("C:\\Users\\alice\\pickgauge.debug".into()),
+                    }
+                    .into(),
+                    sentry::protocol::WasmDebugImage {
+                        name: "pickgauge_bg.wasm".into(),
+                        debug_id: wasm_id.parse().unwrap(),
+                        debug_file: Some("/home/alice/debug/pickgauge_bg.wasm.debug".into()),
+                        code_id: Some("abc123".into()),
+                        code_file: "C:\\Users\\alice\\pickgauge_bg.wasm".into(),
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let event = sanitize_sentry_event(event);
+
+        assert_eq!(event.server_name, None);
+        assert!(event.breadcrumbs.is_empty());
+        match &event.debug_meta.images[0] {
+            sentry::protocol::DebugImage::Symbolic(image) => {
+                assert_eq!(image.name, "PickGauge.AppImage");
+                assert_eq!(image.debug_file.as_deref(), Some("pickgauge.debug"));
+                assert_eq!(image.id.to_string(), symbolic_id);
+            }
+            _ => panic!("expected symbolic debug image"),
+        }
+        match &event.debug_meta.images[1] {
+            sentry::protocol::DebugImage::Wasm(image) => {
+                assert_eq!(image.code_file, "pickgauge_bg.wasm");
+                assert_eq!(
+                    image.debug_file.as_deref(),
+                    Some("pickgauge_bg.wasm.debug")
+                );
+                assert_eq!(image.debug_id.to_string(), wasm_id);
+            }
+            _ => panic!("expected wasm debug image"),
         }
     }
 

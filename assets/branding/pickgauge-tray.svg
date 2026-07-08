@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-label="PickGauge tray icon — Claude usage">
-  <title>PickGauge tray — Claude usage (reference state, high remaining)</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-label="PickGauge tray icon active">
+  <title>PickGauge tray icon active</title>
   <path d="M16 25 V14 H27" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>
   <path d="M16 39 V50 H27" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>
   <path d="M37 14 H48 V25" stroke="#F2F2F3" stroke-width="3" stroke-linecap="square"/>

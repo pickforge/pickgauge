@@ -20,12 +20,17 @@ reset this file.
 - Fixed the white/blank window on distros with recent Mesa/Wayland (Arch,
   CachyOS, Fedora): the AppImage no longer bundles the build host's
   libwayland, which crashed WebKit's EGL setup (#15).
+- Added anonymous crash and error reporting with a Settings → Crash reports
+  opt-out. Reports are disabled in development builds unless explicitly enabled.
 
 ## Internal/release changes
 
 - Added repo-local release tracking in `docs/releases/UNRELEASED.md`.
 - Linux release CI now strips bundled `libwayland-*` from the AppImage,
   repacks it, and re-signs the updater artifact.
+- Release CI uploads Rust debug symbols and frontend sourcemaps to Sentry when
+  `SENTRY_AUTH_TOKEN` is configured.
+- Sentry events strip hostnames and breadcrumbs before upload.
 - Added installer smoke tests for AppImage desktop integration and symlink-safe
   upgrades.
 
@@ -38,14 +43,19 @@ reset this file.
 - `bun run check`
 - `bun run test` (incl. coverage thresholds via `test:coverage`)
 - `bun run lint`
-- `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets`
+- `bun run build`
+- `cargo check --workspace --all-targets` from `src-tauri/`
+- `cargo test --workspace --locked --all-targets` from `src-tauri/`
 - `sh -n scripts/install.sh`
 - `git diff --check`
+- Live run on an isolated Linux X11 display: frameless main window renders
+  without the doubled border, titlebar + WATCHING pill draw correctly,
+  dashboard/history navigate, float capsule opens the main window.
 
 ### Not tested yet
 
-- Live app run of the frameless titlebar (window controls, drag, resize
-  handles, close-to-tray) on Linux/Windows/macOS.
+- Frameless drag/resize on Wayland-native compositors, and window-control
+  order on Windows/macOS.
 - App build.
 - Updater flow.
 - Windows and macOS bundles.

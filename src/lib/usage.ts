@@ -226,6 +226,7 @@ export type AppConfig = {
   autostart: {
     enabled: boolean;
   };
+  crashReports: boolean;
   ui: {
     sounds: boolean;
     floatButton: boolean;
@@ -279,6 +280,7 @@ export const defaultConfig: AppConfig = {
   autostart: {
     enabled: false,
   },
+  crashReports: true,
   ui: {
     sounds: true,
     floatButton: true,

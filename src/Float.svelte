@@ -20,8 +20,8 @@
 
   const ringColors: Record<Service, string> = {
     codex: "var(--text)",
-    claude: "#ff7a1a",
-    ollama: "#2563eb",
+    claude: "var(--ember)",
+    ollama: "var(--pf-info)",
   };
 
   function ringColor(snapshot: UsageSnapshot) {
@@ -29,7 +29,7 @@
       snapshot.remainingPercent !== null &&
       snapshot.remainingPercent <= config.lowUsageThreshold
     ) {
-      return "#c2410c";
+      return "var(--ember-deep)";
     }
 
     return ringColors[snapshot.service];
@@ -191,7 +191,10 @@
     {/if}
   </div>
 
-  <span class="status-dot" class:busy={refreshing}></span>
+  <span
+    class="pf-dot pf-dot--pulsing status-dot"
+    style={`--pf-intent: ${refreshing ? "var(--warn)" : "var(--ember)"}`}
+  ></span>
 </div>
 
 <style>
@@ -248,14 +251,7 @@
     flex: none;
     width: 7px;
     height: 7px;
-    border-radius: var(--radius-pill);
-    background: var(--ember);
     transition: background 300ms var(--ease-forge);
-    animation: ember-pulse 2.4s var(--ease-forge) infinite;
-  }
-
-  .status-dot.busy {
-    background: var(--warn);
   }
 
   .wordmark {

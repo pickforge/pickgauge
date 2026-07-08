@@ -5,6 +5,8 @@
   import Gauge from "phosphor-svelte/lib/Gauge";
   import GearSix from "phosphor-svelte/lib/GearSix";
   import logoUrl from "../assets/branding/logo-mark.svg";
+  import ResizeHandles from "./lib/components/ResizeHandles.svelte";
+  import Titlebar from "./lib/components/Titlebar.svelte";
   import {
     api,
     desktopApiAvailable,
@@ -175,18 +177,8 @@
 </script>
 
 <div class="app bg-blueprint">
-  <header class="chrome">
-    <div class="chrome-dots" aria-hidden="true">
-      <span></span>
-      <span></span>
-      <span></span>
-    </div>
-    <span class="chrome-title">Pickgauge · Usage</span>
-    <span class="pill" class:ember={!refreshing}>
-      <span class="dot" class:pulse={!refreshing}></span>
-      {refreshing ? "syncing" : "watching"}
-    </span>
-  </header>
+  <ResizeHandles />
+  <Titlebar {refreshing} />
 
   <div class="body">
     <aside class="sidebar">
@@ -230,9 +222,13 @@
     </main>
   </div>
 
-  <footer class="footer">
-    <span class="status" class:error={statusIsError}>{statusMessage ?? ""}</span>
-    <span class="brand-line">© Pickforge · pickforge.dev · MIT</span>
+  <footer class="pf-statusbar">
+    <div class="pf-statusbar-left">
+      <span class="pf-statusbar-item" class:error={statusIsError}>{statusMessage ?? ""}</span>
+    </div>
+    <div class="pf-statusbar-right">
+      <span>© Pickforge · pickforge.dev · MIT</span>
+    </div>
   </footer>
 </div>
 
@@ -269,38 +265,6 @@
     flex-direction: column;
     height: 100vh;
     background-color: var(--surface);
-  }
-
-  .chrome {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex: none;
-    height: 44px;
-    padding: 0 16px;
-    border-bottom: 1px solid var(--hairline);
-    background: color-mix(in srgb, var(--surface) 75%, transparent);
-  }
-
-  .chrome-dots {
-    display: flex;
-    gap: 6px;
-  }
-
-  .chrome-dots span {
-    width: 6px;
-    height: 6px;
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--text) 15%, transparent);
-  }
-
-  .chrome-title {
-    flex: 1;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--muted);
   }
 
   .body {
@@ -367,13 +331,13 @@
   }
 
   .dirty-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: var(--radius-pill);
-    background: var(--ember);
+    width: 4px;
+    height: 10px;
+    border: var(--pf-bracket-width) solid var(--ember);
+    border-right: none;
+    border-radius: 2px 0 0 2px;
     flex: none;
-    margin-left: -4px;
-    animation: ember-pulse 2.4s var(--ease-forge) infinite;
+    margin-left: -2px;
   }
 
   .dialog-backdrop {
@@ -464,36 +428,8 @@
     }
   }
 
-  .footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex: none;
-    height: 34px;
-    padding: 0 16px;
-    border-top: 1px solid var(--hairline);
-    background: color-mix(in srgb, var(--surface) 75%, transparent);
-  }
-
-  .status {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .status.error {
+  .pf-statusbar-item.error {
     color: var(--bad);
-  }
-
-  .brand-line {
-    flex: none;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    color: var(--muted);
   }
 
   @media (max-width: 700px) {

@@ -47,6 +47,20 @@ PickGauge ships a full Tauri 2 + Svelte 5 GUI in the Pickforge "one ember on a c
 - **Sounds, not notifications** — short synthesized chimes when a gauge crosses below the low-usage threshold and when it recovers (toggle in Settings). PickGauge never posts desktop notifications.
 - **Settings** — services, providers, refresh rhythm, quota calibration, browser profiles, autostart, sounds, and the floating button, all persisted locally.
 
+## Screenshots
+
+Real captures of the app in its studio chrome (frameless bracket titlebar, unified status bar).
+
+<p align="center">
+  <img src="assets/screenshots/pickgauge-dashboard.png" alt="PickGauge dashboard — live gauges in the bracket titlebar chrome" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/pickgauge-history.png" alt="PickGauge usage history — per-service charts and period table" width="900">
+  <br>
+  <img src="assets/screenshots/pickgauge-float-capsule.png" alt="PickGauge floating capsule" width="208">
+</p>
+
 <p align="center">
   <img src="assets/branding/pickgauge-dashboard-mock.svg" alt="PICKGAUGE · DASHBOARD — half-arc gauges with confidence labels, 14-day history, floating button, and the privacy boundary" width="900">
 </p>

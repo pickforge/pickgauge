@@ -128,15 +128,15 @@ PickGauge needs a real desktop shell: a persistent tray icon, native windows, lo
 
 Brand assets live in `assets/branding/`. The app uses the Pickforge Studio v2 dark/ember system:
 
-- `logo-mark.svg` and `logo-lockup-on-dark.svg` in the popup UI.
-- `brand-pattern.svg` and `hero-art.png` for the app surface.
-- `app-icon.svg` for generated Tauri app icons.
-- `tray-codex-64.png`, `tray-claude-64.png`, `tray-low-64.png`, and `tray-unknown-64.png` for tray states.
+- `pickgauge-mark-128.svg` and `pickgauge-lockup-on-dark.svg` in the popup UI.
+- `pickgauge-brand-pattern.svg` and `pickgauge-hero-art.png` for the app surface.
+- `pickgauge-app-icon.svg` for generated Tauri app icons.
+- `pickgauge-tray-codex-64.png`, `pickgauge-tray-claude-64.png`, `pickgauge-tray-low-64.png`, and `pickgauge-tray-unknown-64.png` for tray states.
 
 After changing the source app icon, regenerate platform icons with:
 
 ```bash
-bun run tauri icon assets/branding/app-icon.svg
+bun run tauri icon assets/branding/pickgauge-app-icon.svg
 ```
 
 ## Roadmap

@@ -193,7 +193,7 @@ Blocked: requires user-visible CachyOS KDE/Wayland desktop smoke testing that ca
 - [x] Tauri capabilities file added.
 - [x] PickGauge product naming, bundle identifier, and app metadata configured.
 - [x] `assets/branding/` added with app icon, logo, lockups, tray icons, hero, social card, palette, favicon, and pattern assets.
-- [x] Platform app icons generated from `assets/branding/app-icon.svg`.
+- [x] Platform app icons generated from `assets/branding/pickgauge-app-icon.svg`.
 - [x] Branded popup UI added with fake Codex and Claude Code snapshots.
 - [x] Branded tray icon rotation added for Codex and Claude Code.
 - [x] Low-usage and unknown tray icon assets wired for provider states.

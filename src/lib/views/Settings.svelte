@@ -240,7 +240,7 @@
 <section aria-label="Settings">
   <header class="section-head fade-up">
     <div>
-      <p class="eyebrow ember">§ 03 · Settings</p>
+      <p class="eyebrow ember pf-eyebrow-row"><span class="pf-eyebrow-tick"></span>§ 03 · Settings</p>
       <h2>Make it yours</h2>
     </div>
     <button class="btn btn-primary" type="button" disabled={saving} onclick={saveSettings}>

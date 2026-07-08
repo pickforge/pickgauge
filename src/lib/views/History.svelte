@@ -204,7 +204,7 @@
 <section aria-label="Usage history">
   <header class="section-head fade-up">
     <div>
-      <p class="eyebrow ember">§ 02 · Usage history</p>
+      <p class="eyebrow ember pf-eyebrow-row"><span class="pf-eyebrow-tick"></span>§ 02 · Usage history</p>
       <h2>Look back</h2>
     </div>
     <div class="range-tabs" role="tablist" aria-label="History grouping">

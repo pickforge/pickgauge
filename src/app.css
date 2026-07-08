@@ -1,4 +1,5 @@
 @import "@pickforge/brand/compat-unprefixed.css";
+@import "@pickforge/brand/chrome.css";
 
 body {
   min-height: 100vh;
@@ -204,18 +205,6 @@ body.float-host {
 }
 :root[data-theme="light"] .pill.bad {
   color: #be123c;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
-  flex: none;
-}
-
-.dot.pulse {
-  animation: ember-pulse 2.4s var(--ease-forge) infinite;
 }
 
 @keyframes ember-pulse {

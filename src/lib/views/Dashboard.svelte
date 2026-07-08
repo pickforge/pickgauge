@@ -277,7 +277,7 @@
 <section aria-label="Live gauges">
   <header class="section-head fade-up">
     <div>
-      <p class="eyebrow ember">§ 01 · Live gauges</p>
+      <p class="eyebrow ember pf-eyebrow-row"><span class="pf-eyebrow-tick"></span>§ 01 · Live gauges</p>
       <h2>Remaining usage</h2>
     </div>
     <button class="btn btn-primary" type="button" disabled={refreshing} onclick={refreshNow}>

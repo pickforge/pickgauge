@@ -1661,6 +1661,8 @@ fn main_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
             .resizable(true)
             .center()
             .visible(false)
+            .decorations(false)
+            .background_color(tauri::window::Color(10, 10, 11, 255))
             .build()
             .ok()
     })

@@ -15,7 +15,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Child, ChildStdout},
-    sync::{mpsc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -48,6 +48,8 @@ const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
 const OLLAMA_USAGE_URL: &str = "https://ollama.com/settings";
+const SENTRY_DSN: &str =
+    "https://3a176d7b2fdccedfb2812e6a0b231f56@o4511699702317056.ingest.us.sentry.io/4511699813924864";
 const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
 const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const LOG_FILE_NAME: &str = "pickgauge.log";
@@ -443,7 +445,7 @@ fn update_app_config(
         sync_autostart(&app, config.autostart.enabled)?;
     }
 
-    let config = match config::save(&app, &config) {
+    let config = match config::save(&config) {
         Ok(config) => config,
         Err(error) => {
             if autostart_changed {
@@ -2059,7 +2061,7 @@ fn apply_float_button_toggle(app: &AppHandle) -> Option<bool> {
 
     config.ui.float_button = !config.ui.float_button;
 
-    let config = config::save(app, &config).ok()?;
+    let config = config::save(&config).ok()?;
     let enabled = config.ui.float_button;
     let _ = engine.update_config(config.clone());
     let _ = app.emit(SETTINGS_UPDATED_EVENT, &config);
@@ -2140,6 +2142,48 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    let release = format!(
+        "pickgauge@{}",
+        context
+            .config()
+            .version
+            .clone()
+            .expect("version in tauri.conf.json")
+    );
+    let sentry_config = config::load_existing_or_default();
+    let sentry_enabled = sentry_config.crash_reports
+        && (!cfg!(debug_assertions)
+            || std::env::var("PICKGAUGE_SENTRY_DEBUG").ok().as_deref() == Some("1"));
+    let sentry_client = sentry::init((
+        if sentry_enabled { SENTRY_DSN } else { "" },
+        sentry::ClientOptions {
+            release: Some(release.into()),
+            before_send: Some(Arc::new(|mut event| {
+                event.server_name = None;
+                event.breadcrumbs = Default::default();
+                Some(event)
+            })),
+            ..Default::default()
+        },
+    ));
+    let _minidump_guard = if sentry_enabled {
+        match tauri_plugin_sentry::minidump::init(&sentry_client) {
+            Ok(guard) => Some(guard),
+            Err(error) => {
+                eprintln!("PickGauge Sentry minidump init failed: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let sentry_plugin = if sentry_enabled {
+        tauri_plugin_sentry::init(&sentry_client)
+    } else {
+        tauri_plugin_sentry::init_with_no_injection(&sentry_client)
+    };
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             clear_cached_snapshots,
@@ -2162,6 +2206,7 @@ pub fn run() {
             toggle_float_button,
             update_app_config
         ])
+        .plugin(sentry_plugin)
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
@@ -2172,7 +2217,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_handle = app.handle().clone();
-            let (config, config_error) = match config::load(&app_handle) {
+            let (config, config_error) = match config::load() {
                 Ok(config) => (config, None),
                 Err(error) => (config::AppConfig::default(), Some(error)),
             };
@@ -2216,7 +2261,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building PickGauge")
         .run(|app_handle, event| match event {
             tauri::RunEvent::WindowEvent {

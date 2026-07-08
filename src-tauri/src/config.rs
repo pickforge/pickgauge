@@ -6,8 +6,8 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
 
+const BUNDLE_IDENTIFIER: &str = "com.pickforge.pickgauge";
 const CONFIG_FILE_NAME: &str = "config.json";
 const CONFIG_VERSION: u32 = 6;
 const MAX_PLAN_LABEL_LENGTH: usize = 80;
@@ -23,6 +23,8 @@ pub struct AppConfig {
     pub browser_profiles: BrowserProfileSettings,
     pub local_quotas: LocalQuotaSettings,
     pub autostart: AutostartSettings,
+    #[serde(default = "default_true")]
+    pub crash_reports: bool,
     pub ui: UiSettings,
 }
 
@@ -145,6 +147,7 @@ impl Default for AppConfig {
             },
             local_quotas: LocalQuotaSettings::default(),
             autostart: AutostartSettings::default(),
+            crash_reports: true,
             ui: UiSettings::default(),
         }
     }
@@ -200,20 +203,30 @@ impl LocalServiceQuotaSettings {
     }
 }
 
-fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|dir| dir.join(CONFIG_FILE_NAME))
-        .map_err(|error| format!("Could not resolve config path: {error}"))
+pub fn config_path() -> Result<PathBuf, String> {
+    dirs::config_dir()
+        .map(|config_dir| config_path_in_dir(&config_dir))
+        .ok_or_else(|| "Could not resolve config directory".to_string())
 }
 
-pub fn load(app: &AppHandle) -> Result<AppConfig, String> {
-    let path = config_path(app)?;
+fn config_path_in_dir(config_dir: &Path) -> PathBuf {
+    config_dir.join(BUNDLE_IDENTIFIER).join(CONFIG_FILE_NAME)
+}
+
+pub fn load() -> Result<AppConfig, String> {
+    let path = config_path()?;
     load_from_path(&path)
 }
 
-pub fn save(app: &AppHandle, config: &AppConfig) -> Result<AppConfig, String> {
-    let path = config_path(app)?;
+pub fn load_existing_or_default() -> AppConfig {
+    match config_path() {
+        Ok(path) => load_existing_or_default_from_path(&path),
+        Err(_) => crash_reports_disabled_config(),
+    }
+}
+
+pub fn save(config: &AppConfig) -> Result<AppConfig, String> {
+    let path = config_path()?;
     save_to_path(&path, config)
 }
 
@@ -224,9 +237,33 @@ fn load_from_path(path: &Path) -> Result<AppConfig, String> {
         return Ok(config);
     }
 
+    load_existing_from_path(path)
+}
+
+fn load_existing_from_path(path: &Path) -> Result<AppConfig, String> {
+    if !path.exists() {
+        return Ok(AppConfig::default());
+    }
+
     let raw =
         fs::read_to_string(path).map_err(|error| format!("Could not read config file: {error}"))?;
-    let raw_value = serde_json::from_str::<Value>(&raw)
+    parse_config_raw(&raw)
+}
+
+fn load_existing_or_default_from_path(path: &Path) -> AppConfig {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return AppConfig::default();
+        }
+        Err(_) => return crash_reports_disabled_config(),
+    };
+
+    parse_config_raw(&raw).unwrap_or_else(|_| AppConfig::default())
+}
+
+fn parse_config_raw(raw: &str) -> Result<AppConfig, String> {
+    let raw_value = serde_json::from_str::<Value>(raw)
         .map_err(|error| format!("Could not parse config file: {error}"))?
         .try_into_config_value()?;
     let config = serde_json::from_value::<AppConfig>(raw_value)
@@ -234,6 +271,13 @@ fn load_from_path(path: &Path) -> Result<AppConfig, String> {
         .normalized();
 
     Ok(config)
+}
+
+fn crash_reports_disabled_config() -> AppConfig {
+    AppConfig {
+        crash_reports: false,
+        ..AppConfig::default()
+    }
 }
 
 fn save_to_path(path: &Path, config: &AppConfig) -> Result<AppConfig, String> {
@@ -377,6 +421,10 @@ fn default_local_quotas_value() -> Value {
 
 fn default_autostart_value() -> Value {
     serde_json::to_value(AutostartSettings::default()).unwrap_or(Value::Null)
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn config_value_version(value: &Value) -> Result<u32, String> {
@@ -556,6 +604,27 @@ mod tests {
     }
 
     #[test]
+    fn config_path_resolver_uses_bundle_identifier_and_file_name() {
+        let config_dir = PathBuf::from("config-root");
+
+        assert_eq!(
+            config_path_in_dir(&config_dir),
+            config_dir.join(BUNDLE_IDENTIFIER).join(CONFIG_FILE_NAME)
+        );
+    }
+
+    #[test]
+    fn bundle_identifier_matches_tauri_config() {
+        let raw = include_str!("../tauri.conf.json");
+        let value = serde_json::from_str::<Value>(raw).expect("tauri config parses");
+
+        assert_eq!(
+            value.get("identifier").and_then(Value::as_str),
+            Some(BUNDLE_IDENTIFIER)
+        );
+    }
+
+    #[test]
     fn missing_config_file_creates_default_config() {
         let dir = TestDir::new();
         let path = dir.config_path();
@@ -564,6 +633,41 @@ mod tests {
 
         assert_eq!(config, AppConfig::default());
         assert!(path.exists());
+    }
+
+    #[test]
+    fn startup_config_load_defaults_without_creating_missing_file() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+
+        let config = load_existing_or_default_from_path(&path);
+
+        assert_eq!(config, AppConfig::default());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn startup_config_load_defaults_for_malformed_file_without_overwriting() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let raw = "{ invalid";
+        fs::write(&path, raw).expect("test config is written");
+
+        let config = load_existing_or_default_from_path(&path);
+
+        assert_eq!(config, AppConfig::default());
+        assert_eq!(fs::read_to_string(&path).expect("config remains"), raw);
+    }
+
+    #[test]
+    fn startup_config_load_disables_crash_reports_when_read_fails() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        fs::create_dir(&path).expect("blocking config directory is created");
+
+        let config = load_existing_or_default_from_path(&path);
+
+        assert!(!config.crash_reports);
     }
 
     #[test]
@@ -593,6 +697,7 @@ mod tests {
                 claude: configured_quota("Claude Max", 500_000.0, 24),
             },
             autostart: AutostartSettings { enabled: true },
+            crash_reports: false,
             ..AppConfig::default()
         };
 
@@ -1009,6 +1114,25 @@ mod tests {
         let config = load_from_path(&dir.config_path()).expect("default config loads");
 
         assert!(!config.providers.web_enabled);
+    }
+
+    #[test]
+    fn crash_reports_are_enabled_when_missing_from_config() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let mut raw = serde_json::to_value(AppConfig::default()).expect("default config serializes");
+        raw.as_object_mut()
+            .expect("default config is an object")
+            .remove("crashReports");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&raw).expect("test config serializes"),
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("config loads");
+
+        assert!(config.crash_reports);
     }
 
     #[test]

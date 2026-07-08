@@ -341,6 +341,14 @@
         desktop notifications.
       </p>
       <label class="switch">
+        <input type="checkbox" bind:checked={config.crashReports} />
+        <span class="track"></span>
+        Crash reports
+      </label>
+      <p class="hint">
+        Send anonymous crash and error reports to help fix problems. Applies after restart.
+      </p>
+      <label class="switch">
         <input type="checkbox" bind:checked={config.ui.floatButton} />
         <span class="track"></span>
         Floating button

@@ -10,6 +10,9 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],
+  build: {
+    sourcemap: true,
+  },
   test: {
     coverage: {
       provider: "v8",

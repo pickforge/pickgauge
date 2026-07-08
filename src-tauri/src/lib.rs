@@ -15,7 +15,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Child, ChildStdout},
-    sync::{mpsc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -48,6 +48,8 @@ const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
 const OLLAMA_USAGE_URL: &str = "https://ollama.com/settings";
+const SENTRY_DSN: &str =
+    "https://3a176d7b2fdccedfb2812e6a0b231f56@o4511699702317056.ingest.us.sentry.io/4511699813924864";
 const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
 const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const LOG_FILE_NAME: &str = "pickgauge.log";
@@ -67,6 +69,51 @@ const TRAY_SURFACE: [u8; 4] = [15, 15, 17, 255];
 const TRAY_TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 const POPUP_ANCHOR_GAP: i32 = 10;
 const FLOAT_WINDOW_LABEL: &str = "float";
+
+fn sanitize_sentry_event(
+    mut event: sentry::protocol::Event<'static>,
+) -> sentry::protocol::Event<'static> {
+    event.server_name = None;
+    event.breadcrumbs = Default::default();
+    strip_sentry_debug_image_paths(event.debug_meta.to_mut());
+    event
+}
+
+fn strip_sentry_debug_image_paths(debug_meta: &mut sentry::protocol::DebugMeta) {
+    for image in &mut debug_meta.images {
+        match image {
+            sentry::protocol::DebugImage::Apple(image) => {
+                image.name = sentry_file_name(&image.name);
+            }
+            sentry::protocol::DebugImage::Symbolic(image) => {
+                image.name = sentry_file_name(&image.name);
+                if let Some(debug_file) = image.debug_file.as_mut() {
+                    *debug_file = sentry_file_name(debug_file);
+                }
+            }
+            sentry::protocol::DebugImage::Wasm(image) => {
+                image.code_file = sentry_file_name(&image.code_file);
+                if let Some(debug_file) = image.debug_file.as_mut() {
+                    *debug_file = sentry_file_name(debug_file);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn sentry_file_name(path: &str) -> String {
+    let trimmed = path.trim_end_matches(|ch| ch == '/' || ch == '\\');
+    if trimmed.is_empty() {
+        return path.to_string();
+    }
+
+    trimmed
+        .rsplit(|ch| ch == '/' || ch == '\\')
+        .next()
+        .unwrap_or(trimmed)
+        .to_string()
+}
 
 #[derive(Clone, Copy)]
 enum StartupWarning {
@@ -443,7 +490,7 @@ fn update_app_config(
         sync_autostart(&app, config.autostart.enabled)?;
     }
 
-    let config = match config::save(&app, &config) {
+    let config = match config::save(&config) {
         Ok(config) => config,
         Err(error) => {
             if autostart_changed {
@@ -2059,7 +2106,7 @@ fn apply_float_button_toggle(app: &AppHandle) -> Option<bool> {
 
     config.ui.float_button = !config.ui.float_button;
 
-    let config = config::save(app, &config).ok()?;
+    let config = config::save(&config).ok()?;
     let enabled = config.ui.float_button;
     let _ = engine.update_config(config.clone());
     let _ = app.emit(SETTINGS_UPDATED_EVENT, &config);
@@ -2140,6 +2187,44 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    let release = format!(
+        "pickgauge@{}",
+        context
+            .config()
+            .version
+            .clone()
+            .expect("version in tauri.conf.json")
+    );
+    let sentry_config = config::load_existing_or_default();
+    let sentry_enabled = sentry_config.crash_reports
+        && (!cfg!(debug_assertions)
+            || std::env::var("PICKGAUGE_SENTRY_DEBUG").ok().as_deref() == Some("1"));
+    let sentry_client = sentry::init((
+        if sentry_enabled { SENTRY_DSN } else { "" },
+        sentry::ClientOptions {
+            release: Some(release.into()),
+            before_send: Some(Arc::new(|event| Some(sanitize_sentry_event(event)))),
+            ..Default::default()
+        },
+    ));
+    let _minidump_guard = if sentry_enabled {
+        match tauri_plugin_sentry::minidump::init(&sentry_client) {
+            Ok(guard) => Some(guard),
+            Err(error) => {
+                eprintln!("PickGauge Sentry minidump init failed: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let sentry_plugin = if sentry_enabled {
+        tauri_plugin_sentry::init(&sentry_client)
+    } else {
+        tauri_plugin_sentry::init_with_no_injection(&sentry_client)
+    };
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             clear_cached_snapshots,
@@ -2162,6 +2247,7 @@ pub fn run() {
             toggle_float_button,
             update_app_config
         ])
+        .plugin(sentry_plugin)
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
@@ -2172,7 +2258,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_handle = app.handle().clone();
-            let (config, config_error) = match config::load(&app_handle) {
+            let (config, config_error) = match config::load() {
                 Ok(config) => (config, None),
                 Err(error) => (config::AppConfig::default(), Some(error)),
             };
@@ -2216,7 +2302,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building PickGauge")
         .run(|app_handle, event| match event {
             tauri::RunEvent::WindowEvent {
@@ -2240,6 +2326,7 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::{
+        borrow::Cow,
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
     };
@@ -2272,6 +2359,91 @@ mod tests {
         usage::TrayGaugeState {
             service,
             remaining_percent,
+        }
+    }
+
+    #[test]
+    fn sentry_event_sanitizer_strips_debug_image_paths() {
+        let apple_uuid = "2df005a8-67ab-4d33-98f2-52f9f6de4d15";
+        let symbolic_id = "494f3aea-88fa-4296-9644-fa8ef5d139b6-1234";
+        let wasm_id = "8c954262-f905-4992-8a61-f60825f4553b";
+        let event = sentry::protocol::Event {
+            server_name: Some("workstation".into()),
+            breadcrumbs: vec![sentry::protocol::Breadcrumb::default()].into(),
+            debug_meta: Cow::Owned(sentry::protocol::DebugMeta {
+                images: vec![
+                    sentry::protocol::AppleDebugImage {
+                        name: "/Users/alice/Applications/PickGauge.app/Contents/MacOS/PickGauge"
+                            .into(),
+                        arch: Some("arm64".into()),
+                        cpu_type: Some(16_777_228),
+                        cpu_subtype: Some(0),
+                        image_addr: 4096.into(),
+                        image_size: 8192,
+                        image_vmaddr: 12288.into(),
+                        uuid: apple_uuid.parse().unwrap(),
+                    }
+                    .into(),
+                    sentry::protocol::SymbolicDebugImage {
+                        name: "/home/alice/Applications/PickGauge.AppImage".into(),
+                        arch: Some("x86_64".into()),
+                        image_addr: 0.into(),
+                        image_size: 4096,
+                        image_vmaddr: 0.into(),
+                        id: symbolic_id.parse().unwrap(),
+                        code_id: None,
+                        debug_file: Some("C:\\Users\\alice\\pickgauge.debug".into()),
+                    }
+                    .into(),
+                    sentry::protocol::WasmDebugImage {
+                        name: "pickgauge_bg.wasm".into(),
+                        debug_id: wasm_id.parse().unwrap(),
+                        debug_file: Some("/home/alice/debug/pickgauge_bg.wasm.debug".into()),
+                        code_id: Some("abc123".into()),
+                        code_file: "C:\\Users\\alice\\pickgauge_bg.wasm".into(),
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let event = sanitize_sentry_event(event);
+
+        assert_eq!(event.server_name, None);
+        assert!(event.breadcrumbs.is_empty());
+        match &event.debug_meta.images[0] {
+            sentry::protocol::DebugImage::Apple(image) => {
+                assert_eq!(image.name, "PickGauge");
+                assert_eq!(image.arch.as_deref(), Some("arm64"));
+                assert_eq!(image.cpu_type, Some(16_777_228));
+                assert_eq!(image.cpu_subtype, Some(0));
+                assert_eq!(image.image_addr, 4096.into());
+                assert_eq!(image.image_size, 8192);
+                assert_eq!(image.image_vmaddr, 12288.into());
+                assert_eq!(image.uuid.to_string(), apple_uuid);
+            }
+            _ => panic!("expected apple debug image"),
+        }
+        match &event.debug_meta.images[1] {
+            sentry::protocol::DebugImage::Symbolic(image) => {
+                assert_eq!(image.name, "PickGauge.AppImage");
+                assert_eq!(image.debug_file.as_deref(), Some("pickgauge.debug"));
+                assert_eq!(image.id.to_string(), symbolic_id);
+            }
+            _ => panic!("expected symbolic debug image"),
+        }
+        match &event.debug_meta.images[2] {
+            sentry::protocol::DebugImage::Wasm(image) => {
+                assert_eq!(image.code_file, "pickgauge_bg.wasm");
+                assert_eq!(
+                    image.debug_file.as_deref(),
+                    Some("pickgauge_bg.wasm.debug")
+                );
+                assert_eq!(image.debug_id.to_string(), wasm_id);
+            }
+            _ => panic!("expected wasm debug image"),
         }
     }
 

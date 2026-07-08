@@ -172,6 +172,28 @@ jobs:
             rm -rf "$workdir"
           done
 
+      - name: Upload debug symbols to Sentry
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: pickforge
+          SENTRY_PROJECT: pickgauge
+        shell: bash
+        run: |
+          if [[ -z "${SENTRY_AUTH_TOKEN:-}" ]]; then
+            echo "SENTRY_AUTH_TOKEN not set; skipping"
+            exit 0
+          fi
+
+          version="$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+          release="pickgauge@${version}"
+          sentry_cli=(npx --yes @sentry/cli@latest)
+
+          "${sentry_cli[@]}" debug-files upload --include-sources src-tauri/target/release
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            "${sentry_cli[@]}" sourcemaps upload --release "$release" dist
+          fi
+
       - name: Collect release assets
         run: bun run pickforge-tauri-release collect-assets --prefix "${{ matrix.name }}"
 

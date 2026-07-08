@@ -82,6 +82,9 @@ fn sanitize_sentry_event(
 fn strip_sentry_debug_image_paths(debug_meta: &mut sentry::protocol::DebugMeta) {
     for image in &mut debug_meta.images {
         match image {
+            sentry::protocol::DebugImage::Apple(image) => {
+                image.name = sentry_file_name(&image.name);
+            }
             sentry::protocol::DebugImage::Symbolic(image) => {
                 image.name = sentry_file_name(&image.name);
                 if let Some(debug_file) = image.debug_file.as_mut() {
@@ -2361,6 +2364,7 @@ mod tests {
 
     #[test]
     fn sentry_event_sanitizer_strips_debug_image_paths() {
+        let apple_uuid = "2df005a8-67ab-4d33-98f2-52f9f6de4d15";
         let symbolic_id = "494f3aea-88fa-4296-9644-fa8ef5d139b6-1234";
         let wasm_id = "8c954262-f905-4992-8a61-f60825f4553b";
         let event = sentry::protocol::Event {
@@ -2368,6 +2372,18 @@ mod tests {
             breadcrumbs: vec![sentry::protocol::Breadcrumb::default()].into(),
             debug_meta: Cow::Owned(sentry::protocol::DebugMeta {
                 images: vec![
+                    sentry::protocol::AppleDebugImage {
+                        name: "/Users/alice/Applications/PickGauge.app/Contents/MacOS/PickGauge"
+                            .into(),
+                        arch: Some("arm64".into()),
+                        cpu_type: Some(16_777_228),
+                        cpu_subtype: Some(0),
+                        image_addr: 4096.into(),
+                        image_size: 8192,
+                        image_vmaddr: 12288.into(),
+                        uuid: apple_uuid.parse().unwrap(),
+                    }
+                    .into(),
                     sentry::protocol::SymbolicDebugImage {
                         name: "/home/alice/Applications/PickGauge.AppImage".into(),
                         arch: Some("x86_64".into()),
@@ -2398,6 +2414,19 @@ mod tests {
         assert_eq!(event.server_name, None);
         assert!(event.breadcrumbs.is_empty());
         match &event.debug_meta.images[0] {
+            sentry::protocol::DebugImage::Apple(image) => {
+                assert_eq!(image.name, "PickGauge");
+                assert_eq!(image.arch.as_deref(), Some("arm64"));
+                assert_eq!(image.cpu_type, Some(16_777_228));
+                assert_eq!(image.cpu_subtype, Some(0));
+                assert_eq!(image.image_addr, 4096.into());
+                assert_eq!(image.image_size, 8192);
+                assert_eq!(image.image_vmaddr, 12288.into());
+                assert_eq!(image.uuid.to_string(), apple_uuid);
+            }
+            _ => panic!("expected apple debug image"),
+        }
+        match &event.debug_meta.images[1] {
             sentry::protocol::DebugImage::Symbolic(image) => {
                 assert_eq!(image.name, "PickGauge.AppImage");
                 assert_eq!(image.debug_file.as_deref(), Some("pickgauge.debug"));
@@ -2405,7 +2434,7 @@ mod tests {
             }
             _ => panic!("expected symbolic debug image"),
         }
-        match &event.debug_meta.images[1] {
+        match &event.debug_meta.images[2] {
             sentry::protocol::DebugImage::Wasm(image) => {
                 assert_eq!(image.code_file, "pickgauge_bg.wasm");
                 assert_eq!(

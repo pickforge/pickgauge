@@ -13,6 +13,7 @@ reset this file.
 ## Internal/release changes
 
 - Switched AppImage libwayland post-processing to `pickforge-tauri-release fix-appimage`.
+- Release CI now caches Rust builds (`Swatinem/rust-cache`).
 - Grok reads its CLI bearer without refreshing, storing, or writing it.
 
 ## Validation

@@ -85,6 +85,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Install Linux bundle dependencies
         if: runner.os == 'Linux'
         run: |

@@ -3,6 +3,7 @@ import {
   browserPreviewSnapshots,
   defaultConfig,
   fallbackSnapshots,
+  floatDisplaySnapshots,
   providerStatusMessage,
   redactedUserPath,
   usageWindows,
@@ -158,5 +159,22 @@ describe("usage fixtures and redaction", () => {
         }),
       ),
     ).toBe("Sign in with the Grok CLI");
+  });
+
+  it("hides successful plan-only snapshots from the float capsule", () => {
+    const planOnly = snapshot({
+      service: "grok",
+      details: { plan: "Grok Pro", status: "parsed" },
+    });
+    const loginRequired = snapshot({
+      service: "grok",
+      details: { status: "login_required" },
+    });
+    const measured = snapshot({ remainingPercent: 72 });
+
+    expect(floatDisplaySnapshots([planOnly, loginRequired, measured])).toEqual([
+      loginRequired,
+      measured,
+    ]);
   });
 });

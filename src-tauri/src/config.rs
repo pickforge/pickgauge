@@ -33,7 +33,7 @@ pub struct AppConfig {
 pub struct ServiceToggles {
     pub codex: bool,
     pub claude: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub grok: bool,
     pub ollama: bool,
 }
@@ -441,7 +441,9 @@ fn config_value_version(value: &Value) -> Result<u32, String> {
 }
 
 fn fill_missing_defaults(value: &mut Value) -> Result<(), String> {
-    let defaults = serde_json::to_value(AppConfig::default())
+    let mut defaults = AppConfig::default();
+    defaults.enabled_services.grok = false;
+    let defaults = serde_json::to_value(defaults)
         .map_err(|error| format!("Could not serialize default config: {error}"))?;
 
     merge_missing_fields(value, &defaults);
@@ -1140,7 +1142,12 @@ mod tests {
     }
 
     #[test]
-    fn grok_is_enabled_when_missing_from_existing_config() {
+    fn fresh_default_config_enables_grok() {
+        assert!(AppConfig::default().enabled_services.grok);
+    }
+
+    #[test]
+    fn grok_is_disabled_when_missing_from_existing_config() {
         let dir = TestDir::new();
         let path = dir.config_path();
         let mut raw = serde_json::to_value(AppConfig::default()).expect("default config serializes");
@@ -1156,7 +1163,7 @@ mod tests {
 
         let config = load_from_path(&path).expect("config loads");
 
-        assert!(config.enabled_services.grok);
+        assert!(!config.enabled_services.grok);
     }
 
     #[test]

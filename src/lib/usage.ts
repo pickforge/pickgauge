@@ -136,6 +136,13 @@ export type UsageDisplayState = {
   updatedAt: string;
 };
 
+export function floatDisplaySnapshots(snapshots: UsageSnapshot[]) {
+  return snapshots.filter(
+    (snapshot) =>
+      !(snapshot.remainingPercent === null && typeof snapshot.details.plan === "string"),
+  );
+}
+
 export type CommandError = {
   code: string;
   message: string;

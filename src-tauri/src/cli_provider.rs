@@ -365,18 +365,27 @@ fn read_grok_access_token() -> Result<String, UsageProviderError> {
     let path = home()?.join(".grok/auth.json");
     let raw = std::fs::read_to_string(&path).map_err(|_| UsageProviderError::NotConfigured)?;
     let auth: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
-    auth
-        .as_object()
-        .and_then(|entries| {
-            entries.values().find_map(|entry| {
-                entry
-                    .get("key")
-                    .and_then(Value::as_str)
-                    .filter(|access| !access.is_empty())
-                    .map(str::to_string)
-            })
-        })
-        .ok_or(UsageProviderError::NotConfigured)
+    grok_access_token_from_auth(&auth).ok_or(UsageProviderError::NotConfigured)
+}
+
+fn grok_access_token_from_auth(auth: &Value) -> Option<String> {
+    let entries = auth.as_object()?;
+    if let Some((_, entry)) = entries
+        .iter()
+        .find(|(entry_key, _)| entry_key.starts_with("https://auth.x.ai"))
+    {
+        return grok_entry_access_token(entry);
+    }
+
+    entries.values().find_map(grok_entry_access_token)
+}
+
+fn grok_entry_access_token(entry: &Value) -> Option<String> {
+    entry
+        .get("key")
+        .and_then(Value::as_str)
+        .filter(|access| !access.is_empty())
+        .map(str::to_string)
 }
 
 fn grok_subscriptions(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
@@ -597,6 +606,25 @@ mod tests {
         for status in [reqwest::StatusCode::UNAUTHORIZED, reqwest::StatusCode::FORBIDDEN] {
             assert_eq!(map_status_error(status), UsageProviderError::LoginRequired);
         }
+    }
+
+    #[test]
+    fn prefers_current_grok_auth_entry_over_legacy_entries() {
+        let auth = json!({
+            "https://accounts.x.ai/sign-in": { "key": "legacy" },
+            "https://auth.x.ai::current-client": { "key": "current" }
+        });
+
+        assert_eq!(grok_access_token_from_auth(&auth).as_deref(), Some("current"));
+    }
+
+    #[test]
+    fn uses_legacy_grok_auth_entry_when_current_entry_is_absent() {
+        let auth = json!({
+            "https://accounts.x.ai/sign-in": { "key": "legacy" }
+        });
+
+        assert_eq!(grok_access_token_from_auth(&auth).as_deref(), Some("legacy"));
     }
 
 }

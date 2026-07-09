@@ -327,8 +327,19 @@ impl UsageDisplayState {
         });
 
         if states.is_empty() {
+            let service = self
+                .snapshots
+                .iter()
+                .map(|snapshot| snapshot.service)
+                .min_by_key(|service| match service {
+                    Service::Codex => 0,
+                    Service::Claude => 1,
+                    Service::Grok => 2,
+                    Service::Ollama => 3,
+                })
+                .unwrap_or(Service::Codex);
             states.push(TrayGaugeState {
-                service: Service::Codex,
+                service,
                 remaining_percent: None,
             });
         }
@@ -2102,6 +2113,51 @@ mod tests {
             display_state.tray_states(),
             vec![TrayGaugeState {
                 service: Service::Grok,
+                remaining_percent: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn tray_states_use_grok_placeholder_for_a_grok_only_plan_snapshot() {
+        let display_state = UsageDisplayState {
+            snapshots: vec![UsageSnapshot {
+                service: Service::Grok,
+                remaining_percent: None,
+                used_percent: None,
+                reset_at: None,
+                source: UsageSource::Web,
+                confidence: UsageConfidence::Medium,
+                last_updated: "2026-07-09T20:00:00Z".to_string(),
+                details: serde_json::json!({
+                    "status": "parsed",
+                    "providerId": "grok.cli",
+                    "plan": "Grok Pro",
+                }),
+            }],
+            updated_at: "2026-07-09T20:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            display_state.tray_states(),
+            vec![TrayGaugeState {
+                service: Service::Grok,
+                remaining_percent: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn tray_states_use_codex_placeholder_when_snapshots_are_empty() {
+        let display_state = UsageDisplayState {
+            snapshots: Vec::new(),
+            updated_at: "2026-07-09T20:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            display_state.tray_states(),
+            vec![TrayGaugeState {
+                service: Service::Codex,
                 remaining_percent: None,
             }]
         );

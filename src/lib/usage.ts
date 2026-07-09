@@ -1,4 +1,4 @@
-export type Service = "codex" | "claude" | "ollama";
+export type Service = "codex" | "claude" | "grok" | "ollama";
 
 export type UsageSource = "local" | "web" | "merged" | "fake";
 
@@ -108,7 +108,15 @@ function statusMessage(value: unknown) {
 }
 
 export function providerStatusMessage(snapshot: UsageSnapshot) {
-  return statusMessage(snapshot.details.status) ?? statusMessage(fallbackWebStatus(snapshot));
+  const status = isProviderStatusCode(snapshot.details.status)
+    ? snapshot.details.status
+    : fallbackWebStatus(snapshot);
+
+  if (snapshot.service === "grok" && snapshot.details.providerId === "grok.cli" && status === "login_required") {
+    return "Sign in with the Grok CLI";
+  }
+
+  return statusMessage(status);
 }
 
 function fallbackWebStatus(snapshot: UsageSnapshot) {
@@ -199,6 +207,7 @@ export type AppConfig = {
   enabledServices: {
     codex: boolean;
     claude: boolean;
+    grok: boolean;
     ollama: boolean;
   };
   providers: {
@@ -239,6 +248,7 @@ export const defaultConfig: AppConfig = {
   enabledServices: {
     codex: true,
     claude: true,
+    grok: true,
     ollama: false,
   },
   providers: {

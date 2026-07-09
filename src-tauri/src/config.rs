@@ -33,6 +33,8 @@ pub struct AppConfig {
 pub struct ServiceToggles {
     pub codex: bool,
     pub claude: bool,
+    #[serde(default = "default_true")]
+    pub grok: bool,
     pub ollama: bool,
 }
 
@@ -125,6 +127,7 @@ impl Default for AppConfig {
             enabled_services: ServiceToggles {
                 codex: true,
                 claude: true,
+                grok: true,
                 ollama: false,
             },
             providers: ProviderSettings {
@@ -678,6 +681,7 @@ mod tests {
             enabled_services: ServiceToggles {
                 codex: false,
                 claude: true,
+                grok: true,
                 ollama: false,
             },
             providers: ProviderSettings {
@@ -1133,6 +1137,26 @@ mod tests {
         let config = load_from_path(&path).expect("config loads");
 
         assert!(config.crash_reports);
+    }
+
+    #[test]
+    fn grok_is_enabled_when_missing_from_existing_config() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+        let mut raw = serde_json::to_value(AppConfig::default()).expect("default config serializes");
+        raw["enabledServices"]
+            .as_object_mut()
+            .expect("service toggles serialize as an object")
+            .remove("grok");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&raw).expect("test config serializes"),
+        )
+        .expect("test config is written");
+
+        let config = load_from_path(&path).expect("config loads");
+
+        assert!(config.enabled_services.grok);
     }
 
     #[test]

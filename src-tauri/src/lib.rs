@@ -398,6 +398,7 @@ fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
         Service::Claude => CLAUDE_USAGE_URL,
+        Service::Grok => unreachable!("Grok has no official web provider"),
         Service::Ollama => OLLAMA_USAGE_URL,
     }
 }
@@ -406,6 +407,7 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
     match service {
         Service::Codex => browser_profile::BrowserProfileService::Codex,
         Service::Claude => browser_profile::BrowserProfileService::Claude,
+        Service::Grok => unreachable!("Grok has no managed browser profile"),
         Service::Ollama => browser_profile::BrowserProfileService::Ollama,
     }
 }
@@ -681,6 +683,12 @@ fn get_log_location(app: AppHandle) -> CommandResult<LogLocation> {
 
 #[tauri::command]
 fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<OfficialUsagePage> {
+    if service == Service::Grok {
+        return Err(command_error(
+            "official_usage_unavailable",
+            "Grok has no official web provider",
+        ));
+    }
     let url = official_usage_url(service);
 
     app.opener()
@@ -701,6 +709,12 @@ fn start_provider_login(
     sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
 ) -> CommandResult<ProviderLoginStart> {
+    if service == Service::Grok {
+        return Err(command_error(
+            "provider_login_unavailable",
+            "Grok uses its existing CLI login",
+        ));
+    }
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
     let now = usage::now_rfc3339();
@@ -771,6 +785,7 @@ fn provider_login_start_plan(
         let profile_path = match service {
             Service::Codex => &paths.codex,
             Service::Claude => &paths.claude,
+            Service::Grok => unreachable!("Grok has no managed browser profile"),
             Service::Ollama => &paths.ollama,
         };
         let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
@@ -979,6 +994,9 @@ fn inspect_provider_profile_for_service(
     service: Service,
     inspected_at: String,
 ) -> Result<ProviderProfileInspection, String> {
+    if service == Service::Grok {
+        return Err("Grok has no managed browser profile".to_string());
+    }
     let Some(paths) = prepare_managed_browser_profiles(config, app_data_dir)? else {
         return Ok(provider_profile_inspection_report(
             service,
@@ -991,6 +1009,7 @@ fn inspect_provider_profile_for_service(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
+        Service::Grok => unreachable!("Grok has no managed browser profile"),
         Service::Ollama => &paths.ollama,
     };
     let inspection = browser_session::inspect_chromium_profile_storage(profile_path)?;
@@ -1042,6 +1061,7 @@ fn provider_profile_label(service: Service) -> &'static str {
     match service {
         Service::Codex => "codex-profile",
         Service::Claude => "claude-profile",
+        Service::Grok => unreachable!("Grok has no managed browser profile"),
         Service::Ollama => "ollama-profile",
     }
 }
@@ -1052,6 +1072,12 @@ fn clear_provider_profile_for_service(
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
+    if service == Service::Grok {
+        return Err(command_error(
+            "browser_profile_unavailable",
+            "Grok has no managed browser profile",
+        ));
+    }
     sessions
         .stop_service(service, browser_session::PROFILE_STOP_TIMEOUT)
         .map_err(map_browser_session_error)?;
@@ -1281,6 +1307,7 @@ fn web_usage_refresh_sidecar_request(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
+        Service::Grok => unreachable!("Grok has no managed browser profile"),
         Service::Ollama => &paths.ollama,
     };
     let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
@@ -1434,6 +1461,7 @@ fn refresh_all_with_headless_web(
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
                 Service::Claude => config.enabled_services.claude,
+                Service::Grok => false,
                 Service::Ollama => config.enabled_services.ollama,
             };
 
@@ -1474,6 +1502,7 @@ fn refresh_due_with_headless_web(
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
                 Service::Claude => config.enabled_services.claude,
+                Service::Grok => false,
                 Service::Ollama => config.enabled_services.ollama,
             };
 
@@ -1615,6 +1644,7 @@ fn tray_accent_for(service: Service, remaining_percent: f32, low_usage_threshold
     match service {
         Service::Codex => TRAY_CODEX_ACCENT,
         Service::Claude => TRAY_CLAUDE_ACCENT,
+        Service::Grok => TRAY_CLAUDE_ACCENT,
         Service::Ollama => TRAY_OLLAMA_ACCENT,
     }
 }
@@ -3432,6 +3462,7 @@ mod tests {
     #[test]
     fn unknown_tray_state_does_not_generate_dynamic_icon() {
         assert!(tray_icon_rgba_for(tray_state(Service::Codex, None), 20.0).is_none());
+        assert!(tray_icon_rgba_for(tray_state(Service::Grok, None), 20.0).is_none());
     }
 
     #[test]

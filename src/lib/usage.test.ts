@@ -106,6 +106,7 @@ describe("usage windows", () => {
 describe("usage fixtures and redaction", () => {
   it("keeps default privacy-sensitive settings opt-in", () => {
     expect(defaultConfig.providers.webEnabled).toBe(false);
+    expect(defaultConfig.enabledServices.grok).toBe(true);
     expect(defaultConfig.browserProfiles).toEqual({
       rootPath: null,
       codexPath: null,
@@ -145,5 +146,17 @@ describe("usage fixtures and redaction", () => {
 
     expect(snapshots.map(providerStatusMessage)).toEqual(["Network unavailable", "Network unavailable"]);
     expect(snapshots[0].details).not.toBe(snapshots[1].details);
+  });
+
+  it("explains when the Grok CLI bearer has expired", () => {
+    expect(
+      providerStatusMessage(
+        snapshot({
+          service: "grok",
+          source: "web",
+          details: { providerId: "grok.cli", status: "login_required" },
+        }),
+      ),
+    ).toBe("Sign in with the Grok CLI");
   });
 });

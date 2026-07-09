@@ -1,0 +1,49 @@
+{
+  "subscriptions": [
+    {
+      "stripe": {
+        "currentPeriodEnd": "2026-06-24T20:20:59Z",
+        "invoiceId": "in_scrubbed_inactive",
+        "productId": "prod_scrubbed",
+        "subscriptionId": "sub_scrubbed",
+        "subscriptionType": "MONTHLY"
+      },
+      "xaiUserId": "user_scrubbed",
+      "tier": "SUBSCRIPTION_TIER_GROK_PRO",
+      "status": "SUBSCRIPTION_STATUS_INACTIVE",
+      "billingInterval": "BILLING_INTERVAL_MONTHLY",
+      "billingPeriodEnd": "2026-06-24T20:20:59Z"
+    },
+    {
+      "stripe": {
+        "currentPeriodEnd": "2026-08-24T20:20:59Z",
+        "invoiceId": "in_scrubbed_active",
+        "productId": "prod_scrubbed",
+        "subscriptionId": "sub_scrubbed",
+        "subscriptionType": "MONTHLY"
+      },
+      "xaiUserId": "user_scrubbed",
+      "tier": "SUBSCRIPTION_TIER_GROK_PRO",
+      "status": "SUBSCRIPTION_STATUS_ACTIVE",
+      "billingInterval": "BILLING_INTERVAL_MONTHLY",
+      "billingPeriodEnd": "2026-08-24T20:20:59Z",
+      "activeOffer": {
+        "campaignId": "campaign_scrubbed",
+        "offerStart": "2026-06-24T20:20:59Z",
+        "offerEnd": "2026-09-24T20:20:59Z",
+        "purpose": "OFFER_PURPOSE_RETENTION",
+        "type": "ACTIVE_OFFER_PAY_UPFRONT",
+        "payUpfront": {
+          "monthsFree": 2,
+          "monthsPaid": 1
+        }
+      },
+      "futureOffers": []
+    },
+    {
+      "xaiUserId": "user_scrubbed",
+      "tier": "SUBSCRIPTION_TIER_X_PREMIUM",
+      "status": "SUBSCRIPTION_STATUS_ACTIVE"
+    }
+  ]
+}

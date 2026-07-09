@@ -314,6 +314,7 @@ fn sanitized_visible_fields(
     let allowed = match service {
         Service::Codex => CODEX_VISIBLE_FIELDS,
         Service::Claude => CLAUDE_VISIBLE_FIELDS,
+        Service::Grok => &[],
         Service::Ollama => OLLAMA_VISIBLE_FIELDS,
     };
     let rejected_field_count = visible_fields

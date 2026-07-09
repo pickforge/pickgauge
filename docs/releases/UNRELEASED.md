@@ -6,11 +6,13 @@ reset this file.
 
 ## User-facing changes
 
-- None yet.
+- Added zero-setup Grok plan detection through the local Grok CLI login. PickGauge shows the active
+  plan and billing-period end without reporting a usage percentage.
 
 ## Internal/release changes
 
 - Switched AppImage libwayland post-processing to `pickforge-tauri-release fix-appimage`.
+- Grok reads its CLI bearer without refreshing, storing, or writing it.
 
 ## Validation
 
@@ -18,6 +20,9 @@ reset this file.
 
 - Workflow YAML parse check:
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets`
+- `bun run check`
+- `bun run test`
 
 ### Not tested yet
 

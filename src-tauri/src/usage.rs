@@ -24,6 +24,7 @@ const PROVIDER_BACKOFF_MAX_SECONDS: u64 = 15 * 60;
 pub enum Service {
     Codex,
     Claude,
+    Grok,
     Ollama,
 }
 
@@ -124,6 +125,7 @@ pub enum UsageProviderId {
     ClaudeLocal,
     ClaudeWeb,
     ClaudeCli,
+    GrokCli,
     OllamaWeb,
     Fake,
 }
@@ -209,6 +211,7 @@ impl Service {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
+            Self::Grok => "grok",
             Self::Ollama => "ollama",
         }
     }
@@ -217,6 +220,7 @@ impl Service {
         match self {
             Self::Codex => "Codex",
             Self::Claude => "Claude Code",
+            Self::Grok => "Grok",
             Self::Ollama => "Ollama",
         }
     }
@@ -260,6 +264,7 @@ impl UsageProviderId {
             (Service::Codex, UsageSource::Web) => Some(Self::CodexWeb),
             (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
             (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
+            (Service::Grok, UsageSource::Local | UsageSource::Web) => None,
             (Service::Ollama, UsageSource::Web) => Some(Self::OllamaWeb),
             (Service::Ollama, UsageSource::Local) => None,
             (_, UsageSource::Fake) => Some(Self::Fake),
@@ -275,6 +280,7 @@ impl UsageProviderId {
             Self::ClaudeLocal => "claude.local",
             Self::ClaudeWeb => "claude.web",
             Self::ClaudeCli => "claude.cli",
+            Self::GrokCli => "grok.cli",
             Self::OllamaWeb => "ollama.web",
             Self::Fake => "fake",
         }
@@ -308,7 +314,8 @@ impl UsageDisplayState {
         states.sort_by_key(|state| match state.service {
             Service::Codex => 0,
             Service::Claude => 1,
-            Service::Ollama => 2,
+            Service::Grok => 2,
+            Service::Ollama => 3,
         });
 
         if states.is_empty() {
@@ -748,6 +755,9 @@ impl UsageEngine {
             (UsageProviderId::ClaudeCli, Service::Claude) => {
                 crate::cli_provider::refresh(Service::Claude, now)
             }
+            (UsageProviderId::GrokCli, Service::Grok) => {
+                crate::cli_provider::refresh(Service::Grok, now)
+            }
             _ => Err(UsageProviderError::Internal),
         }
     }
@@ -869,7 +879,8 @@ impl UsageEngineState {
         snapshots.sort_by_key(|snapshot| match snapshot.service {
             Service::Codex => 0,
             Service::Claude => 1,
-            Service::Ollama => 2,
+            Service::Grok => 2,
+            Service::Ollama => 3,
         });
 
         UsageDisplayState {
@@ -884,7 +895,7 @@ fn merged_display_snapshots(
     config: &AppConfig,
     now: &str,
 ) -> Vec<UsageSnapshot> {
-    [Service::Codex, Service::Claude, Service::Ollama]
+    [Service::Codex, Service::Claude, Service::Grok, Service::Ollama]
         .into_iter()
         .filter(|service| config.service_enabled(*service))
         .filter_map(|service| {
@@ -1125,6 +1136,7 @@ impl AppConfig {
         match service {
             Service::Codex => self.enabled_services.codex,
             Service::Claude => self.enabled_services.claude,
+            Service::Grok => self.enabled_services.grok,
             Service::Ollama => self.enabled_services.ollama,
         }
     }
@@ -1186,6 +1198,7 @@ impl UsageProvider for CliUsageProvider {
         match self.service {
             Service::Codex => UsageProviderId::CodexCli,
             Service::Claude => UsageProviderId::ClaudeCli,
+            Service::Grok => UsageProviderId::GrokCli,
             Service::Ollama => unreachable!("Ollama has no CLI provider"),
         }
     }
@@ -1344,6 +1357,12 @@ fn providers_for_config(
                 service: Service::Claude,
             }));
         }
+    }
+
+    if config.enabled_services.grok && config.providers.cli_enabled {
+        providers.push(Box::new(CliUsageProvider {
+            service: Service::Grok,
+        }));
     }
 
     // Ollama Cloud usage is only available by scraping the logged-in settings
@@ -1584,6 +1603,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex,
                 claude,
+                grok: false,
                 ollama: false,
             },
             providers: crate::config::ProviderSettings {
@@ -1600,6 +1620,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex: false,
                 claude: true,
+                grok: false,
                 ollama: false,
             },
             providers: crate::config::ProviderSettings {
@@ -1616,6 +1637,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex: true,
                 claude: false,
+                grok: false,
                 ollama: false,
             },
             providers: crate::config::ProviderSettings {
@@ -1632,6 +1654,7 @@ mod tests {
             enabled_services: crate::config::ServiceToggles {
                 codex: true,
                 claude: true,
+                grok: false,
                 ollama: false,
             },
             providers: crate::config::ProviderSettings {
@@ -3129,12 +3152,38 @@ mod tests {
                 .code(),
             "claude.web"
         );
+        assert_eq!(UsageProviderId::GrokCli.code(), "grok.cli");
         assert_eq!(
             UsageProviderId::for_service_source(Service::Codex, UsageSource::Fake)
                 .expect("fake id")
                 .code(),
             "fake"
         );
+    }
+
+    #[test]
+    fn grok_cli_provider_is_registered_when_enabled() {
+        let config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: true,
+                ollama: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: false,
+                cli_enabled: true,
+            },
+            ..AppConfig::default()
+        };
+
+        let providers = providers_for_config(&config, &LocalProviderRoots::default());
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].provider_id(), UsageProviderId::GrokCli);
+        assert_eq!(providers[0].service(), Service::Grok);
+        assert_eq!(providers[0].source(), UsageSource::Web);
     }
 
     #[test]

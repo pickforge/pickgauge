@@ -5,6 +5,7 @@
   import { api, desktopApiAvailable, EVENT_SETTINGS, EVENT_SNAPSHOTS } from "./lib/api";
   import type { AppConfig, Service, UsageDisplayState, UsageSnapshot } from "./lib/usage";
   import { defaultConfig } from "./lib/usage";
+  import { serviceLabels } from "./lib/display";
 
   let snapshots = $state<UsageSnapshot[]>([]);
   let config = $state<AppConfig>(defaultConfig);
@@ -21,6 +22,7 @@
   const ringColors: Record<Service, string> = {
     codex: "var(--text)",
     claude: "var(--ember)",
+    grok: "var(--ember)",
     ollama: "var(--pf-info)",
   };
 
@@ -48,7 +50,7 @@
     const percent =
       snapshot.remainingPercent === null ? "unknown" : `${Math.round(snapshot.remainingPercent)}%`;
 
-    return `${snapshot.service === "codex" ? "Codex" : "Claude Code"}: ${percent} remaining`;
+    return `${serviceLabels[snapshot.service]}: ${percent} remaining`;
   }
 
   function onPointerDown(event: PointerEvent) {

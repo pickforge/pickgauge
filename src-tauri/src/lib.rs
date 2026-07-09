@@ -5,6 +5,7 @@ mod browser_session;
 mod config;
 pub mod history;
 pub mod local_provider;
+mod ollama_provider;
 pub mod sounds;
 pub mod usage;
 pub mod web_provider;

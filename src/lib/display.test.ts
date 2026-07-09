@@ -10,6 +10,7 @@ import {
   profilePathFromInput,
   profilePathValue,
   serviceLabels,
+  snapshotSourceLabel,
   snapshotIsStale,
   sourceLabels,
   webProviderControlState,
@@ -129,6 +130,20 @@ describe("frontend confidence and source labels", () => {
     });
   });
 
+  it("labels Ollama daemon errors as local daemon reads", () => {
+    expect(
+      snapshotSourceLabel(
+        snapshot({
+          service: "ollama",
+          details: {
+            providerId: "ollama.local",
+            status: "not_configured",
+          },
+        }),
+      ),
+    ).toBe("Local daemon");
+  });
+
   it("keeps confidence labels stable", () => {
     expect(confidenceLabels).toEqual({
       high: "High",
@@ -235,6 +250,17 @@ describe("frontend login prompt visibility", () => {
         ),
       ).toBe(false);
     }
+  });
+
+  it("does not route local Ollama daemon sign-in to the browser profile", () => {
+    expect(
+      loginPromptVisible(
+        snapshot({
+          service: "ollama",
+          details: { providerId: "ollama.local", status: "login_required" },
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("clears stale login status messages when service snapshots no longer need login", () => {

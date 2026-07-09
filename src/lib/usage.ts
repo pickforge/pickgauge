@@ -116,6 +116,14 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
     return "Sign in with the Grok CLI";
   }
 
+  if (snapshot.details.providerId === "ollama.local" && status === "login_required") {
+    return "Sign in with the Ollama CLI: ollama signin";
+  }
+
+  if (snapshot.details.providerId === "ollama.local" && status === "not_configured") {
+    return "Ollama isn't running";
+  }
+
   return statusMessage(status);
 }
 
@@ -256,7 +264,7 @@ export const defaultConfig: AppConfig = {
     codex: true,
     claude: true,
     grok: true,
-    ollama: false,
+    ollama: true,
   },
   providers: {
     localEnabled: true,

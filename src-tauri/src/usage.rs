@@ -1,6 +1,7 @@
 use crate::{
     config::{AppConfig, LocalQuotaLimitKind, LocalQuotaUsageUnit, LocalServiceQuotaSettings},
     local_provider::{ClaudeLocalProvider, CodexLocalProvider, LocalQuotaCalibration},
+    ollama_provider::OllamaLocalProvider,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -126,11 +127,12 @@ pub enum UsageProviderId {
     ClaudeWeb,
     ClaudeCli,
     GrokCli,
+    OllamaLocal,
     OllamaWeb,
     Fake,
 }
 
-trait UsageProvider: Send + Sync {
+pub(crate) trait UsageProvider: Send + Sync {
     fn provider_id(&self) -> UsageProviderId;
     fn service(&self) -> Service;
     fn source(&self) -> UsageSource;
@@ -265,8 +267,8 @@ impl UsageProviderId {
             (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
             (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
             (Service::Grok, UsageSource::Local | UsageSource::Web) => None,
+            (Service::Ollama, UsageSource::Local) => Some(Self::OllamaLocal),
             (Service::Ollama, UsageSource::Web) => Some(Self::OllamaWeb),
-            (Service::Ollama, UsageSource::Local) => None,
             (_, UsageSource::Fake) => Some(Self::Fake),
             (_, UsageSource::Merged) => None,
         }
@@ -281,6 +283,7 @@ impl UsageProviderId {
             Self::ClaudeWeb => "claude.web",
             Self::ClaudeCli => "claude.cli",
             Self::GrokCli => "grok.cli",
+            Self::OllamaLocal => "ollama.local",
             Self::OllamaWeb => "ollama.web",
             Self::Fake => "fake",
         }
@@ -516,7 +519,7 @@ impl UsageEngine {
                 continue;
             }
 
-            if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
+            if !self.try_begin_refresh(provider.provider_key.clone(), provider.source, &now)? {
                 continue;
             }
 
@@ -526,9 +529,12 @@ impl UsageEngine {
                     snapshot
                 }
                 Err(error) => {
-                    let failure = self.record_provider_failure(&provider.provider_key, &now)?;
+                    let failure =
+                        self.record_provider_failure(&provider.provider_key, provider.source, &now)?;
                     let mut snapshot = error_snapshot(&provider, error, &now);
-                    add_failure_details(&mut snapshot, &failure);
+                    if let Some(failure) = failure {
+                        add_failure_details(&mut snapshot, &failure);
+                    }
                     snapshot
                 }
             };
@@ -676,7 +682,7 @@ impl UsageEngine {
             return self.display_state();
         }
 
-        if !self.try_begin_refresh(provider.provider_key.clone(), &now)? {
+        if !self.try_begin_refresh(provider.provider_key.clone(), provider.source, &now)? {
             return self.display_state();
         }
 
@@ -686,15 +692,21 @@ impl UsageEngine {
                 snapshot
             }
             Ok(_) => {
-                let failure = self.record_provider_failure(&provider.provider_key, &now)?;
+                let failure =
+                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?;
                 let mut snapshot = error_snapshot(&provider, UsageProviderError::Internal, &now);
-                add_failure_details(&mut snapshot, &failure);
+                if let Some(failure) = failure {
+                    add_failure_details(&mut snapshot, &failure);
+                }
                 snapshot
             }
             Err(error) => {
-                let failure = self.record_provider_failure(&provider.provider_key, &now)?;
+                let failure =
+                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?;
                 let mut snapshot = error_snapshot(&provider, error, &now);
-                add_failure_details(&mut snapshot, &failure);
+                if let Some(failure) = failure {
+                    add_failure_details(&mut snapshot, &failure);
+                }
                 snapshot
             }
         };
@@ -763,6 +775,9 @@ impl UsageEngine {
                 })
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
+            (UsageProviderId::OllamaLocal, Service::Ollama) => {
+                OllamaLocalProvider::new().refresh(now)
+            }
             (UsageProviderId::CodexWeb, Service::Codex)
             | (UsageProviderId::ClaudeWeb, Service::Claude)
             | (UsageProviderId::OllamaWeb, Service::Ollama) => {
@@ -781,14 +796,21 @@ impl UsageEngine {
         }
     }
 
-    fn try_begin_refresh(&self, provider_key: String, now: &str) -> Result<bool, String> {
+    fn try_begin_refresh(
+        &self,
+        provider_key: String,
+        source: UsageSource,
+        now: &str,
+    ) -> Result<bool, String> {
         let mut state = self.lock()?;
 
         if state.active_provider_keys.contains(&provider_key) {
             return Ok(false);
         }
 
-        if provider_backoff_active(state.provider_failures.get(&provider_key), now) {
+        if source != UsageSource::Local
+            && provider_backoff_active(state.provider_failures.get(&provider_key), now)
+        {
             return Ok(false);
         }
 
@@ -805,8 +827,13 @@ impl UsageEngine {
     fn record_provider_failure(
         &self,
         provider_key: &str,
+        source: UsageSource,
         now: &str,
-    ) -> Result<ProviderFailureState, String> {
+    ) -> Result<Option<ProviderFailureState>, String> {
+        if source == UsageSource::Local {
+            return Ok(None);
+        }
+
         let mut state = self.lock()?;
         let entry = state
             .provider_failures
@@ -826,7 +853,7 @@ impl UsageEngine {
             retry_after,
         };
 
-        Ok(entry.clone())
+        Ok(Some(entry.clone()))
     }
 
     fn record_provider_success(&self, provider_key: &str) -> Result<(), String> {
@@ -938,6 +965,10 @@ fn merge_service_snapshots(
 
     if let Some(web) = web {
         if !web_has_usage_percent(web) {
+            if let Some(local) = local.filter(|snapshot| is_plan_only_local_snapshot(snapshot)) {
+                return Some(local.clone());
+            }
+
             if let Some(fallback) = local.or(fake) {
                 return Some(web_unavailable_fallback_snapshot(web, fallback));
             }
@@ -965,7 +996,7 @@ fn merge_service_snapshots(
             return Some(snapshot);
         }
 
-        if let Some(local) = local {
+        if let Some(local) = local.filter(|snapshot| !is_plan_only_local_snapshot(snapshot)) {
             if let Some(delta_percent) = local_delta_percent(local, &web.last_updated) {
                 return Some(merged_web_and_local_snapshot(web, local, delta_percent));
             }
@@ -998,6 +1029,16 @@ fn merge_service_snapshots(
 
 fn web_has_usage_percent(snapshot: &UsageSnapshot) -> bool {
     snapshot.remaining_percent.is_some() || snapshot.used_percent.is_some()
+}
+
+fn is_plan_only_local_snapshot(snapshot: &UsageSnapshot) -> bool {
+    snapshot.remaining_percent.is_none()
+        && snapshot.used_percent.is_none()
+        && snapshot
+            .details
+            .get("plan")
+            .and_then(|plan| plan.as_str())
+            .is_some()
 }
 
 fn web_unavailable_fallback_snapshot(
@@ -1384,12 +1425,15 @@ fn providers_for_config(
         }));
     }
 
-    // Ollama Cloud usage is only available by scraping the logged-in settings
-    // page, so it has no local or CLI provider — only the browser web path.
-    if config.enabled_services.ollama && config.providers.web_enabled {
-        providers.push(Box::new(FailClosedWebProvider {
-            service: Service::Ollama,
-        }));
+    if config.enabled_services.ollama {
+        if config.providers.local_enabled {
+            providers.push(Box::new(OllamaLocalProvider::new()));
+        }
+        if config.providers.web_enabled {
+            providers.push(Box::new(FailClosedWebProvider {
+                service: Service::Ollama,
+            }));
+        }
     }
 
     providers
@@ -1838,6 +1882,42 @@ mod tests {
         }
     }
 
+    fn ollama_plan_snapshot(last_updated: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            service: Service::Ollama,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            source: UsageSource::Local,
+            confidence: UsageConfidence::Medium,
+            last_updated: last_updated.to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": "ollama.local",
+                "source": "local",
+                "via": "daemon",
+                "plan": "pro",
+            }),
+        }
+    }
+
+    fn ollama_web_config() -> AppConfig {
+        AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: false,
+                ollama: true,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: true,
+                web_enabled: true,
+                cli_enabled: false,
+            },
+            ..AppConfig::default()
+        }
+    }
+
     fn assert_sanitized_details(label: &str, details: &serde_json::Value) {
         let forbidden_keys = [
             "account",
@@ -2169,17 +2249,17 @@ mod tests {
         let now = "2026-06-03T23:00:00Z";
 
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string(), now)
+            .try_begin_refresh("codex.fake".to_string(), UsageSource::Fake, now)
             .expect("begin succeeds"));
         assert!(!engine
-            .try_begin_refresh("codex.fake".to_string(), now)
+            .try_begin_refresh("codex.fake".to_string(), UsageSource::Fake, now)
             .expect("second begin is skipped"));
 
         engine
             .finish_refresh("codex.fake")
             .expect("finish succeeds");
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string(), now)
+            .try_begin_refresh("codex.fake".to_string(), UsageSource::Fake, now)
             .expect("begin after finish succeeds"));
     }
 
@@ -2188,7 +2268,11 @@ mod tests {
         let engine = UsageEngine::new(config_with_services(true, true));
         engine.refresh_all().expect("initial refresh succeeds");
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string(), "2026-06-03T23:00:00Z")
+            .try_begin_refresh(
+                "codex.fake".to_string(),
+                UsageSource::Fake,
+                "2026-06-03T23:00:00Z",
+            )
             .expect("begin succeeds"));
 
         let display_state = engine.refresh_all().expect("refresh succeeds");
@@ -2205,7 +2289,11 @@ mod tests {
     fn disabling_a_provider_clears_pending_refresh_tracking() {
         let engine = UsageEngine::new(config_with_services(true, true));
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string(), "2026-06-03T23:00:00Z")
+            .try_begin_refresh(
+                "codex.fake".to_string(),
+                UsageSource::Fake,
+                "2026-06-03T23:00:00Z",
+            )
             .expect("begin succeeds"));
 
         engine
@@ -2213,21 +2301,27 @@ mod tests {
             .expect("config update succeeds");
 
         assert!(engine
-            .try_begin_refresh("codex.fake".to_string(), "2026-06-03T23:00:00Z")
+            .try_begin_refresh(
+                "codex.fake".to_string(),
+                UsageSource::Fake,
+                "2026-06-03T23:00:00Z",
+            )
             .expect("disabled provider key was cleared"));
     }
 
     #[test]
-    fn provider_failure_backoff_is_bounded_and_blocks_retry_until_elapsed() {
+    fn web_provider_failure_backoff_is_bounded_and_blocks_retry_until_elapsed() {
         let engine = UsageEngine::new(config_with_services(true, true));
-        let provider_key = "codex.fake";
+        let provider_key = "codex.web";
 
         let first = engine
-            .record_provider_failure(provider_key, "2026-06-03T23:00:00Z")
-            .expect("failure records");
+            .record_provider_failure(provider_key, UsageSource::Web, "2026-06-03T23:00:00Z")
+            .expect("failure records")
+            .expect("web failure is tracked");
         let second = engine
-            .record_provider_failure(provider_key, "2026-06-03T23:00:30Z")
-            .expect("second failure records");
+            .record_provider_failure(provider_key, UsageSource::Web, "2026-06-03T23:00:30Z")
+            .expect("second failure records")
+            .expect("web failure is tracked");
 
         assert_eq!(first.consecutive_failures, 1);
         assert_eq!(first.backoff_seconds, 30);
@@ -2236,16 +2330,25 @@ mod tests {
         assert_eq!(second.backoff_seconds, 60);
         assert_eq!(second.retry_after, "2026-06-03T23:01:30Z");
         assert!(!engine
-            .try_begin_refresh(provider_key.to_string(), "2026-06-03T23:01:29Z")
+            .try_begin_refresh(
+                provider_key.to_string(),
+                UsageSource::Web,
+                "2026-06-03T23:01:29Z",
+            )
             .expect("backoff check succeeds"));
         assert!(engine
-            .try_begin_refresh(provider_key.to_string(), "2026-06-03T23:01:30Z")
+            .try_begin_refresh(
+                provider_key.to_string(),
+                UsageSource::Web,
+                "2026-06-03T23:01:30Z",
+            )
             .expect("retry after backoff succeeds"));
 
         for _ in 0..8 {
             engine
-                .record_provider_failure(provider_key, "2026-06-03T23:02:00Z")
-                .expect("failure records");
+                .record_provider_failure(provider_key, UsageSource::Web, "2026-06-03T23:02:00Z")
+                .expect("failure records")
+                .expect("web failure is tracked");
         }
         let bounded = engine
             .provider_failure_state(provider_key)
@@ -2256,12 +2359,50 @@ mod tests {
     }
 
     #[test]
+    fn local_provider_failures_do_not_back_off_later_refreshes() {
+        let config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: false,
+                ollama: true,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: true,
+                web_enabled: false,
+                cli_enabled: false,
+            },
+            ..AppConfig::default()
+        };
+        let engine = UsageEngine::new(config);
+        let refresh_calls = AtomicUsize::new(0);
+
+        for _ in 0..2 {
+            engine
+                .refresh_provider_source_with_snapshot(Service::Ollama, UsageSource::Local, |_| {
+                    refresh_calls.fetch_add(1, Ordering::Relaxed);
+                    Err(UsageProviderError::NotConfigured)
+                })
+                .expect("local refresh records an unavailable snapshot");
+        }
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            engine
+                .provider_failure_state("ollama.local")
+                .expect("failure state reads"),
+            None
+        );
+    }
+
+    #[test]
     fn provider_success_resets_failure_backoff_state() {
         let engine = UsageEngine::new(config_with_services(true, true));
 
         engine
-            .record_provider_failure("codex.fake", "2026-06-03T23:00:00Z")
-            .expect("failure records");
+            .record_provider_failure("codex.fake", UsageSource::Fake, "2026-06-03T23:00:00Z")
+            .expect("failure records")
+            .expect("fake failure is tracked");
         assert!(engine
             .provider_failure_state("codex.fake")
             .expect("failure state reads")
@@ -2284,8 +2425,9 @@ mod tests {
         let engine = UsageEngine::new(config_with_services(true, true));
 
         engine
-            .record_provider_failure("codex.fake", "2026-06-03T23:00:00Z")
-            .expect("failure records");
+            .record_provider_failure("codex.fake", UsageSource::Fake, "2026-06-03T23:00:00Z")
+            .expect("failure records")
+            .expect("fake failure is tracked");
         engine
             .update_config(config_with_services(false, true))
             .expect("config update succeeds");
@@ -2335,6 +2477,36 @@ mod tests {
             .snapshots
             .iter()
             .all(|snapshot| snapshot.source != UsageSource::Web));
+    }
+
+    #[test]
+    fn ollama_local_provider_registers_with_local_readings() {
+        let config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: false,
+                ollama: true,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: true,
+                web_enabled: true,
+                cli_enabled: false,
+            },
+            ..AppConfig::default()
+        };
+        let providers = providers_for_config(&config, &LocalProviderRoots::default());
+
+        assert!(providers.iter().any(|provider| {
+            provider.provider_id() == UsageProviderId::OllamaLocal
+                && provider.service() == Service::Ollama
+                && provider.source() == UsageSource::Local
+        }));
+        assert!(providers.iter().any(|provider| {
+            provider.provider_id() == UsageProviderId::OllamaWeb
+                && provider.service() == Service::Ollama
+                && provider.source() == UsageSource::Web
+        }));
     }
 
     #[test]
@@ -2717,6 +2889,59 @@ mod tests {
             snapshot.details["lastOfficialCheckAt"],
             "2026-06-03T23:00:00Z"
         );
+    }
+
+    #[test]
+    fn plan_only_ollama_snapshot_does_not_downgrade_web_usage() {
+        let display_state = display_state_from_provider_snapshots(
+            ollama_web_config(),
+            vec![
+                (
+                    "ollama.web",
+                    web_snapshot(Service::Ollama, 82.0, "2026-07-09T12:00:00Z"),
+                ),
+                (
+                    "ollama.local",
+                    ollama_plan_snapshot("2026-07-09T12:00:01Z"),
+                ),
+            ],
+            "2026-07-09T12:00:01Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, Some(82.0));
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.details["mergeStatus"], "web_only");
+    }
+
+    #[test]
+    fn plan_only_ollama_snapshot_stays_clean_when_web_login_fails() {
+        let display_state = display_state_from_provider_snapshots(
+            ollama_web_config(),
+            vec![
+                (
+                    "ollama.web",
+                    web_error_snapshot(
+                        Service::Ollama,
+                        UsageProviderError::LoginRequired,
+                        "2026-07-09T12:00:00Z",
+                    ),
+                ),
+                (
+                    "ollama.local",
+                    ollama_plan_snapshot("2026-07-09T12:00:01Z"),
+                ),
+            ],
+            "2026-07-09T12:00:01Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Local);
+        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
+        assert_eq!(snapshot.details["plan"], "pro");
+        assert!(snapshot.details.get("webStatus").is_none());
+        assert!(snapshot.details.get("mergeStatus").is_none());
     }
 
     #[test]
@@ -3277,6 +3502,12 @@ mod tests {
             "claude.web"
         );
         assert_eq!(UsageProviderId::GrokCli.code(), "grok.cli");
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Ollama, UsageSource::Local)
+                .expect("ollama local id")
+                .code(),
+            "ollama.local"
+        );
         assert_eq!(
             UsageProviderId::for_service_source(Service::Codex, UsageSource::Fake)
                 .expect("fake id")

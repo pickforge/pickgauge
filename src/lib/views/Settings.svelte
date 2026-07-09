@@ -270,7 +270,7 @@
       <label class="switch">
         <input type="checkbox" bind:checked={config.enabledServices.ollama} />
         <span class="track"></span>
-        Ollama (Cloud)
+        Ollama
       </label>
       <label class="switch">
         <input type="checkbox" bind:checked={config.providers.localEnabled} />
@@ -295,20 +295,22 @@
         CLI readings reuse the Codex, Claude Code, and Grok logins already on this machine. Grok
         reads its bearer once for a plan-only subscription check and never refreshes, stores, or writes it;
         sign in with the Grok CLI if it expires. Usage percentages need a later opt-in path. Ollama
-        Cloud has no CLI, so it always uses web readings — turn them on and sign in below.
+        reads the signed-in local daemon's plan when it is running; it does not expose usage limits.
       </p>
       {#if config.enabledServices.ollama}
-        <button
-          class="btn btn-sm"
-          type="button"
-          disabled={loggingIn === "ollama"}
-          onclick={() => startProviderLogin("ollama")}
-        >
-          {loggingIn === "ollama" ? "Opening…" : "Sign in to Ollama"}
-        </button>
+        {#if config.providers.webEnabled}
+          <button
+            class="btn btn-sm"
+            type="button"
+            disabled={loggingIn === "ollama"}
+            onclick={() => startProviderLogin("ollama")}
+          >
+            {loggingIn === "ollama" ? "Opening…" : "Sign in to Ollama"}
+          </button>
+        {/if}
         <p class="hint">
-          Reads the session and weekly limits from your signed-in ollama.com page — no API key,
-          nothing leaves this machine except the page load.
+          The local daemon reports only your plan. Usage-limit readings are not available yet, and
+          PickGauge never stores your account identity.
         </p>
       {/if}
     </div>

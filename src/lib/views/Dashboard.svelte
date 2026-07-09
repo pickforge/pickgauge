@@ -8,13 +8,14 @@
   import Gauge from "../components/Gauge.svelte";
   import {
     confidenceLabels,
+    detailString,
     formatTimestamp,
     lastOfficialCheck,
     localActivitySummary,
     loginPromptVisible,
     serviceLabels,
+    snapshotSourceLabel,
     snapshotIsStale,
-    sourceLabels,
     webProviderControlState,
   } from "../display";
   import {
@@ -169,14 +170,19 @@
     return rows;
   }
 
-  function plan(snapshot: UsageSnapshot) {
-    const value = snapshot.details.plan;
-    return typeof value === "string" && value.length > 0 ? value : "Plan unavailable";
+  function planOnly(snapshot: UsageSnapshot) {
+    return snapshot.remainingPercent === null ? detailString(snapshot, "plan") : null;
   }
 
   function billingPeriodEnd(snapshot: UsageSnapshot) {
     const value = snapshot.details.billingPeriodEnd;
     return typeof value === "string" && value.length > 0 ? formatTimestamp(value) : null;
+  }
+
+  function planOnlyNote(snapshot: UsageSnapshot) {
+    return snapshot.details.via === "daemon"
+      ? "Usage limits unavailable from the local daemon"
+      : "Usage —";
   }
 
   async function loadDaily() {
@@ -319,12 +325,12 @@
             </span>
           </header>
 
-          {#if snapshot.service === "grok"}
+          {#if planOnly(snapshot)}
             <div class="gauge-windows">
               <div class="gauge-window plan-only">
                 <span class="window-label">Plan</span>
-                <strong>{plan(snapshot)}</strong>
-                <span class="window-reset">Usage —</span>
+                <strong>{planOnly(snapshot)}</strong>
+                <span class="window-reset">{planOnlyNote(snapshot)}</span>
                 {#if billingPeriodEnd(snapshot)}
                   <span class="window-reset">Billing period ends {billingPeriodEnd(snapshot)}</span>
                 {/if}
@@ -348,7 +354,7 @@
             <dl class="meta">
               <div>
                 <dt>Source</dt>
-                <dd>{sourceLabels[snapshot.source]}</dd>
+                <dd>{snapshotSourceLabel(snapshot)}</dd>
               </div>
               <div>
                 <dt>Updated</dt>

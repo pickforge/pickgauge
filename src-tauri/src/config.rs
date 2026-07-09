@@ -35,6 +35,7 @@ pub struct ServiceToggles {
     pub claude: bool,
     #[serde(default)]
     pub grok: bool,
+    #[serde(default)]
     pub ollama: bool,
 }
 
@@ -128,7 +129,7 @@ impl Default for AppConfig {
                 codex: true,
                 claude: true,
                 grok: true,
-                ollama: false,
+                ollama: true,
             },
             providers: ProviderSettings {
                 local_enabled: true,
@@ -443,6 +444,7 @@ fn config_value_version(value: &Value) -> Result<u32, String> {
 fn fill_missing_defaults(value: &mut Value) -> Result<(), String> {
     let mut defaults = AppConfig::default();
     defaults.enabled_services.grok = false;
+    defaults.enabled_services.ollama = false;
     let defaults = serde_json::to_value(defaults)
         .map_err(|error| format!("Could not serialize default config: {error}"))?;
 
@@ -638,6 +640,11 @@ mod tests {
 
         assert_eq!(config, AppConfig::default());
         assert!(path.exists());
+    }
+
+    #[test]
+    fn fresh_default_config_enables_ollama() {
+        assert!(AppConfig::default().enabled_services.ollama);
     }
 
     #[test]
@@ -948,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_config_migrates_to_current_with_ollama_defaults() {
+    fn v5_config_migrates_to_current_with_legacy_ollama_disabled() {
         let dir = TestDir::new();
         let path = dir.config_path();
         fs::write(

@@ -263,6 +263,11 @@
         Claude Code
       </label>
       <label class="switch">
+        <input type="checkbox" bind:checked={config.enabledServices.grok} />
+        <span class="track"></span>
+        Grok
+      </label>
+      <label class="switch">
         <input type="checkbox" bind:checked={config.enabledServices.ollama} />
         <span class="track"></span>
         Ollama (Cloud)
@@ -287,10 +292,10 @@
         Official web readings (browser)
       </label>
       <p class="hint">
-        CLI readings reuse the Codex and Claude Code logins already on this machine — the real usage
-        number, auto-refreshed, no browser or captcha. Tokens are read locally and only sent to the
-        official provider APIs. Falls back to local estimates if a CLI isn't signed in. Ollama Cloud
-        has no CLI, so it always uses web readings — turn them on and sign in below.
+        CLI readings reuse the Codex, Claude Code, and Grok logins already on this machine. Grok
+        reads its bearer once for a plan-only subscription check and never refreshes, stores, or writes it;
+        sign in with the Grok CLI if it expires. Usage percentages need a later opt-in path. Ollama
+        Cloud has no CLI, so it always uses web readings — turn them on and sign in below.
       </p>
       {#if config.enabledServices.ollama}
         <button

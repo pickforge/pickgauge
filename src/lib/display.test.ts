@@ -115,6 +115,7 @@ describe("frontend confidence and source labels", () => {
     expect(serviceLabels).toEqual({
       codex: "Codex",
       claude: "Claude Code",
+      grok: "Grok",
       ollama: "Ollama",
     });
   });

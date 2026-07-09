@@ -1132,6 +1132,7 @@ fn profile_label(service: Service) -> String {
     match service {
         Service::Codex => "codex-profile".to_string(),
         Service::Claude => "claude-profile".to_string(),
+        Service::Grok => unreachable!("Grok has no managed browser profile"),
         Service::Ollama => "ollama-profile".to_string(),
     }
 }

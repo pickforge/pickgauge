@@ -4,9 +4,11 @@
   import { onMount } from "svelte";
   import { api, desktopApiAvailable, EVENT_SETTINGS, EVENT_SNAPSHOTS } from "./lib/api";
   import type { AppConfig, Service, UsageDisplayState, UsageSnapshot } from "./lib/usage";
-  import { defaultConfig } from "./lib/usage";
+  import { defaultConfig, floatDisplaySnapshots } from "./lib/usage";
+  import { serviceLabels } from "./lib/display";
 
   let snapshots = $state<UsageSnapshot[]>([]);
+  let displaySnapshots = $derived(floatDisplaySnapshots(snapshots));
   let config = $state<AppConfig>(defaultConfig);
   let refreshing = $state(false);
 
@@ -21,6 +23,7 @@
   const ringColors: Record<Service, string> = {
     codex: "var(--text)",
     claude: "var(--ember)",
+    grok: "var(--ember)",
     ollama: "var(--pf-info)",
   };
 
@@ -48,7 +51,7 @@
     const percent =
       snapshot.remainingPercent === null ? "unknown" : `${Math.round(snapshot.remainingPercent)}%`;
 
-    return `${snapshot.service === "codex" ? "Codex" : "Claude Code"}: ${percent} remaining`;
+    return `${serviceLabels[snapshot.service]}: ${percent} remaining`;
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -164,11 +167,11 @@
   <img class="mark mark-light" src="/brand/pickgauge-mark-light.svg" alt="" draggable="false" />
 
   <div class="slot">
-    {#if snapshots.length === 0}
+    {#if displaySnapshots.length === 0}
       <span class="wordmark">PG</span>
     {:else}
       <div class="rings">
-        {#each snapshots as snapshot (snapshot.service)}
+        {#each displaySnapshots as snapshot (snapshot.service)}
           <div class="ring" title={ringTitle(snapshot)}>
             <svg viewBox="0 0 34 34" aria-hidden="true">
               <circle class="track" cx="17" cy="17" r={RING_RADIUS} />

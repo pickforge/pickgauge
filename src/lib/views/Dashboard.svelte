@@ -148,13 +148,15 @@
       low: boolean;
       resetLabel: string | null;
     }[] = [];
-    rows.push({
-      key: "five-hour",
-      label: snapshot.service === "ollama" ? "Session" : "5-hour session",
-      remainingPercent: fiveHour?.remainingPercent ?? null,
-      low: low(fiveHour?.remainingPercent ?? null),
-      resetLabel: formatReset(fiveHour?.resetAt ?? null),
-    });
+    if (snapshot.service !== "grok") {
+      rows.push({
+        key: "five-hour",
+        label: snapshot.service === "ollama" ? "Session" : "5-hour session",
+        remainingPercent: fiveHour?.remainingPercent ?? null,
+        low: low(fiveHour?.remainingPercent ?? null),
+        resetLabel: formatReset(fiveHour?.resetAt ?? null),
+      });
+    }
     if (week) {
       rows.push({
         key: "week",
@@ -165,6 +167,16 @@
       });
     }
     return rows;
+  }
+
+  function plan(snapshot: UsageSnapshot) {
+    const value = snapshot.details.plan;
+    return typeof value === "string" && value.length > 0 ? value : "Plan unavailable";
+  }
+
+  function billingPeriodEnd(snapshot: UsageSnapshot) {
+    const value = snapshot.details.billingPeriodEnd;
+    return typeof value === "string" && value.length > 0 ? formatTimestamp(value) : null;
   }
 
   async function loadDaily() {
@@ -307,17 +319,30 @@
             </span>
           </header>
 
-          <div class="gauge-windows">
-            {#each windowsFor(snapshot) as win (win.key)}
-              <div class="gauge-window">
-                <span class="window-label">{win.label}</span>
-                <Gauge value={win.remainingPercent} low={win.low} />
-                {#if win.resetLabel}
-                  <span class="window-reset">resets {win.resetLabel}</span>
+          {#if snapshot.service === "grok"}
+            <div class="gauge-windows">
+              <div class="gauge-window plan-only">
+                <span class="window-label">Plan</span>
+                <strong>{plan(snapshot)}</strong>
+                <span class="window-reset">Usage —</span>
+                {#if billingPeriodEnd(snapshot)}
+                  <span class="window-reset">Billing period ends {billingPeriodEnd(snapshot)}</span>
                 {/if}
               </div>
-            {/each}
-          </div>
+            </div>
+          {:else}
+            <div class="gauge-windows">
+              {#each windowsFor(snapshot) as win (win.key)}
+                <div class="gauge-window">
+                  <span class="window-label">{win.label}</span>
+                  <Gauge value={win.remainingPercent} low={win.low} />
+                  {#if win.resetLabel}
+                    <span class="window-reset">resets {win.resetLabel}</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
 
           <div class="gauge-row">
             <dl class="meta">
@@ -348,42 +373,44 @@
             <p class="note muted">{localActivitySummary(snapshot)}</p>
           {/if}
 
-          <footer class="service-actions">
-            <button
-              class="btn btn-sm"
-              type="button"
-              aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
-              disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
-              onclick={() => refreshOfficialUsage(snapshot.service)}
-            >
-              <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
-                <ArrowsClockwise size={13} />
-              </span>
-              {refreshingOfficial === snapshot.service ? "Refreshing…" : "Refresh official"}
-            </button>
-            {#if loginPromptVisible(snapshot)}
+          {#if snapshot.service !== "grok"}
+            <footer class="service-actions">
               <button
                 class="btn btn-sm"
                 type="button"
-                aria-label={`Start ${serviceLabels[snapshot.service]} login`}
-                disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
-                onclick={() => startProviderLogin(snapshot.service)}
+                aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
+                disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
+                onclick={() => refreshOfficialUsage(snapshot.service)}
               >
-                <SignIn size={13} />
-                {startingLogin === snapshot.service ? "Starting…" : "Start login"}
+                <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
+                  <ArrowsClockwise size={13} />
+                </span>
+                {refreshingOfficial === snapshot.service ? "Refreshing…" : "Refresh official"}
               </button>
-            {/if}
-            <button
-              class="btn btn-sm btn-ghost"
-              type="button"
-              aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
-              disabled={openingService === snapshot.service}
-              onclick={() => openOfficialPage(snapshot.service)}
-            >
-              <ArrowSquareOut size={13} />
-              Official page
-            </button>
-          </footer>
+              {#if loginPromptVisible(snapshot)}
+                <button
+                  class="btn btn-sm"
+                  type="button"
+                  aria-label={`Start ${serviceLabels[snapshot.service]} login`}
+                  disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
+                  onclick={() => startProviderLogin(snapshot.service)}
+                >
+                  <SignIn size={13} />
+                  {startingLogin === snapshot.service ? "Starting…" : "Start login"}
+                </button>
+              {/if}
+              <button
+                class="btn btn-sm btn-ghost"
+                type="button"
+                aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
+                disabled={openingService === snapshot.service}
+                onclick={() => openOfficialPage(snapshot.service)}
+              >
+                <ArrowSquareOut size={13} />
+                Official page
+              </button>
+            </footer>
+          {/if}
         </article>
       {/each}
     </div>
@@ -510,6 +537,11 @@
     border-radius: var(--radius-card);
     background: var(--wash);
     border: 1px solid var(--hairline);
+  }
+
+  .plan-only strong {
+    font-size: 20px;
+    line-height: 1.2;
   }
 
   .window-label {

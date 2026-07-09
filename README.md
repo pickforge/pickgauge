@@ -4,7 +4,7 @@
 
 # PickGauge
 
-A fuel gauge for your AI subscriptions. PickGauge is a privacy-conscious Linux tray app that tracks remaining Codex and Claude Code usage — keeping quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
+A fuel gauge for your AI subscriptions. PickGauge is a privacy-conscious Linux tray app that tracks remaining Codex and Claude Code usage plus the active Grok plan — keeping quota awareness visible without storing passwords, uploading account data, or pretending best-effort estimates are exact.
 
 PickForge builds the app. PickGauge tells you how much agent fuel is left while you do it.
 
@@ -67,7 +67,7 @@ Real captures of the app in its studio chrome (frameless bracket titlebar, unifi
 
 ## What it will do
 
-- Show Codex and Claude Code usage from a KDE/Linux system tray icon.
+- Show Codex and Claude Code usage plus the active Grok plan from a KDE/Linux system tray icon.
 - Alternate the tray gauge between services on a configurable interval.
 - Open a compact popup with remaining percentage, source, confidence, and last update time.
 - Persist basic provider/service settings locally.
@@ -81,6 +81,7 @@ Planned services:
 | --- | --- | --- |
 | Codex | Local CLI/session data and optional official analytics page | Low to high |
 | Claude Code | Local JSONL/status data and optional official usage page | Low to high |
+| Grok | Local CLI subscription plan and billing-period end | Medium |
 
 Official usage pages:
 
@@ -91,9 +92,9 @@ Official usage pages:
 
 PickGauge reads how much quota you have left without ever holding your account.
 
-- **No passwords, ever.** PickGauge never asks for, sees, or stores provider passwords. For its default readings it reuses the OAuth tokens the Codex and Claude Code CLIs already wrote to disk (`~/.codex/auth.json`, `~/.claude/.credentials.json`).
-- **Tokens stay in memory.** Tokens are read at refresh time, used to call the provider's own usage endpoint, refreshed in memory when they expire, and never copied into PickGauge's config, cache, logs, or local history.
-- **Usage requests stay provider-only.** To compute real remaining quota, PickGauge calls the same official endpoints the CLIs use — `chatgpt.com/backend-api/codex/usage` and `api.anthropic.com/api/oauth/usage`, plus the providers' OAuth refresh endpoints. No usage measurements, project files, account data, tokens, or provider responses are sent to Pickforge or third-party analytics services.
+- **No passwords, ever.** PickGauge never asks for, sees, or stores provider passwords. For its default readings it reuses the OAuth tokens the Codex, Claude Code, and Grok CLIs already wrote to disk (`~/.codex/auth.json`, `~/.claude/.credentials.json`, `~/.grok/auth.json`).
+- **Tokens stay in memory.** Tokens are read at refresh time and never copied into PickGauge's config, on-disk cache, logs, or local history. Grok's bearer is read-only: PickGauge never refreshes, stores, or writes it; sign in with the Grok CLI again when it expires.
+- **Usage requests stay provider-only.** To compute real remaining quota or detect a plan, PickGauge calls the same official endpoints the CLIs use — `chatgpt.com/backend-api/codex/usage`, `api.anthropic.com/api/oauth/usage`, and one authenticated `GET grok.com/rest/subscriptions`. Grok never makes an OAuth refresh request. No usage measurements, project files, account data, tokens, or provider responses are sent to Pickforge or third-party analytics services.
 - **Anonymous crash reports.** Crash and error reporting is on by default in release builds and can be turned off in Settings → Crash reports. Reports go to Sentry with crash stack traces, OS version, and app version. Native crash dumps include a snapshot of process memory, which may contain fragments of recent in-memory data. Reports never intentionally include usage measurements, project files, or personal data; the hostname is stripped. Crash reporting is disabled in development builds unless `PICKGAUGE_SENTRY_DEBUG=1` is set.
 - **Web reads are opt-in and isolated.** Browser-based reading of the official usage pages is disabled by default. When enabled, it runs only in dedicated, app-owned browser profiles (under `com.pickforge.pickgauge`) that you log into yourself — never your personal browser, never a shared cookie jar.
 - **Data minimization.** No raw page HTML, auth headers, cookies, tokens, or account identifiers are written to PickGauge logs, fixtures, or its local SQLite history — only computed percentages, confidence, source, and timestamps.
@@ -110,6 +111,7 @@ Tray controller
 Usage engine
 ├─ Codex local provider
 ├─ Claude local provider
+├─ Grok CLI plan provider
 ├─ Optional Codex web provider
 ├─ Optional Claude web provider
 └─ Merger and confidence model

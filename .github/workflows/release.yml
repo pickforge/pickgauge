@@ -99,6 +99,7 @@ jobs:
             libssl-dev \
             libxdo-dev \
             patchelf \
+            squashfs-tools \
             wget
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev || \
             sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
@@ -123,54 +124,19 @@ jobs:
           fi
           bun run tauri build "${bundle_args[@]}"
 
-      # linuxdeploy bundles the Ubuntu build host's libwayland into the
-      # AppImage, which breaks EGL display creation on hosts with newer
-      # Mesa/Wayland (white window, "EGL_BAD_PARAMETER"). libwayland must
-      # come from the host, so strip it, repack, and re-sign the updater
-      # artifact. See tauri-apps/tauri#11988.
-      - name: Strip bundled libwayland from AppImage
+      - name: Fix AppImage
         if: runner.os == 'Linux'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          sudo apt-get install -y --no-install-recommends squashfs-tools
           shopt -s nullglob
           appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
-          if [[ ${#appimages[@]} -eq 0 ]]; then
-            echo "No AppImage found to post-process" >&2
+          if [[ ${#appimages[@]} -ne 1 ]]; then
+            echo "Expected exactly one AppImage, found ${#appimages[@]}" >&2
             exit 1
           fi
-          for appimage in "${appimages[@]}"; do
-            workdir="$(mktemp -d)"
-            offset="$("$appimage" --appimage-offset)"
-            tail -c +"$((offset + 1))" "$appimage" >"$workdir/payload.squashfs"
-            unsquashfs -q -d "$workdir/AppDir" "$workdir/payload.squashfs"
-            libs=("$workdir"/AppDir/usr/lib/libwayland-*.so*)
-            if [[ ${#libs[@]} -eq 0 ]]; then
-              echo "$appimage: no bundled libwayland, leaving as is"
-              rm -rf "$workdir"
-              continue
-            fi
-            printf "%s: removing %s\n" "$appimage" "${libs[*]##*/}"
-            rm -- "${libs[@]}"
-            comp="$(unsquashfs -s "$workdir/payload.squashfs" | awk '/^Compression/ {print $2}')"
-            head -c "$offset" "$appimage" >"$workdir/runtime"
-            mksquashfs "$workdir/AppDir" "$workdir/repacked.squashfs" \
-              -quiet -root-owned -noappend -comp "${comp:-zstd}" -b 131072
-            if unsquashfs -l "$workdir/repacked.squashfs" | grep -q libwayland-; then
-              echo "$appimage: libwayland still present after repack" >&2
-              exit 1
-            fi
-            cat "$workdir/runtime" "$workdir/repacked.squashfs" >"$appimage"
-            chmod +x "$appimage"
-            if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-              rm -f "$appimage.sig"
-              bun run tauri signer sign "$appimage"
-              test -s "$appimage.sig"
-            fi
-            rm -rf "$workdir"
-          done
+          bun run pickforge-tauri-release fix-appimage --appimage "${appimages[0]}"
 
       - name: Upload debug symbols to Sentry
         if: startsWith(github.ref, 'refs/tags/')

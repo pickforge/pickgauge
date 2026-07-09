@@ -171,7 +171,14 @@
   }
 
   function planOnly(snapshot: UsageSnapshot) {
-    return snapshot.remainingPercent === null ? detailString(snapshot, "plan") : null;
+    if (snapshot.remainingPercent !== null) {
+      return null;
+    }
+    const plan = detailString(snapshot, "plan");
+    if (plan) {
+      return plan;
+    }
+    return snapshot.service === "grok" ? "Plan unavailable" : null;
   }
 
   function billingPeriodEnd(snapshot: UsageSnapshot) {

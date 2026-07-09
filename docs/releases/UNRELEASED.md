@@ -8,6 +8,7 @@ reset this file.
 
 - Added zero-setup Grok plan detection through the local Grok CLI login. PickGauge shows the active
   plan and billing-period end without reporting a usage percentage.
+- Added zero-setup Ollama plan detection from the signed-in local daemon. Usage limits remain unavailable.
 
 ## Internal/release changes
 

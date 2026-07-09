@@ -106,6 +106,7 @@ describe("usage windows", () => {
 
 describe("usage fixtures and redaction", () => {
   it("keeps default privacy-sensitive settings opt-in", () => {
+    expect(defaultConfig.enabledServices.ollama).toBe(true);
     expect(defaultConfig.providers.webEnabled).toBe(false);
     expect(defaultConfig.enabledServices.grok).toBe(true);
     expect(defaultConfig.browserProfiles).toEqual({
@@ -140,6 +141,36 @@ describe("usage fixtures and redaction", () => {
       }),
     ]);
     expect(fallbackSnapshots.map(providerStatusMessage)).toEqual([null, null]);
+  });
+
+  it("names a missing local Ollama daemon honestly", () => {
+    expect(
+      providerStatusMessage({
+        service: "ollama",
+        remainingPercent: null,
+        usedPercent: null,
+        resetAt: null,
+        source: "local",
+        confidence: "unknown",
+        lastUpdated: "2026-07-09T12:00:00Z",
+        details: { providerId: "ollama.local", status: "not_configured" },
+      }),
+    ).toBe("Ollama isn't running");
+  });
+
+  it("guides a signed-out local Ollama daemon to the CLI", () => {
+    expect(
+      providerStatusMessage({
+        service: "ollama",
+        remainingPercent: null,
+        usedPercent: null,
+        resetAt: null,
+        source: "local",
+        confidence: "unknown",
+        lastUpdated: "2026-07-09T12:00:00Z",
+        details: { providerId: "ollama.local", status: "login_required" },
+      }),
+    ).toBe("Sign in with the Ollama CLI: ollama signin");
   });
 
   it("creates preview snapshots with independent detail objects", () => {

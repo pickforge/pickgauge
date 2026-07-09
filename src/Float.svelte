@@ -50,7 +50,6 @@
   function ringTitle(snapshot: UsageSnapshot) {
     const percent =
       snapshot.remainingPercent === null ? "unknown" : `${Math.round(snapshot.remainingPercent)}%`;
-
     return `${serviceLabels[snapshot.service]}: ${percent} remaining`;
   }
 

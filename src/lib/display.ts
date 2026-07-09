@@ -21,6 +21,12 @@ export const sourceLabels: Record<UsageSource, string> = {
   fake: "Preview",
 };
 
+export function snapshotSourceLabel(snapshot: UsageSnapshot) {
+  return snapshot.details.providerId === "ollama.local"
+    ? "Local daemon"
+    : sourceLabels[snapshot.source];
+}
+
 export const confidenceLabels: Record<UsageConfidence, string> = {
   high: "High",
   medium: "Medium",
@@ -132,6 +138,13 @@ export function lastOfficialCheck(snapshot: UsageSnapshot) {
 }
 
 export function loginPromptVisible(snapshot: UsageSnapshot) {
+  if (
+    snapshot.details.providerId === "ollama.local" &&
+    snapshot.details.status === "login_required"
+  ) {
+    return false;
+  }
+
   if (loginActionStatus(snapshot.details.status)) {
     return true;
   }

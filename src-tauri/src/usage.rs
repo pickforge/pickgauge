@@ -138,6 +138,9 @@ pub(crate) trait UsageProvider: Send + Sync {
     fn service(&self) -> Service;
     fn source(&self) -> UsageSource;
     fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError>;
+    fn is_placeholder(&self) -> bool {
+        false
+    }
     fn local_data_root(&self) -> Option<PathBuf> {
         None
     }
@@ -522,7 +525,12 @@ impl UsageEngine {
                 continue;
             }
 
-            if !self.try_begin_refresh(provider.provider_key.clone(), provider.source, &now)? {
+            if !self.try_begin_refresh_with_backoff(
+                provider.provider_key.clone(),
+                provider.source,
+                !provider.is_placeholder,
+                &now,
+            )? {
                 continue;
             }
 
@@ -532,8 +540,11 @@ impl UsageEngine {
                     snapshot
                 }
                 Err(error) => {
-                    let failure =
-                        self.record_provider_failure(&provider.provider_key, provider.source, &now)?;
+                    let failure = if provider.is_placeholder {
+                        None
+                    } else {
+                        self.record_provider_failure(&provider.provider_key, provider.source, &now)?
+                    };
                     let mut snapshot = error_snapshot(&provider, error, &now);
                     if let Some(failure) = failure {
                         add_failure_details(&mut snapshot, &failure);
@@ -568,26 +579,32 @@ impl UsageEngine {
         service: Service,
         source: UsageSource,
     ) -> Result<UsageDisplayState, String> {
-        self.refresh_provider_source_with_snapshot(service, source, |now| {
-            let provider_id = UsageProviderId::for_service_source(service, source)
+        self.refresh_provider_source_with_snapshot_policy(
+            service,
+            source,
+            RefreshPolicy::Manual,
+            false,
+            |now| {
+                let provider_id = UsageProviderId::for_service_source(service, source)
+                    .ok_or(UsageProviderError::Internal)?;
+                let provider = {
+                    let state = self
+                        .inner
+                        .lock()
+                        .map_err(|_| UsageProviderError::Internal)?;
+                    state
+                        .providers
+                        .iter()
+                        .map(|provider| provider_descriptor(provider.as_ref()))
+                        .find(|provider| {
+                            provider.service == service && provider.provider_id == provider_id
+                        })
+                }
                 .ok_or(UsageProviderError::Internal)?;
-            let provider = {
-                let state = self
-                    .inner
-                    .lock()
-                    .map_err(|_| UsageProviderError::Internal)?;
-                state
-                    .providers
-                    .iter()
-                    .map(|provider| provider_descriptor(provider.as_ref()))
-                    .find(|provider| {
-                        provider.service == service && provider.provider_id == provider_id
-                    })
-            }
-            .ok_or(UsageProviderError::Internal)?;
 
-            self.refresh_provider(&provider, now)
-        })
+                self.refresh_provider(&provider, now)
+            },
+        )
     }
 
     pub fn refresh_provider_source_with_snapshot<F>(
@@ -603,6 +620,7 @@ impl UsageEngine {
             service,
             source,
             RefreshPolicy::Manual,
+            true,
             refresh,
         )
     }
@@ -620,6 +638,7 @@ impl UsageEngine {
             service,
             source,
             RefreshPolicy::Scheduled,
+            true,
             refresh,
         )
     }
@@ -637,6 +656,7 @@ impl UsageEngine {
             service,
             source,
             RefreshPolicy::Preflight,
+            true,
             refresh,
         )
     }
@@ -646,6 +666,7 @@ impl UsageEngine {
         service: Service,
         source: UsageSource,
         policy: RefreshPolicy,
+        external_refresh: bool,
         refresh: F,
     ) -> Result<UsageDisplayState, String>
     where
@@ -685,7 +706,13 @@ impl UsageEngine {
             return self.display_state();
         }
 
-        if !self.try_begin_refresh(provider.provider_key.clone(), provider.source, &now)? {
+        let apply_backoff = external_refresh || !provider.is_placeholder;
+        if !self.try_begin_refresh_with_backoff(
+            provider.provider_key.clone(),
+            provider.source,
+            apply_backoff,
+            &now,
+        )? {
             return self.display_state();
         }
 
@@ -695,8 +722,11 @@ impl UsageEngine {
                 snapshot
             }
             Ok(_) => {
-                let failure =
-                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?;
+                let failure = if apply_backoff {
+                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?
+                } else {
+                    None
+                };
                 let mut snapshot = error_snapshot(&provider, UsageProviderError::Internal, &now);
                 if let Some(failure) = failure {
                     add_failure_details(&mut snapshot, &failure);
@@ -704,8 +734,11 @@ impl UsageEngine {
                 snapshot
             }
             Err(error) => {
-                let failure =
-                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?;
+                let failure = if apply_backoff {
+                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?
+                } else {
+                    None
+                };
                 let mut snapshot = error_snapshot(&provider, error, &now);
                 if let Some(failure) = failure {
                     add_failure_details(&mut snapshot, &failure);
@@ -800,10 +833,21 @@ impl UsageEngine {
         }
     }
 
+    #[cfg(test)]
     fn try_begin_refresh(
         &self,
         provider_key: String,
         source: UsageSource,
+        now: &str,
+    ) -> Result<bool, String> {
+        self.try_begin_refresh_with_backoff(provider_key, source, true, now)
+    }
+
+    fn try_begin_refresh_with_backoff(
+        &self,
+        provider_key: String,
+        source: UsageSource,
+        apply_backoff: bool,
         now: &str,
     ) -> Result<bool, String> {
         let mut state = self.lock()?;
@@ -812,7 +856,8 @@ impl UsageEngine {
             return Ok(false);
         }
 
-        if source != UsageSource::Local
+        if apply_backoff
+            && source != UsageSource::Local
             && provider_backoff_active(state.provider_failures.get(&provider_key), now)
         {
             return Ok(false);
@@ -1322,6 +1367,10 @@ impl UsageProvider for FailClosedWebProvider {
     fn refresh(&self, _now: &str) -> Result<UsageSnapshot, UsageProviderError> {
         Err(UsageProviderError::LoginRequired)
     }
+
+    fn is_placeholder(&self) -> bool {
+        true
+    }
 }
 
 impl UsageProvider for CliUsageProvider {
@@ -1407,6 +1456,7 @@ struct ProviderDescriptor {
     provider_id: UsageProviderId,
     service: Service,
     source: UsageSource,
+    is_placeholder: bool,
     local_data_root: Option<PathBuf>,
     local_calibration: Option<LocalQuotaCalibration>,
 }
@@ -1417,6 +1467,7 @@ fn provider_descriptor(provider: &dyn UsageProvider) -> ProviderDescriptor {
         provider_id: provider.provider_id(),
         service: provider.service(),
         source: provider.source(),
+        is_placeholder: provider.is_placeholder(),
         local_data_root: provider.local_data_root(),
         local_calibration: provider.local_calibration(),
     }
@@ -1906,6 +1957,7 @@ mod tests {
             provider_id,
             service,
             source: UsageSource::Web,
+            is_placeholder: false,
             local_data_root: None,
             local_calibration: None,
         };
@@ -2641,6 +2693,92 @@ mod tests {
         assert_eq!(snapshot.details["status"], "login_required");
         assert_eq!(snapshot.details["providerId"], "codex.web");
         assert_eq!(snapshot.details["mergeStatus"], "web_unavailable");
+    }
+
+    #[test]
+    fn grok_placeholder_failure_does_not_block_the_following_headless_refresh() {
+        let now = "2026-07-09T12:00:00Z";
+        let engine = UsageEngine::with_clock(
+            grok_web_config(),
+            Box::new(FixedClock {
+                now: now.to_string(),
+            }),
+        );
+        let refresh_calls = AtomicUsize::new(0);
+
+        engine.refresh_all().expect("placeholder refresh succeeds");
+
+        assert_eq!(
+            engine
+                .provider_failure_state("grok.web")
+                .expect("failure state reads"),
+            None
+        );
+        engine
+            .refresh_provider_source_with_snapshot(Service::Grok, UsageSource::Web, |_| {
+                refresh_calls.fetch_add(1, Ordering::Relaxed);
+                Ok(web_snapshot(Service::Grok, 71.5, now))
+            })
+            .expect("headless refresh is not blocked");
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn ollama_placeholder_failure_does_not_block_the_following_headless_refresh() {
+        let now = "2026-07-09T12:00:00Z";
+        let mut config = ollama_web_config();
+        config.providers.local_enabled = false;
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(FixedClock {
+                now: now.to_string(),
+            }),
+        );
+        let refresh_calls = AtomicUsize::new(0);
+
+        engine.refresh_all().expect("placeholder refresh succeeds");
+
+        assert_eq!(
+            engine
+                .provider_failure_state("ollama.web")
+                .expect("failure state reads"),
+            None
+        );
+        engine
+            .refresh_provider_source_with_snapshot(Service::Ollama, UsageSource::Web, |_| {
+                refresh_calls.fetch_add(1, Ordering::Relaxed);
+                Ok(web_snapshot(Service::Ollama, 82.0, now))
+            })
+            .expect("headless refresh is not blocked");
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn headless_web_failure_still_records_backoff_for_a_placeholder_provider_key() {
+        let now = "2026-07-09T12:00:00Z";
+        let engine = UsageEngine::with_clock(
+            grok_web_config(),
+            Box::new(FixedClock {
+                now: now.to_string(),
+            }),
+        );
+
+        engine.refresh_all().expect("placeholder refresh succeeds");
+        engine
+            .refresh_provider_source_with_snapshot(Service::Grok, UsageSource::Web, |_| {
+                Err(UsageProviderError::NetworkUnavailable)
+            })
+            .expect("headless failure records a snapshot");
+
+        assert!(engine
+            .provider_failure_state("grok.web")
+            .expect("failure state reads")
+            .is_some());
+        assert!(!engine
+            .try_begin_refresh("grok.web".to_string(), UsageSource::Web, now)
+            .expect("real web failure remains backoff gated"));
     }
 
     #[test]
@@ -3515,6 +3653,7 @@ mod tests {
             provider_id: UsageProviderId::CodexWeb,
             service: Service::Codex,
             source: UsageSource::Web,
+            is_placeholder: false,
             local_data_root: None,
             local_calibration: None,
         };
@@ -3644,6 +3783,7 @@ mod tests {
             provider_id: UsageProviderId::Fake,
             service: Service::Codex,
             source: UsageSource::Fake,
+            is_placeholder: false,
             local_data_root: None,
             local_calibration: None,
         };

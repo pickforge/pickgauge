@@ -10,13 +10,14 @@ reset this file.
 
 ## Internal/release changes
 
-- None yet.
+- Switched AppImage libwayland post-processing to `pickforge-tauri-release fix-appimage`.
 
 ## Validation
 
 ### Tested
 
-- None yet.
+- Workflow YAML parse check:
+  `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
 
 ### Not tested yet
 

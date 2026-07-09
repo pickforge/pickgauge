@@ -401,18 +401,16 @@ fn parse_grok_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProvid
     let subscription = subscriptions
         .iter()
         .find(|subscription| {
-            subscription.get("status").and_then(Value::as_str)
-                == Some("SUBSCRIPTION_STATUS_ACTIVE")
-                && subscription
-                    .get("tier")
-                    .and_then(Value::as_str)
-                    .is_some_and(|tier| tier.starts_with("SUBSCRIPTION_TIER_GROK_"))
+            active_grok_subscription_tier(subscription)
+                .is_some_and(|tier| tier.starts_with("SUBSCRIPTION_TIER_GROK_"))
+        })
+        .or_else(|| {
+            subscriptions
+                .iter()
+                .find(|subscription| active_grok_subscription_tier(subscription).is_some())
         })
         .ok_or(UsageProviderError::MissingData)?;
-    let tier = subscription
-        .get("tier")
-        .and_then(Value::as_str)
-        .ok_or(UsageProviderError::ParseFailed)?;
+    let tier = active_grok_subscription_tier(subscription).ok_or(UsageProviderError::ParseFailed)?;
     let billing_period_end = subscription
         .get("billingPeriodEnd")
         .and_then(Value::as_str)
@@ -440,6 +438,15 @@ fn parse_grok_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProvid
         last_updated: now.to_string(),
         details,
     })
+}
+
+fn active_grok_subscription_tier(subscription: &Value) -> Option<&str> {
+    let tier = subscription.get("tier").and_then(Value::as_str)?;
+    (subscription.get("status").and_then(Value::as_str)
+        == Some("SUBSCRIPTION_STATUS_ACTIVE")
+        && (tier.starts_with("SUBSCRIPTION_TIER_GROK_")
+            || tier.starts_with("SUBSCRIPTION_TIER_X_")))
+    .then_some(tier)
 }
 
 fn grok_plan_name(tier: &str) -> String {
@@ -528,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_grok_active_subscription_as_plan_only() {
+    fn prefers_active_grok_subscription_over_active_x_tier() {
         let body: Value = serde_json::from_str(GROK_SUBSCRIPTIONS_FIXTURE).unwrap();
         let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();
 
@@ -545,6 +552,21 @@ mod tests {
         assert_eq!(snapshot.details["plan"], "Grok Pro");
         assert_eq!(snapshot.details["billingPeriodEnd"], "2026-08-24T20:20:59Z");
         assert!(snapshot.details.get("windows").is_none());
+    }
+
+    #[test]
+    fn parses_an_active_x_tier_subscription() {
+        let body = json!({
+            "subscriptions": [{
+                "tier": "SUBSCRIPTION_TIER_X_PREMIUM",
+                "status": "SUBSCRIPTION_STATUS_ACTIVE"
+            }]
+        });
+
+        let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();
+
+        assert_eq!(snapshot.details["plan"], "X Premium");
+        assert!(snapshot.details.get("billingPeriodEnd").is_none());
     }
 
     #[test]

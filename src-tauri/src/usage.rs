@@ -305,6 +305,14 @@ impl UsageDisplayState {
         let mut states: Vec<_> = self
             .snapshots
             .iter()
+            .filter(|snapshot| {
+                snapshot.remaining_percent.is_some()
+                    || snapshot
+                        .details
+                        .get("plan")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none()
+            })
             .map(|snapshot| TrayGaugeState {
                 service: snapshot.service,
                 remaining_percent: snapshot.remaining_percent,
@@ -2036,6 +2044,66 @@ mod tests {
                     remaining_percent: Some(41.0),
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn tray_states_exclude_successful_plan_only_grok_snapshots() {
+        let display_state = UsageDisplayState {
+            snapshots: vec![
+                UsageSnapshot {
+                    service: Service::Grok,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::Medium,
+                    last_updated: "2026-07-09T20:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": "grok.cli",
+                        "plan": "Grok Pro",
+                    }),
+                },
+                web_snapshot(Service::Codex, 72.0, "2026-07-09T20:00:00Z"),
+            ],
+            updated_at: "2026-07-09T20:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            display_state.tray_states(),
+            vec![TrayGaugeState {
+                service: Service::Codex,
+                remaining_percent: Some(72.0),
+            }]
+        );
+    }
+
+    #[test]
+    fn tray_states_keep_grok_errors_without_a_plan() {
+        let display_state = UsageDisplayState {
+            snapshots: vec![UsageSnapshot {
+                service: Service::Grok,
+                remaining_percent: None,
+                used_percent: None,
+                reset_at: None,
+                source: UsageSource::Web,
+                confidence: UsageConfidence::Unknown,
+                last_updated: "2026-07-09T20:00:00Z".to_string(),
+                details: serde_json::json!({
+                    "status": "login_required",
+                    "providerId": "grok.cli",
+                }),
+            }],
+            updated_at: "2026-07-09T20:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            display_state.tray_states(),
+            vec![TrayGaugeState {
+                service: Service::Grok,
+                remaining_percent: None,
+            }]
         );
     }
 

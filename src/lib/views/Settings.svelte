@@ -286,17 +286,31 @@
         <input
           type="checkbox"
           bind:checked={config.providers.webEnabled}
-          disabled={config.providers.cliEnabled && !config.enabledServices.ollama}
+          disabled={
+            config.providers.cliEnabled &&
+            !config.enabledServices.grok &&
+            !config.enabledServices.ollama
+          }
         />
         <span class="track"></span>
         Official web readings (browser)
       </label>
       <p class="hint">
         CLI readings reuse the Codex, Claude Code, and Grok logins already on this machine. Grok
-        reads its bearer once for a plan-only subscription check and never refreshes, stores, or writes it;
-        sign in with the Grok CLI if it expires. Usage percentages need a later opt-in path. Ollama
-        reads the signed-in local daemon's plan when it is running; it does not expose usage limits.
+        reads its bearer once for a plan-only subscription check and never refreshes, stores, or writes it.
+        Enable official web readings to sign in to an isolated Grok profile for weekly usage. Ollama
+        reads the signed-in local daemon's plan when it is running.
       </p>
+      {#if config.enabledServices.grok && config.providers.webEnabled}
+        <button
+          class="btn btn-sm"
+          type="button"
+          disabled={loggingIn === "grok"}
+          onclick={() => startProviderLogin("grok")}
+        >
+          {loggingIn === "grok" ? "Opening…" : "Sign in to Grok"}
+        </button>
+      {/if}
       {#if config.enabledServices.ollama}
         {#if config.providers.webEnabled}
           <button
@@ -309,7 +323,7 @@
           </button>
         {/if}
         <p class="hint">
-          The local daemon reports only your plan. Usage-limit readings are not available yet, and
+          The local daemon reports only your plan. Enable official web readings to add usage limits;
           PickGauge never stores your account identity.
         </p>
       {/if}
@@ -496,6 +510,19 @@
         />
       </label>
       <label class="field">
+        <span>Grok profile</span>
+        <input
+          class="input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Default under root"
+          value={profilePathValue(config.browserProfiles.grokPath)}
+          oninput={(event) => updateProfilePath("grokPath", event)}
+          disabled={webControls.profilePathInputsDisabled}
+        />
+      </label>
+      <label class="field">
         <span>Ollama profile</span>
         <input
           class="input"
@@ -519,7 +546,7 @@
         <button class="btn btn-sm" type="button" disabled={locatingLogs} onclick={showLogLocation}>
           {locatingLogs ? "Checking…" : "Log location"}
         </button>
-        {#each ["codex", "claude", "ollama"] as service (service)}
+        {#each ["codex", "claude", "grok", "ollama"] as service (service)}
           <button
             class="btn btn-sm"
             type="button"

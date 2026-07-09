@@ -23,7 +23,7 @@
   const ringColors: Record<Service, string> = {
     codex: "var(--text)",
     claude: "var(--ember)",
-    grok: "var(--ember)",
+    grok: "var(--muted)",
     ollama: "var(--pf-info)",
   };
 

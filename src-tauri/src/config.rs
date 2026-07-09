@@ -9,7 +9,7 @@ use std::{
 
 const BUNDLE_IDENTIFIER: &str = "com.pickforge.pickgauge";
 const CONFIG_FILE_NAME: &str = "config.json";
-const CONFIG_VERSION: u32 = 6;
+const CONFIG_VERSION: u32 = 7;
 const MAX_PLAN_LABEL_LENGTH: usize = 80;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -64,6 +64,7 @@ pub struct BrowserProfileSettings {
     pub root_path: Option<String>,
     pub codex_path: Option<String>,
     pub claude_path: Option<String>,
+    pub grok_path: Option<String>,
     pub ollama_path: Option<String>,
 }
 
@@ -147,6 +148,7 @@ impl Default for AppConfig {
                 root_path: None,
                 codex_path: None,
                 claude_path: None,
+                grok_path: None,
                 ollama_path: None,
             },
             local_quotas: LocalQuotaSettings::default(),
@@ -348,6 +350,7 @@ fn migrate_config_value(value: &mut Value) -> Result<(), String> {
             3 => migrate_v3_to_v4(value)?,
             4 => migrate_v4_to_v5(value)?,
             5 => migrate_v5_to_v6(value)?,
+            6 => migrate_v6_to_v7(value)?,
             _ => {
                 return Err(format!(
                     "No migration is available for config version {version}"
@@ -412,6 +415,14 @@ fn migrate_v5_to_v6(value: &mut Value) -> Result<(), String> {
         .as_object_mut()
         .ok_or_else(|| "Config root must be a JSON object".to_string())?;
     object.insert("version".to_string(), Value::from(6));
+    Ok(())
+}
+
+fn migrate_v6_to_v7(value: &mut Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Config root must be a JSON object".to_string())?;
+    object.insert("version".to_string(), Value::from(7));
     Ok(())
 }
 
@@ -764,6 +775,7 @@ mod tests {
                 root_path: None,
                 codex_path: None,
                 claude_path: None,
+                grok_path: None,
                 ollama_path: None,
             }
         );
@@ -810,6 +822,7 @@ mod tests {
                 root_path: None,
                 codex_path: None,
                 claude_path: None,
+                grok_path: None,
                 ollama_path: None,
             }
         );
@@ -1030,6 +1043,7 @@ mod tests {
                 root_path: Some("/tmp/pickgauge/browser".to_string()),
                 codex_path: Some("/tmp/pickgauge/codex".to_string()),
                 claude_path: Some("/tmp/pickgauge/claude".to_string()),
+                grok_path: None,
                 ollama_path: None,
             },
             ..AppConfig::default()

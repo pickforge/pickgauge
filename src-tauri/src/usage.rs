@@ -127,6 +127,7 @@ pub enum UsageProviderId {
     ClaudeWeb,
     ClaudeCli,
     GrokCli,
+    GrokWeb,
     OllamaLocal,
     OllamaWeb,
     Fake,
@@ -266,7 +267,8 @@ impl UsageProviderId {
             (Service::Codex, UsageSource::Web) => Some(Self::CodexWeb),
             (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
             (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
-            (Service::Grok, UsageSource::Local | UsageSource::Web) => None,
+            (Service::Grok, UsageSource::Local) => None,
+            (Service::Grok, UsageSource::Web) => Some(Self::GrokWeb),
             (Service::Ollama, UsageSource::Local) => Some(Self::OllamaLocal),
             (Service::Ollama, UsageSource::Web) => Some(Self::OllamaWeb),
             (_, UsageSource::Fake) => Some(Self::Fake),
@@ -283,6 +285,7 @@ impl UsageProviderId {
             Self::ClaudeWeb => "claude.web",
             Self::ClaudeCli => "claude.cli",
             Self::GrokCli => "grok.cli",
+            Self::GrokWeb => "grok.web",
             Self::OllamaLocal => "ollama.local",
             Self::OllamaWeb => "ollama.web",
             Self::Fake => "fake",
@@ -780,6 +783,7 @@ impl UsageEngine {
             }
             (UsageProviderId::CodexWeb, Service::Codex)
             | (UsageProviderId::ClaudeWeb, Service::Claude)
+            | (UsageProviderId::GrokWeb, Service::Grok)
             | (UsageProviderId::OllamaWeb, Service::Ollama) => {
                 Err(UsageProviderError::LoginRequired)
             }
@@ -959,11 +963,12 @@ fn merge_service_snapshots(
     config: &AppConfig,
     now: &str,
 ) -> Option<UsageSnapshot> {
-    let web = latest_snapshot_with_source(&snapshots, UsageSource::Web);
+    let web = preferred_web_snapshot(&snapshots)
+        .map(|snapshot| web_snapshot_with_carried_plan(snapshot, &snapshots));
     let local = latest_snapshot_with_source(&snapshots, UsageSource::Local);
     let fake = latest_snapshot_with_source(&snapshots, UsageSource::Fake);
 
-    if let Some(web) = web {
+    if let Some(web) = web.as_ref() {
         if !web_has_usage_percent(web) {
             if let Some(local) = local.filter(|snapshot| is_plan_only_local_snapshot(snapshot)) {
                 return Some(local.clone());
@@ -1095,6 +1100,72 @@ fn latest_snapshot_with_source<'a>(
         .copied()
         .filter(|snapshot| snapshot.source == source)
         .max_by_key(|snapshot| parse_rfc3339(&snapshot.last_updated))
+}
+
+fn preferred_web_snapshot<'a>(snapshots: &'a [&'a UsageSnapshot]) -> Option<&'a UsageSnapshot> {
+    snapshots
+        .iter()
+        .copied()
+        .filter(|snapshot| snapshot.source == UsageSource::Web)
+        .max_by(|left, right| {
+            web_has_usage_percent(left)
+                .cmp(&web_has_usage_percent(right))
+                .then_with(|| web_snapshot_is_parsed(left).cmp(&web_snapshot_is_parsed(right)))
+                .then_with(|| {
+                    parse_rfc3339(&left.last_updated).cmp(&parse_rfc3339(&right.last_updated))
+                })
+        })
+}
+
+fn web_snapshot_is_parsed(snapshot: &UsageSnapshot) -> bool {
+    snapshot.details.get("status").and_then(|value| value.as_str()) == Some("parsed")
+}
+
+fn web_snapshot_with_carried_plan(
+    web: &UsageSnapshot,
+    siblings: &[&UsageSnapshot],
+) -> UsageSnapshot {
+    let mut snapshot = web.clone();
+    if snapshot
+        .details
+        .get("plan")
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        return snapshot;
+    }
+
+    let plan_sibling = siblings
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .details
+                .get("plan")
+                .and_then(|value| value.as_str())
+                .is_some()
+        })
+        .max_by_key(|candidate| parse_rfc3339(&candidate.last_updated));
+
+    let Some(plan_sibling) = plan_sibling else {
+        return snapshot;
+    };
+
+    if let Some(plan) = plan_sibling.details.get("plan").cloned() {
+        set_detail(&mut snapshot, "plan", plan);
+    }
+    if snapshot
+        .details
+        .get("billingPeriodEnd")
+        .and_then(|value| value.as_str())
+        .is_none()
+    {
+        if let Some(billing_period_end) = plan_sibling.details.get("billingPeriodEnd").cloned() {
+            set_detail(&mut snapshot, "billingPeriodEnd", billing_period_end);
+        }
+    }
+
+    snapshot
 }
 
 fn web_baseline_stale(snapshot: &UsageSnapshot, config: &AppConfig, now: &str) -> bool {
@@ -1419,10 +1490,17 @@ fn providers_for_config(
         }
     }
 
-    if config.enabled_services.grok && config.providers.cli_enabled {
-        providers.push(Box::new(CliUsageProvider {
-            service: Service::Grok,
-        }));
+    if config.enabled_services.grok {
+        if config.providers.cli_enabled {
+            providers.push(Box::new(CliUsageProvider {
+                service: Service::Grok,
+            }));
+        }
+        if config.providers.web_enabled {
+            providers.push(Box::new(FailClosedWebProvider {
+                service: Service::Grok,
+            }));
+        }
     }
 
     if config.enabled_services.ollama {
@@ -1898,6 +1976,42 @@ mod tests {
                 "via": "daemon",
                 "plan": "pro",
             }),
+        }
+    }
+
+    fn grok_cli_plan_snapshot(last_updated: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            service: Service::Grok,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            source: UsageSource::Web,
+            confidence: UsageConfidence::Medium,
+            last_updated: last_updated.to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": "grok.cli",
+                "source": "web",
+                "plan": "Grok Pro",
+                "billingPeriodEnd": "2026-07-16T00:00:00Z",
+            }),
+        }
+    }
+
+    fn grok_web_config() -> AppConfig {
+        AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: true,
+                ollama: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: true,
+                cli_enabled: true,
+            },
+            ..AppConfig::default()
         }
     }
 
@@ -2913,6 +3027,78 @@ mod tests {
         assert_eq!(snapshot.remaining_percent, Some(82.0));
         assert_eq!(snapshot.confidence, UsageConfidence::High);
         assert_eq!(snapshot.details["mergeStatus"], "web_only");
+        assert_eq!(snapshot.details["plan"], "pro");
+    }
+
+    #[test]
+    fn grok_web_usage_beats_cli_plan_and_carries_its_plan_details() {
+        let display_state = display_state_from_provider_snapshots(
+            grok_web_config(),
+            vec![
+                (
+                    "grok.web",
+                    web_snapshot(Service::Grok, 71.5, "2026-07-09T12:00:00Z"),
+                ),
+                ("grok.cli", grok_cli_plan_snapshot("2026-07-09T12:10:00Z")),
+            ],
+            "2026-07-09T12:10:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.remaining_percent, Some(71.5));
+        assert_eq!(snapshot.details["providerId"], "grok.web");
+        assert_eq!(snapshot.details["plan"], "Grok Pro");
+        assert_eq!(snapshot.details["billingPeriodEnd"], "2026-07-16T00:00:00Z");
+    }
+
+    #[test]
+    fn grok_cli_plan_beats_a_grok_web_login_failure() {
+        let display_state = display_state_from_provider_snapshots(
+            grok_web_config(),
+            vec![
+                (
+                    "grok.web",
+                    web_error_snapshot(
+                        Service::Grok,
+                        UsageProviderError::LoginRequired,
+                        "2026-07-09T12:10:00Z",
+                    ),
+                ),
+                ("grok.cli", grok_cli_plan_snapshot("2026-07-09T12:00:00Z")),
+            ],
+            "2026-07-09T12:10:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.details["providerId"], "grok.cli");
+        assert_eq!(snapshot.details["plan"], "Grok Pro");
+        assert_eq!(snapshot.remaining_percent, None);
+    }
+
+    #[test]
+    fn single_web_snapshots_keep_existing_codex_and_claude_behavior() {
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                (
+                    "codex.web",
+                    web_snapshot(Service::Codex, 82.0, "2026-07-09T12:00:00Z"),
+                ),
+                (
+                    "claude.web",
+                    web_snapshot(Service::Claude, 63.0, "2026-07-09T12:00:00Z"),
+                ),
+            ],
+            "2026-07-09T12:01:00Z",
+        );
+
+        assert_eq!(display_state.snapshots.len(), 2);
+        assert_eq!(display_state.snapshots[0].details["providerId"], "codex.web");
+        assert_eq!(display_state.snapshots[1].details["providerId"], "claude.web");
+        assert!(display_state
+            .snapshots
+            .iter()
+            .all(|snapshot| snapshot.details["mergeStatus"] == "web_only"));
     }
 
     #[test]
@@ -3503,6 +3689,12 @@ mod tests {
         );
         assert_eq!(UsageProviderId::GrokCli.code(), "grok.cli");
         assert_eq!(
+            UsageProviderId::for_service_source(Service::Grok, UsageSource::Web)
+                .expect("grok web id")
+                .code(),
+            "grok.web"
+        );
+        assert_eq!(
             UsageProviderId::for_service_source(Service::Ollama, UsageSource::Local)
                 .expect("ollama local id")
                 .code(),
@@ -3539,6 +3731,22 @@ mod tests {
         assert_eq!(providers[0].provider_id(), UsageProviderId::GrokCli);
         assert_eq!(providers[0].service(), Service::Grok);
         assert_eq!(providers[0].source(), UsageSource::Web);
+    }
+
+    #[test]
+    fn grok_cli_and_web_providers_register_together_when_enabled() {
+        let providers = providers_for_config(&grok_web_config(), &LocalProviderRoots::default());
+
+        assert!(providers.iter().any(|provider| {
+            provider.provider_id() == UsageProviderId::GrokCli
+                && provider.service() == Service::Grok
+                && provider.source() == UsageSource::Web
+        }));
+        assert!(providers.iter().any(|provider| {
+            provider.provider_id() == UsageProviderId::GrokWeb
+                && provider.service() == Service::Grok
+                && provider.source() == UsageSource::Web
+        }));
     }
 
     #[test]

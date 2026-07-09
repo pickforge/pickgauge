@@ -228,6 +228,7 @@ pub struct PlaywrightSidecarUsageResponse {
     pub reset_at: Option<String>,
     pub visible_fields: Vec<String>,
     pub weekly: Option<PlaywrightSidecarUsageWindow>,
+    pub products: Vec<PlaywrightSidecarUsageProduct>,
 }
 
 /// A secondary rate-limit window (e.g. Ollama's weekly meter) carried alongside
@@ -239,6 +240,13 @@ pub struct PlaywrightSidecarUsageWindow {
     pub remaining_percent: Option<f32>,
     pub used_percent: Option<f32>,
     pub reset_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaywrightSidecarUsageProduct {
+    pub product: String,
+    pub usage_percent: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,6 +281,7 @@ struct RawPlaywrightSidecarUsageResponse {
     reset_at: Option<String>,
     visible_fields: Option<Vec<String>>,
     weekly: Option<PlaywrightSidecarUsageWindow>,
+    products: Option<Vec<PlaywrightSidecarUsageProduct>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -814,6 +823,7 @@ pub fn playwright_sidecar_usage_response(
         return Err("Managed usage sidecar returned invalid page state".to_string());
     };
     let visible_fields = response.visible_fields.unwrap_or_default();
+    let products = response.products.unwrap_or_default();
 
     if response.protocol_version != request.protocol_version
         || action != request.action
@@ -844,6 +854,23 @@ pub fn playwright_sidecar_usage_response(
         return Err("Managed usage sidecar returned invalid visible fields".to_string());
     }
 
+    if products.len() > 6
+        || products.iter().any(|product| {
+            !matches!(
+                product.product.as_str(),
+                "PRODUCT_GROK_CHAT"
+                    | "PRODUCT_GROK_BUILD"
+                    | "PRODUCT_API"
+                    | "PRODUCT_GROK_IMAGINE"
+                    | "PRODUCT_GROK_VOICE"
+                    | "PRODUCT_GROK_PLUGINS"
+            ) || !product.usage_percent.is_finite()
+                || !(0.0..=100.0).contains(&product.usage_percent)
+        })
+    {
+        return Err("Managed usage sidecar returned invalid products".to_string());
+    }
+
     Ok(PlaywrightSidecarUsageResponse {
         protocol_version: response.protocol_version,
         action,
@@ -859,6 +886,7 @@ pub fn playwright_sidecar_usage_response(
         reset_at: response.reset_at,
         visible_fields,
         weekly: response.weekly,
+        products,
     })
 }
 
@@ -1132,7 +1160,7 @@ fn profile_label(service: Service) -> String {
     match service {
         Service::Codex => "codex-profile".to_string(),
         Service::Claude => "claude-profile".to_string(),
-        Service::Grok => unreachable!("Grok has no managed browser profile"),
+        Service::Grok => "grok-profile".to_string(),
         Service::Ollama => "ollama-profile".to_string(),
     }
 }

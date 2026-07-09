@@ -7,11 +7,19 @@ import { fileURLToPath } from "node:url";
 export const BACKEND_ID = "playwright-headed-chromium-sidecar";
 export const PROTOCOL_VERSION = 1;
 
-const allowedServices = new Set(["codex", "claude", "ollama"]);
+const allowedServices = new Set(["codex", "claude", "grok", "ollama"]);
 const allowedActions = new Set(["launchLogin", "refreshUsage", "httpRefreshUsage"]);
 const navigationTimeoutMs = 30_000;
 const ollamaHttpUserAgent =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+const grokProducts = new Set([
+  "PRODUCT_GROK_CHAT",
+  "PRODUCT_GROK_BUILD",
+  "PRODUCT_API",
+  "PRODUCT_GROK_IMAGINE",
+  "PRODUCT_GROK_VOICE",
+  "PRODUCT_GROK_PLUGINS",
+]);
 
 export function validateLaunchRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -43,6 +51,16 @@ export function validateLaunchRequest(input) {
   }
 
   if (typeof input.url !== "string" || !isHttpsUrl(input.url)) {
+    return rejected("invalid_url");
+  }
+
+  if (
+    input.service === "grok" &&
+    input.url !==
+      (input.action === "httpRefreshUsage"
+        ? "https://grok.com/rest/grok/credits"
+        : "https://grok.com/")
+  ) {
     return rejected("invalid_url");
   }
 
@@ -171,12 +189,15 @@ async function runRefreshUsageRequest(request) {
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
 
     const visibleUsage = await extractVisibleUsage(page, request.service);
-    const pageState = await detectPageState(page, visibleUsage, existingCookieCount);
+    const pageState =
+      request.service === "grok"
+        ? await detectGrokPageState(page, existingCookieCount)
+        : await detectPageState(page, visibleUsage, existingCookieCount);
 
-    if (request.service === "ollama" && pageState === "usage") {
+    if ((request.service === "grok" || request.service === "ollama") && pageState === "usage") {
       // Harvest the authenticated session so later refreshes can skip Chromium
       // and fetch the page over plain HTTP. The cookie never leaves the sidecar.
-      await persistOllamaSession(context, request);
+      await persistSession(context, request);
     }
 
     return {
@@ -188,6 +209,7 @@ async function runRefreshUsageRequest(request) {
       usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
       visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
       weekly: pageState === "usage" ? visibleUsage.weekly : null,
+      products: pageState === "usage" ? (visibleUsage.products ?? []) : [],
     };
   } catch (error) {
     if (context) {
@@ -212,6 +234,7 @@ function sanitizedCheckedResponse(request, pageState, visibleUsage = emptyVisibl
     usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
     visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
     weekly: pageState === "usage" ? visibleUsage.weekly : null,
+    products: pageState === "usage" ? (visibleUsage.products ?? []) : [],
   };
 }
 
@@ -222,19 +245,19 @@ function emptyVisibleUsage() {
     usedPercent: null,
     visibleFields: [],
     weekly: null,
+    products: [],
   };
 }
 
-// Lightweight refresh: replay the harvested session cookie over plain HTTP and
-// parse the same server-rendered HTML, with no Chromium launched. Ollama only —
-// the page is server-rendered and not behind a bot-managed edge. A missing or
-// expired session reports `logged_out` so the caller falls back to the browser.
+// Lightweight refresh: replay the harvested session cookie over plain HTTP,
+// with no Chromium launched. A missing or expired session reports `logged_out`
+// so the caller falls back to the browser.
 async function runHttpRefreshUsageRequest(request) {
-  if (request.service !== "ollama") {
+  if (request.service !== "grok" && request.service !== "ollama") {
     return sanitizedCheckedResponse(request, "unexpected_ui");
   }
 
-  const cookies = readOllamaSession(request);
+  const cookies = readSession(request);
 
   if (cookies === null) {
     return sanitizedCheckedResponse(request, "logged_out");
@@ -244,12 +267,18 @@ async function runHttpRefreshUsageRequest(request) {
 
   try {
     response = await fetch(request.url, {
-      headers: {
-        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "accept-language": "en-US,en;q=0.9",
-        cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
-        "user-agent": ollamaHttpUserAgent,
-      },
+      headers:
+        request.service === "grok"
+          ? {
+              accept: "application/json",
+              cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
+            }
+          : {
+              accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "accept-language": "en-US,en;q=0.9",
+              cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
+              "user-agent": ollamaHttpUserAgent,
+            },
       redirect: "manual",
     });
   } catch (error) {
@@ -261,12 +290,22 @@ async function runHttpRefreshUsageRequest(request) {
     return sanitizedCheckedResponse(request, "logged_out");
   }
 
+  if (request.service === "grok" && (response.status === 401 || response.status === 403)) {
+    return sanitizedCheckedResponse(request, "logged_out");
+  }
+
   if (!response.ok) {
     return sanitizedCheckedResponse(request, "unexpected_ui");
   }
 
-  const html = await response.text().catch(() => "");
-  const usage = extractOllamaUsageFromHtml(html);
+  const body = await response.text().catch(() => "");
+
+  if (request.service === "grok") {
+    const parsed = parseGrokCreditsBody(body);
+    return sanitizedCheckedResponse(request, parsed.pageState, parsed.usage);
+  }
+
+  const usage = extractOllamaUsageFromHtml(body);
   const pageState = usage.visibleFields.length > 0 ? "usage" : "unexpected_ui";
 
   return sanitizedCheckedResponse(request, pageState, usage);
@@ -276,7 +315,7 @@ function sessionStorePath(request) {
   return `${request.userDataDir}.session.json`;
 }
 
-async function persistOllamaSession(context, request) {
+async function persistSession(context, request) {
   try {
     const cookies = await context.cookies(request.url);
     const pairs = cookies
@@ -295,7 +334,7 @@ async function persistOllamaSession(context, request) {
   }
 }
 
-function readOllamaSession(request) {
+function readSession(request) {
   try {
     const path = sessionStorePath(request);
 
@@ -357,6 +396,36 @@ export async function detectPageState(page, visibleUsage, cookieCount) {
   return "unexpected_ui";
 }
 
+async function detectGrokPageState(page, cookieCount) {
+  if (await urlLooksLoggedOut(page)) {
+    return "logged_out";
+  }
+
+  if (await hasAnyVisibleLocator(captchaLocators(page))) {
+    return "captcha_or_bot_check";
+  }
+
+  if (await hasAnyVisibleLocator(mfaLocators(page))) {
+    return "mfa_required";
+  }
+
+  if (await hasAnyVisibleLocator(authGateLocators(page))) {
+    return "logged_out";
+  }
+
+  try {
+    const host = new URL(page.url()).hostname.toLowerCase();
+
+    if (host === "grok.com" || host.endsWith(".grok.com")) {
+      return "usage";
+    }
+  } catch {
+    return "unexpected_ui";
+  }
+
+  return cookieCount === 0 ? "logged_out" : "unexpected_ui";
+}
+
 async function serviceCookieCount(context, url) {
   return (await context.cookies(url).catch(() => [])).length;
 }
@@ -368,6 +437,7 @@ async function urlLooksLoggedOut(page) {
     const path = url.pathname.toLowerCase();
 
     return (
+      host === "accounts.x.ai" ||
       host.includes("auth") ||
       host.includes("login") ||
       host.includes("signin") ||
@@ -456,6 +526,76 @@ export async function extractVisibleUsage(page, service) {
     usedPercent: percentages.usedPercent,
     visibleFields: [...new Set(visibleFields)],
     weekly: null,
+  };
+}
+
+export function parseGrokCreditsBody(body) {
+  if (typeof body !== "string" || /^\s*</u.test(body)) {
+    return { pageState: "logged_out", usage: emptyVisibleUsage() };
+  }
+
+  let value;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return { pageState: "unexpected_ui", usage: emptyVisibleUsage() };
+  }
+
+  const usage = extractGrokCreditsUsage(value);
+  return usage === null
+    ? { pageState: "unexpected_ui", usage: emptyVisibleUsage() }
+    : { pageState: "usage", usage };
+}
+
+export function extractGrokCreditsUsage(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const config = value.config;
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return null;
+  }
+
+  const hasUsage = Object.prototype.hasOwnProperty.call(config, "creditUsagePercent");
+  const usedPercent = hasUsage ? config.creditUsagePercent : 0;
+  if (typeof usedPercent !== "number" || !validPercent(usedPercent)) {
+    return null;
+  }
+
+  const period = config.currentPeriod;
+  const resetAt =
+    period && typeof period === "object" && !Array.isArray(period)
+      ? normalizeRfc3339(period.billingPeriodEnd)
+      : null;
+  const products = Array.isArray(config.productUsage)
+    ? config.productUsage.flatMap((entry) => {
+        if (
+          !entry ||
+          typeof entry !== "object" ||
+          Array.isArray(entry) ||
+          !grokProducts.has(entry.product) ||
+          !validPercent(entry.usagePercent)
+        ) {
+          return [];
+        }
+
+        return [{ product: entry.product, usagePercent: entry.usagePercent }];
+      })
+    : [];
+
+  const visibleFields = ["used_percent", "remaining_percent", "quota_window"];
+  if (resetAt !== null) {
+    visibleFields.push("reset_at");
+  }
+
+  return {
+    remainingPercent: 100 - usedPercent,
+    resetAt,
+    usedPercent,
+    visibleFields,
+    weekly: null,
+    products,
   };
 }
 
@@ -660,6 +800,18 @@ function normalizeIsoReset(value) {
 
   const iso = match[0].endsWith("Z") ? match[0] : `${match[0]}:00Z`;
   return Number.isNaN(Date.parse(iso)) ? null : iso;
+}
+
+function normalizeRfc3339(value) {
+  if (
+    typeof value !== "string" ||
+    value.length > 64 ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)
+  ) {
+    return null;
+  }
+
+  return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
 function rejected(code) {

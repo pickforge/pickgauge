@@ -187,9 +187,29 @@
   }
 
   function planOnlyNote(snapshot: UsageSnapshot) {
+    if (snapshot.service === "grok" && !config.providers.webEnabled) {
+      return "Connect web session to see remaining quota";
+    }
     return snapshot.details.via === "daemon"
       ? "Usage limits unavailable from the local daemon"
       : "Usage —";
+  }
+
+  function grokBuildUsage(snapshot: UsageSnapshot) {
+    const products = snapshot.details.products;
+    if (!Array.isArray(products)) {
+      return null;
+    }
+
+    const build = products.find(
+      (product) =>
+        product &&
+        typeof product === "object" &&
+        (product as Record<string, unknown>).product === "PRODUCT_GROK_BUILD",
+    ) as Record<string, unknown> | undefined;
+    const usage = build?.usagePercent;
+
+    return typeof usage === "number" && Number.isFinite(usage) ? usage : null;
   }
 
   async function loadDaily() {
@@ -373,6 +393,12 @@
                   <dd>{lastOfficialCheck(snapshot)}</dd>
                 </div>
               {/if}
+              {#if grokBuildUsage(snapshot) !== null}
+                <div>
+                  <dt>Grok Build</dt>
+                  <dd>{Math.round(grokBuildUsage(snapshot) ?? 0)}% used</dd>
+                </div>
+              {/if}
             </dl>
           </div>
 
@@ -386,7 +412,7 @@
             <p class="note muted">{localActivitySummary(snapshot)}</p>
           {/if}
 
-          {#if snapshot.service !== "grok"}
+          {#if snapshot.service !== "grok" || config.providers.webEnabled}
             <footer class="service-actions">
               <button
                 class="btn btn-sm"

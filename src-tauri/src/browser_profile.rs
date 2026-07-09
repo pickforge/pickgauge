@@ -16,6 +16,7 @@ pub struct BrowserProfilePaths {
     pub root: PathBuf,
     pub codex: PathBuf,
     pub claude: PathBuf,
+    pub grok: PathBuf,
     pub ollama: PathBuf,
 }
 
@@ -24,6 +25,7 @@ pub struct BrowserProfilePaths {
 pub enum BrowserProfileService {
     Codex,
     Claude,
+    Grok,
     Ollama,
 }
 
@@ -44,6 +46,8 @@ pub fn should_prepare_browser_profiles(
         || configured_path(&settings.root_path).is_some()
         || configured_path(&settings.codex_path).is_some()
         || configured_path(&settings.claude_path).is_some()
+        || configured_path(&settings.grok_path).is_some()
+        || configured_path(&settings.ollama_path).is_some()
 }
 
 pub fn prepare_browser_profiles(
@@ -56,6 +60,7 @@ pub fn prepare_browser_profiles(
     ensure_profile_root_directory(&paths.root)?;
     ensure_profile_directory(&paths.codex, BrowserProfileService::Codex)?;
     ensure_profile_directory(&paths.claude, BrowserProfileService::Claude)?;
+    ensure_profile_directory(&paths.grok, BrowserProfileService::Grok)?;
     ensure_profile_directory(&paths.ollama, BrowserProfileService::Ollama)?;
 
     Ok(paths)
@@ -126,6 +131,7 @@ impl BrowserProfilePaths {
         match service {
             BrowserProfileService::Codex => &self.codex,
             BrowserProfileService::Claude => &self.claude,
+            BrowserProfileService::Grok => &self.grok,
             BrowserProfileService::Ollama => &self.ollama,
         }
     }
@@ -158,6 +164,10 @@ fn resolve_browser_profile_paths(
         Some(path) => resolve_configured_path(path)?,
         None => root.join("claude"),
     };
+    let grok = match configured_path(&settings.grok_path) {
+        Some(path) => resolve_configured_path(path)?,
+        None => root.join("grok"),
+    };
     let ollama = match configured_path(&settings.ollama_path) {
         Some(path) => resolve_configured_path(path)?,
         None => root.join("ollama"),
@@ -167,6 +177,7 @@ fn resolve_browser_profile_paths(
         root,
         codex: canonicalize_browser_profile_path(&codex)?,
         claude: canonicalize_browser_profile_path(&claude)?,
+        grok: canonicalize_browser_profile_path(&grok)?,
         ollama: canonicalize_browser_profile_path(&ollama)?,
     };
     reject_overlapping_profile_paths(&paths)?;
@@ -250,7 +261,7 @@ fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn reject_overlapping_profile_paths(paths: &BrowserProfilePaths) -> Result<(), String> {
-    let service_paths = [&paths.codex, &paths.claude, &paths.ollama];
+    let service_paths = [&paths.codex, &paths.claude, &paths.grok, &paths.ollama];
 
     if service_paths.iter().any(|path| &paths.root == *path) {
         return Err("Browser profile root must not be a service profile path".to_string());
@@ -488,6 +499,7 @@ mod tests {
             root_path: None,
             codex_path: None,
             claude_path: None,
+            grok_path: None,
             ollama_path: None,
         }
     }
@@ -501,6 +513,8 @@ mod tests {
         assert_eq!(paths.root, dir.path.join("browser-profiles"));
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(paths.ollama.join(PROFILE_MARKER_FILE_NAME).exists());
     }
 
     #[test]
@@ -514,6 +528,7 @@ mod tests {
         assert!(app_data_dir.exists());
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
     }
 
     #[test]
@@ -523,6 +538,7 @@ mod tests {
             root_path: Some(dir.path.join("root").to_string_lossy().to_string()),
             codex_path: Some(dir.path.join("codex-custom").to_string_lossy().to_string()),
             claude_path: Some(dir.path.join("claude-custom").to_string_lossy().to_string()),
+            grok_path: None,
             ollama_path: None,
         };
 
@@ -531,8 +547,10 @@ mod tests {
         assert_eq!(paths.root, dir.path.join("root"));
         assert_eq!(paths.codex, dir.path.join("codex-custom"));
         assert_eq!(paths.claude, dir.path.join("claude-custom"));
+        assert_eq!(paths.grok, dir.path.join("root").join("grok"));
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
     }
 
     #[test]
@@ -586,6 +604,7 @@ mod tests {
                     .to_string_lossy()
                     .to_string(),
             ),
+            grok_path: None,
             ollama_path: None,
         };
 
@@ -608,6 +627,7 @@ mod tests {
                     .to_string_lossy()
                     .to_string(),
             ),
+            grok_path: None,
             ollama_path: None,
         };
 

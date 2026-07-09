@@ -241,6 +241,7 @@ export type AppConfig = {
     rootPath: string | null;
     codexPath: string | null;
     claudePath: string | null;
+    grokPath: string | null;
     ollamaPath: string | null;
   };
   localQuotas: {
@@ -259,7 +260,7 @@ export type AppConfig = {
 };
 
 export const defaultConfig: AppConfig = {
-  version: 6,
+  version: 7,
   enabledServices: {
     codex: true,
     claude: true,
@@ -282,6 +283,7 @@ export const defaultConfig: AppConfig = {
     rootPath: null,
     codexPath: null,
     claudePath: null,
+    grokPath: null,
     ollamaPath: null,
   },
   localQuotas: {

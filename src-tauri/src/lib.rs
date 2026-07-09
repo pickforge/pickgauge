@@ -31,7 +31,7 @@ use usage::{
     Service, UsageDisplayState, UsageEngine, UsageProviderError, UsageProviderErrorEvent,
     UsageRefreshEvent, UsageRefreshStatus, UsageSnapshot, UsageSource,
 };
-use web_provider::{VisiblePageState, VisibleUsageInput, VisibleWindowInput};
+use web_provider::{VisiblePageState, VisibleProductInput, VisibleUsageInput, VisibleWindowInput};
 
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
@@ -48,6 +48,8 @@ const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_availa
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
+const GROK_USAGE_URL: &str = "https://grok.com/";
+const GROK_CREDITS_URL: &str = "https://grok.com/rest/grok/credits";
 const OLLAMA_USAGE_URL: &str = "https://ollama.com/settings";
 const SENTRY_DSN: &str =
     "https://3a176d7b2fdccedfb2812e6a0b231f56@o4511699702317056.ingest.us.sentry.io/4511699813924864";
@@ -61,6 +63,7 @@ const TRAY_ICON_OUTER_RADIUS: f32 = 30.0;
 const TRAY_ICON_INNER_RADIUS: f32 = 21.0;
 const TRAY_CODEX_ACCENT: [u8; 4] = [242, 242, 243, 255];
 const TRAY_CLAUDE_ACCENT: [u8; 4] = [255, 122, 26, 255];
+const TRAY_GROK_ACCENT: [u8; 4] = [156, 163, 175, 255];
 const TRAY_OLLAMA_ACCENT: [u8; 4] = [37, 99, 235, 255];
 const TRAY_LOW_ACCENT: [u8; 4] = [194, 65, 12, 255];
 // Solid, not translucent: the icon must stay a self-contained dark coin so
@@ -399,7 +402,7 @@ fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
         Service::Claude => CLAUDE_USAGE_URL,
-        Service::Grok => unreachable!("Grok has no official web provider"),
+        Service::Grok => GROK_USAGE_URL,
         Service::Ollama => OLLAMA_USAGE_URL,
     }
 }
@@ -408,7 +411,7 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
     match service {
         Service::Codex => browser_profile::BrowserProfileService::Codex,
         Service::Claude => browser_profile::BrowserProfileService::Claude,
-        Service::Grok => unreachable!("Grok has no managed browser profile"),
+        Service::Grok => browser_profile::BrowserProfileService::Grok,
         Service::Ollama => browser_profile::BrowserProfileService::Ollama,
     }
 }
@@ -528,6 +531,7 @@ fn prepare_managed_browser_profiles(
     let paths = browser_profile::prepare_browser_profiles(&config.browser_profiles, app_data_dir)?;
     browser_session::prepare_chromium_profile_preferences(&paths.codex)?;
     browser_session::prepare_chromium_profile_preferences(&paths.claude)?;
+    browser_session::prepare_chromium_profile_preferences(&paths.grok)?;
     browser_session::prepare_chromium_profile_preferences(&paths.ollama)?;
 
     Ok(Some(paths))
@@ -684,12 +688,6 @@ fn get_log_location(app: AppHandle) -> CommandResult<LogLocation> {
 
 #[tauri::command]
 fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<OfficialUsagePage> {
-    if service == Service::Grok {
-        return Err(command_error(
-            "official_usage_unavailable",
-            "Grok has no official web provider",
-        ));
-    }
     let url = official_usage_url(service);
 
     app.opener()
@@ -710,12 +708,6 @@ fn start_provider_login(
     sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
 ) -> CommandResult<ProviderLoginStart> {
-    if service == Service::Grok {
-        return Err(command_error(
-            "provider_login_unavailable",
-            "Grok uses its existing CLI login",
-        ));
-    }
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
     let now = usage::now_rfc3339();
@@ -786,7 +778,7 @@ fn provider_login_start_plan(
         let profile_path = match service {
             Service::Codex => &paths.codex,
             Service::Claude => &paths.claude,
-            Service::Grok => unreachable!("Grok has no managed browser profile"),
+            Service::Grok => &paths.grok,
             Service::Ollama => &paths.ollama,
         };
         let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
@@ -995,9 +987,6 @@ fn inspect_provider_profile_for_service(
     service: Service,
     inspected_at: String,
 ) -> Result<ProviderProfileInspection, String> {
-    if service == Service::Grok {
-        return Err("Grok has no managed browser profile".to_string());
-    }
     let Some(paths) = prepare_managed_browser_profiles(config, app_data_dir)? else {
         return Ok(provider_profile_inspection_report(
             service,
@@ -1010,7 +999,7 @@ fn inspect_provider_profile_for_service(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
-        Service::Grok => unreachable!("Grok has no managed browser profile"),
+        Service::Grok => &paths.grok,
         Service::Ollama => &paths.ollama,
     };
     let inspection = browser_session::inspect_chromium_profile_storage(profile_path)?;
@@ -1062,7 +1051,7 @@ fn provider_profile_label(service: Service) -> &'static str {
     match service {
         Service::Codex => "codex-profile",
         Service::Claude => "claude-profile",
-        Service::Grok => unreachable!("Grok has no managed browser profile"),
+        Service::Grok => "grok-profile",
         Service::Ollama => "ollama-profile",
     }
 }
@@ -1073,12 +1062,6 @@ fn clear_provider_profile_for_service(
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
-    if service == Service::Grok {
-        return Err(command_error(
-            "browser_profile_unavailable",
-            "Grok has no managed browser profile",
-        ));
-    }
     sessions
         .stop_service(service, browser_session::PROFILE_STOP_TIMEOUT)
         .map_err(map_browser_session_error)?;
@@ -1272,12 +1255,10 @@ fn headless_web_usage_response(
         .app_data_dir()
         .map_err(|_| "Could not resolve app data directory".to_string())?;
 
-    // Ollama is server-rendered and not behind a bot-managed edge, so once a
-    // session has been harvested we can refresh it over plain HTTP inside the
-    // sidecar without launching Chromium. Any non-`usage` outcome (no cookie
-    // yet, or an expired one) falls back to the browser refresh, which logs in
-    // and re-harvests the cookie.
-    if service == Service::Ollama {
+    // Grok and Ollama can replay a harvested profile session through the
+    // lightweight HTTP sidecar. Any non-`usage` outcome falls back to the
+    // browser refresh, which re-harvests the cookie.
+    if matches!(service, Service::Grok | Service::Ollama) {
         if let Ok(http_request) =
             web_usage_refresh_sidecar_request(&config, &app_data_dir, service, true)
         {
@@ -1291,8 +1272,14 @@ fn headless_web_usage_response(
     }
 
     let sidecar_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service, false)?;
+    let response = run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)?;
 
-    run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)
+    if service == Service::Grok && response.page_state == "usage" {
+        let http_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service, true)?;
+        return run_playwright_sidecar_usage_refresh(app, sessions, &http_request);
+    }
+
+    Ok(response)
 }
 
 fn web_usage_refresh_sidecar_request(
@@ -1308,12 +1295,16 @@ fn web_usage_refresh_sidecar_request(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
-        Service::Grok => unreachable!("Grok has no managed browser profile"),
+        Service::Grok => &paths.grok,
         Service::Ollama => &paths.ollama,
     };
     let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
     let launch_request = browser_session::playwright_launch_request(&launch_plan);
-    let url = official_usage_url(service);
+    let url = if http && service == Service::Grok {
+        GROK_CREDITS_URL
+    } else {
+        official_usage_url(service)
+    };
 
     if http {
         browser_session::playwright_sidecar_http_refresh_request(&launch_request, url)
@@ -1383,6 +1374,14 @@ fn usage_snapshot_from_sidecar_usage_response(
                 used_percent: window.used_percent,
                 reset_at: window.reset_at,
             }),
+            products: response
+                .products
+                .into_iter()
+                .map(|product| VisibleProductInput {
+                    product: product.product,
+                    usage_percent: product.usage_percent,
+                })
+                .collect(),
         },
         observed_at,
     ))
@@ -1455,18 +1454,22 @@ fn refresh_all_with_headless_web(
     let mut display_state = engine.refresh_all().map_err(map_usage_refresh_error)?;
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    // The CLI-credentials provider produces the Web-source snapshot inside
-    // refresh_all(); only drive the headless browser when it is not in use.
-    if config.providers.web_enabled && !config.providers.cli_enabled {
-        for service in [Service::Codex, Service::Claude] {
+    // Codex and Claude CLI readings remain authoritative. Grok's CLI provides
+    // plan metadata only, so its browser-backed percentage refresh always runs
+    // when web readings are enabled.
+    if config.providers.web_enabled {
+        for service in [Service::Codex, Service::Claude, Service::Grok] {
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
                 Service::Claude => config.enabled_services.claude,
-                Service::Grok => false,
-                Service::Ollama => config.enabled_services.ollama,
+                Service::Grok => config.enabled_services.grok,
+                Service::Ollama => false,
             };
 
-            if !service_enabled {
+            if !service_enabled
+                || (config.providers.cli_enabled
+                    && matches!(service, Service::Codex | Service::Claude))
+            {
                 continue;
             }
 
@@ -1498,16 +1501,19 @@ fn refresh_due_with_headless_web(
 ) -> CommandResult<UsageDisplayState> {
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    if config.providers.web_enabled && !config.providers.cli_enabled {
-        for service in [Service::Codex, Service::Claude] {
+    if config.providers.web_enabled {
+        for service in [Service::Codex, Service::Claude, Service::Grok] {
             let service_enabled = match service {
                 Service::Codex => config.enabled_services.codex,
                 Service::Claude => config.enabled_services.claude,
-                Service::Grok => false,
-                Service::Ollama => config.enabled_services.ollama,
+                Service::Grok => config.enabled_services.grok,
+                Service::Ollama => false,
             };
 
-            if service_enabled {
+            if service_enabled
+                && !(config.providers.cli_enabled
+                    && matches!(service, Service::Codex | Service::Claude))
+            {
                 refresh_due_web_provider_headless(app, engine, sessions, service)?;
             }
         }
@@ -1645,7 +1651,7 @@ fn tray_accent_for(service: Service, remaining_percent: f32, low_usage_threshold
     match service {
         Service::Codex => TRAY_CODEX_ACCENT,
         Service::Claude => TRAY_CLAUDE_ACCENT,
-        Service::Grok => TRAY_CLAUDE_ACCENT,
+        Service::Grok => TRAY_GROK_ACCENT,
         Service::Ollama => TRAY_OLLAMA_ACCENT,
     }
 }
@@ -2514,6 +2520,12 @@ mod tests {
                 .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
                 .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
         );
+        let grok_preferences = read_preferences(
+            paths
+                .grok
+                .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
+                .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
+        );
 
         assert_preference_false(&codex_preferences, &["credentials_enable_service"]);
         assert_preference_false(&codex_preferences, &["credentials_enable_autosignin"]);
@@ -2523,6 +2535,8 @@ mod tests {
         assert_preference_false(&codex_preferences, &["autofill", "credit_card_enabled"]);
         assert_preference_false(&claude_preferences, &["credentials_enable_service"]);
         assert_preference_false(&claude_preferences, &["autofill", "enabled"]);
+        assert_preference_false(&grok_preferences, &["credentials_enable_service"]);
+        assert_preference_false(&grok_preferences, &["autofill", "enabled"]);
     }
 
     #[test]
@@ -2743,6 +2757,34 @@ mod tests {
     }
 
     #[test]
+    fn grok_sidecar_usage_response_maps_weekly_usage_and_products() {
+        let response = browser_session::PlaywrightSidecarUsageResponse {
+            remaining_percent: Some(71.5),
+            used_percent: Some(28.5),
+            reset_at: Some("2026-07-16T00:00:00Z".to_string()),
+            visible_fields: vec![
+                "used_percent".to_string(),
+                "remaining_percent".to_string(),
+                "quota_window".to_string(),
+                "reset_at".to_string(),
+            ],
+            products: vec![browser_session::PlaywrightSidecarUsageProduct {
+                product: "PRODUCT_GROK_BUILD".to_string(),
+                usage_percent: 42.0,
+            }],
+            ..sidecar_usage_response(Service::Grok, "usage")
+        };
+
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-07-09T12:00:00Z")
+            .expect("snapshot is built");
+
+        assert_eq!(snapshot.details["providerId"], "grok.web");
+        assert!(snapshot.details["windows"].get("fiveHour").is_none());
+        assert_eq!(snapshot.details["windows"]["week"]["usedPercent"], 28.5);
+        assert_eq!(snapshot.details["products"][0]["product"], "PRODUCT_GROK_BUILD");
+    }
+
+    #[test]
     fn sidecar_usage_response_with_missing_visible_data_maps_to_unknown_snapshot() {
         let response = sidecar_usage_response(Service::Claude, "usage");
         let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
@@ -2830,6 +2872,7 @@ mod tests {
             reset_at: None,
             visible_fields: Vec::new(),
             weekly: None,
+            products: Vec::new(),
         }
     }
 
@@ -2947,6 +2990,7 @@ mod tests {
             official_usage_url(Service::Claude),
             "https://claude.ai/new#settings/usage"
         );
+        assert_eq!(official_usage_url(Service::Grok), "https://grok.com/");
     }
 
     #[test]
@@ -3235,6 +3279,25 @@ mod tests {
         assert_eq!(request.diagnostics.user_data_dir, "<claude-profile>");
         assert!(request.diagnostics.headless);
         assert!(!debug.contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn grok_http_refresh_sidecar_request_uses_the_credits_endpoint() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+
+        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Grok, true)
+            .expect("refresh request is built");
+
+        assert_eq!(
+            request.action,
+            browser_session::PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE
+        );
+        assert_eq!(request.service, Service::Grok);
+        assert_eq!(request.url, "https://grok.com/rest/grok/credits");
+        assert_eq!(request.profile_label, "grok-profile");
+        assert!(request.user_data_dir.contains("browser-profiles/grok"));
     }
 
     #[test]

@@ -4,8 +4,10 @@ import {
   BACKEND_ID,
   PROTOCOL_VERSION,
   detectPageState,
+  extractGrokCreditsUsage,
   extractOllamaUsageFromHtml,
   extractVisibleUsage,
+  parseGrokCreditsBody,
   runLaunchRequest,
   sanitizedAcceptedResponse,
   validateLaunchRequest,
@@ -71,6 +73,72 @@ test("accepts headless http usage refresh requests", () => {
 
   assert.equal(validation.ok, true);
   assert.equal(validation.request.action, "httpRefreshUsage");
+});
+
+test("accepts Grok HTTP refreshes only for the credits endpoint", () => {
+  const validation = validateLaunchRequest(
+    request({
+      action: "httpRefreshUsage",
+      headless: true,
+      service: "grok",
+      url: "https://grok.com/rest/grok/credits",
+    }),
+  );
+
+  assert.equal(validation.ok, true);
+  assert.equal(validation.request.url, "https://grok.com/rest/grok/credits");
+});
+
+test("rejects Grok HTTP refreshes for any endpoint other than credits", () => {
+  const validation = validateLaunchRequest(
+    request({ action: "httpRefreshUsage", headless: true, service: "grok" }),
+  );
+
+  assert.deepEqual(validation, { ok: false, code: "invalid_url" });
+});
+
+test("parses sanitized Grok weekly credits without exposing the response body", () => {
+  const parsed = parseGrokCreditsBody(
+    JSON.stringify({
+      config: {
+        currentPeriod: { billingPeriodEnd: "2026-07-16T00:00:00Z" },
+        creditUsagePercent: 28.5,
+        productUsage: [
+          { product: "PRODUCT_GROK_BUILD", usagePercent: 42 },
+          { product: "PRODUCT_API", usagePercent: 3 },
+        ],
+      },
+    }),
+  );
+
+  assert.equal(parsed.pageState, "usage");
+  assert.deepEqual(parsed.usage, {
+    remainingPercent: 71.5,
+    resetAt: "2026-07-16T00:00:00Z",
+    usedPercent: 28.5,
+    visibleFields: ["used_percent", "remaining_percent", "quota_window", "reset_at"],
+    weekly: null,
+    products: [
+      { product: "PRODUCT_GROK_BUILD", usagePercent: 42 },
+      { product: "PRODUCT_API", usagePercent: 3 },
+    ],
+  });
+  assert.equal(JSON.stringify(parsed).includes("currentPeriod"), false);
+});
+
+test("treats an absent Grok credit percentage as zero used", () => {
+  const usage = extractGrokCreditsUsage({ config: {} });
+
+  assert.equal(usage.usedPercent, 0);
+  assert.equal(usage.remainingPercent, 100);
+});
+
+test("classifies a Grok credits payload without config as unexpected UI", () => {
+  assert.equal(parseGrokCreditsBody("{}").pageState, "unexpected_ui");
+});
+
+test("classifies an HTML Grok credits body as logged out", () => {
+  assert.equal(parseGrokCreditsBody("<html><body>Sign in</body></html>").pageState, "logged_out");
 });
 
 test("rejects visible http usage refresh requests", () => {

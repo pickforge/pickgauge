@@ -9,12 +9,14 @@ reset this file.
 - Added zero-setup Grok plan detection through the local Grok CLI login. PickGauge shows the active
   plan and billing-period end without reporting a usage percentage.
 - Added zero-setup Ollama plan detection from the signed-in local daemon. Usage limits remain unavailable.
+- Added opt-in Grok weekly usage gauges through an isolated browser profile. The existing Grok CLI plan is carried into the official usage reading.
 
 ## Internal/release changes
 
 - Switched AppImage libwayland post-processing to `pickforge-tauri-release fix-appimage`.
 - Release CI now caches Rust builds (`Swatinem/rust-cache`).
 - Grok reads its CLI bearer without refreshing, storing, or writing it.
+- Grok web reads use only the managed profile's `grok.com/rest/grok/credits` request and return sanitized weekly usage data; on-demand dollar credits are not read.
 
 ## Validation
 

@@ -1,17 +1,18 @@
 # Web Provider Parser Contract
 
-This contract defines the parser boundary for future Codex and Claude official web providers. It does not select or launch a browser automation backend. A future session manager may feed this parser only sanitized visible fields gathered from official pages.
+This contract defines the parser boundary for official web providers. It does not select or launch a browser automation backend. A session manager may feed this parser only sanitized visible fields gathered from official pages or derived inside the sidecar from a provider response.
 
 ## Sanitized Input Format
 
 Parser input is a provider-specific structured state object with these fields:
 
-- `service`: `codex` or `claude`.
+- `service`: `codex`, `claude`, `grok`, or `ollama`.
 - `pageState`: `usage`, `logged_out`, `mfa_required`, `captcha_or_bot_check`, `network_unavailable`, `timed_out`, or `unexpected_ui`.
 - `remainingPercent`: number from a visible remaining-percent field, or `null`.
 - `usedPercent`: number from a visible used-percent field, or `null`.
 - `resetAt`: RFC3339 timestamp derived from visible reset text, or `null`.
 - `visibleFields`: names of visible fields used by the parser.
+- `products`: optional Grok product entries with a known product enum and numeric `usagePercent` only.
 
 The parser must never receive raw authenticated HTML, full page text, screenshots, network responses, cookies, tokens, auth headers, account identifiers, browser storage, or raw browser errors.
 
@@ -33,6 +34,23 @@ Claude accepted field names:
 - `quota_window`
 - `plan_label`
 
+Ollama accepted field names:
+
+- `remaining_percent`
+- `used_percent`
+- `reset_at`
+- `quota_window`
+- `plan_label`
+
+Grok accepted field names:
+
+- `remaining_percent`
+- `used_percent`
+- `reset_at`
+- `quota_window`
+
+Grok's sidecar-only HTTP parser treats an absent proto3 `creditUsagePercent` as zero used. It receives only the managed profile's `GET grok.com/rest/grok/credits` response, derives the weekly window and optional product percentages, and never forwards its raw JSON or cookies to Rust. Grok has no five-hour window. On-demand dollar credits are not read.
+
 At least one of `remaining_percent` or `used_percent` is required for a successful web usage snapshot. `reset_at`, `quota_window`, and `plan_label` are optional sanitized context fields.
 
 ## Fallback Behavior
@@ -48,7 +66,7 @@ At least one of `remaining_percent` or `used_percent` is required for a successf
 - If a reset timestamp is present but not RFC3339, return `parse_failed` with unknown confidence.
 - If an unsupported visible field name appears, return `parse_failed` without echoing the unsupported field.
 
-Successful parser output uses `source = "web"`, `confidence = "high"`, `providerId = "codex.web"` or `"claude.web"`, `lastOfficialCheckAt`, and sanitized `visibleFields`.
+Successful parser output uses `source = "web"`, `confidence = "high"`, a provider-specific web ID, `lastOfficialCheckAt`, and sanitized `visibleFields`. Grok uses `providerId = "grok.web"`, a single `windows.week` entry, and a sanitized `products` array.
 
 ## Fixture Workflow
 

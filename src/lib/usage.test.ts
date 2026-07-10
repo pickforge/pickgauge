@@ -113,6 +113,7 @@ describe("usage fixtures and redaction", () => {
       rootPath: null,
       codexPath: null,
       claudePath: null,
+      grokPath: null,
       ollamaPath: null,
     });
   });
@@ -201,7 +202,7 @@ describe("usage fixtures and redaction", () => {
       service: "grok",
       details: { status: "login_required" },
     });
-    const measured = snapshot({ remainingPercent: 72 });
+    const measured = snapshot({ service: "grok", remainingPercent: 72 });
 
     expect(floatDisplaySnapshots([planOnly, loginRequired, measured])).toEqual([
       loginRequired,

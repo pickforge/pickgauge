@@ -1,0 +1,19 @@
+{
+  "service": "grok",
+  "pageState": "usage",
+  "remainingPercent": 71.5,
+  "usedPercent": 28.5,
+  "resetAt": "2026-07-16T00:00:00Z",
+  "visibleFields": [
+    "used_percent",
+    "remaining_percent",
+    "quota_window",
+    "reset_at"
+  ],
+  "products": [
+    {
+      "product": "PRODUCT_GROK_BUILD",
+      "usagePercent": 42
+    }
+  ]
+}

@@ -25,6 +25,12 @@ const OLLAMA_VISIBLE_FIELDS: &[&str] = &[
     "quota_window",
     "plan_label",
 ];
+const GROK_VISIBLE_FIELDS: &[&str] = &[
+    "remaining_percent",
+    "used_percent",
+    "reset_at",
+    "quota_window",
+];
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +43,8 @@ pub struct VisibleUsageInput {
     pub visible_fields: Vec<String>,
     #[serde(default)]
     pub second_window: Option<VisibleWindowInput>,
+    #[serde(default)]
+    pub products: Vec<VisibleProductInput>,
 }
 
 /// A secondary rate-limit window. When present and valid it is rendered as the
@@ -48,6 +56,13 @@ pub struct VisibleWindowInput {
     pub remaining_percent: Option<f32>,
     pub used_percent: Option<f32>,
     pub reset_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VisibleProductInput {
+    pub product: String,
+    pub usage_percent: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -183,12 +198,18 @@ fn parse_usage_state(
         }
     }
 
-    let windows = build_windows(
-        remaining_percent,
-        used_percent,
-        input.reset_at.as_deref(),
-        input.second_window.as_ref(),
-    );
+    let windows = if input.service == Service::Grok {
+        Some(serde_json::json!({
+            "week": window_json(remaining_percent, used_percent, input.reset_at.as_deref()),
+        }))
+    } else {
+        build_windows(
+            remaining_percent,
+            used_percent,
+            input.reset_at.as_deref(),
+            input.second_window.as_ref(),
+        )
+    };
 
     let mut details = serde_json::json!({
         "status": "parsed",
@@ -199,6 +220,23 @@ fn parse_usage_state(
     });
     if let (Some(windows), Some(object)) = (windows, details.as_object_mut()) {
         object.insert("windows".into(), windows);
+    }
+    if input.service == Service::Grok {
+        let products = match sanitized_grok_products(&input.products) {
+            Some(products) => products,
+            None => {
+                return unknown_web_snapshot(
+                    input.service,
+                    provider_id,
+                    UsageProviderError::ParseFailed,
+                    observed_at,
+                    serde_json::json!({ "reason": "invalid_products" }),
+                );
+            }
+        };
+        if let Some(object) = details.as_object_mut() {
+            object.insert("products".into(), serde_json::Value::Array(products));
+        }
     }
 
     UsageSnapshot {
@@ -314,7 +352,7 @@ fn sanitized_visible_fields(
     let allowed = match service {
         Service::Codex => CODEX_VISIBLE_FIELDS,
         Service::Claude => CLAUDE_VISIBLE_FIELDS,
-        Service::Grok => &[],
+        Service::Grok => GROK_VISIBLE_FIELDS,
         Service::Ollama => OLLAMA_VISIBLE_FIELDS,
     };
     let rejected_field_count = visible_fields
@@ -327,6 +365,37 @@ fn sanitized_visible_fields(
     }
 
     Ok(visible_fields.to_vec())
+}
+
+fn sanitized_grok_products(products: &[VisibleProductInput]) -> Option<Vec<serde_json::Value>> {
+    if products.len() > 6
+        || products.iter().any(|product| {
+            !matches!(
+                product.product.as_str(),
+                "PRODUCT_GROK_CHAT"
+                    | "PRODUCT_GROK_BUILD"
+                    | "PRODUCT_API"
+                    | "PRODUCT_GROK_IMAGINE"
+                    | "PRODUCT_GROK_VOICE"
+                    | "PRODUCT_GROK_PLUGINS"
+            ) || !product.usage_percent.is_finite()
+                || !(0.0..=100.0).contains(&product.usage_percent)
+        })
+    {
+        return None;
+    }
+
+    Some(
+        products
+            .iter()
+            .map(|product| {
+                serde_json::json!({
+                    "product": product.product,
+                    "usagePercent": product.usage_percent,
+                })
+            })
+            .collect(),
+    )
 }
 
 fn unknown_web_snapshot(
@@ -374,6 +443,7 @@ mod tests {
         let raw = match name {
             "codex-success" => include_str!("../tests/fixtures/web-visible/codex-success.json"),
             "claude-success" => include_str!("../tests/fixtures/web-visible/claude-success.json"),
+            "grok-success" => include_str!("../tests/fixtures/web-visible/grok-success.json"),
             "partial-visible" => {
                 include_str!("../tests/fixtures/web-visible/partial-visible.json")
             }
@@ -423,6 +493,23 @@ mod tests {
     }
 
     #[test]
+    fn grok_visible_usage_fixture_is_weekly_only_with_sanitized_products() {
+        let snapshot = parse_visible_usage(fixture("grok-success"), OBSERVED_AT);
+
+        assert_eq!(snapshot.service, Service::Grok);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.remaining_percent, Some(71.5));
+        assert_eq!(snapshot.used_percent, Some(28.5));
+        assert_eq!(snapshot.reset_at.as_deref(), Some("2026-07-16T00:00:00Z"));
+        assert_eq!(snapshot.details["providerId"], "grok.web");
+        assert!(snapshot.details["windows"].get("fiveHour").is_none());
+        assert_eq!(snapshot.details["windows"]["week"]["remainingPercent"], 71.5);
+        assert_eq!(snapshot.details["products"][0]["product"], "PRODUCT_GROK_BUILD");
+        assert_eq!(snapshot.details["products"][0]["usagePercent"], 42.0);
+    }
+
+    #[test]
     fn secondary_window_is_carried_as_dual_windows_with_session_headline() {
         let input = VisibleUsageInput {
             service: Service::Ollama,
@@ -441,6 +528,7 @@ mod tests {
                 used_percent: Some(57.0),
                 reset_at: Some("2026-06-22T00:00:00Z".to_string()),
             }),
+            products: Vec::new(),
         };
 
         let snapshot = parse_visible_usage(input, OBSERVED_AT);
@@ -472,6 +560,7 @@ mod tests {
                 used_percent: Some(80.0),
                 reset_at: None,
             }),
+            products: Vec::new(),
         };
 
         let snapshot = parse_visible_usage(input, OBSERVED_AT);

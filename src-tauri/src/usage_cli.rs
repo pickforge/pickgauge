@@ -4,8 +4,10 @@ use crate::{
 };
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     ffi::{OsStr, OsString},
     io::{self, Write},
+    path::Path,
 };
 
 const USAGE_JSON_VERSION: u32 = 1;
@@ -75,7 +77,7 @@ fn parse_args(args: &[OsString]) -> Result<Option<UsageCommand>, ()> {
     }
 
     if args[0].as_os_str() != OsStr::new("usage") {
-        return Err(());
+        return Ok(None);
     }
 
     match args {
@@ -92,7 +94,7 @@ fn run_usage(command: UsageCommand) -> i32 {
         engine.refresh_all()?;
 
         let app_data_dir = snapshot_store::app_data_dir()?;
-        let persisted_snapshots = snapshot_store::load_in(&app_data_dir)?;
+        let persisted_snapshots = load_persisted_snapshots(&app_data_dir);
         let display_state = engine.overlay_persisted_snapshots(persisted_snapshots)?;
         let generated_at = usage::now_rfc3339();
         let response = usage_json_response(&display_state, &generated_at);
@@ -108,6 +110,16 @@ fn run_usage(command: UsageCommand) -> i32 {
         Err(error) => {
             eprintln!("pickgauge usage: {error}");
             1
+        }
+    }
+}
+
+fn load_persisted_snapshots(app_data_dir: &Path) -> HashMap<String, UsageSnapshot> {
+    match snapshot_store::load_in(app_data_dir) {
+        Ok(snapshots) => snapshots,
+        Err(error) => {
+            eprintln!("pickgauge usage: ignoring snapshot cache: {error}");
+            HashMap::new()
         }
     }
 }
@@ -306,6 +318,7 @@ mod tests {
     #[test]
     fn parses_usage_command_variants_and_rejects_unknown_arguments() {
         assert_eq!(parse_args(&[]), Ok(None));
+        assert_eq!(parse_args(&[OsString::from("--hidden")]), Ok(None));
         assert_eq!(
             parse_args(&[OsString::from("usage")]),
             Ok(Some(UsageCommand::Human))
@@ -326,6 +339,20 @@ mod tests {
             ]),
             Err(())
         );
+    }
+
+    #[test]
+    fn cache_read_failure_falls_back_to_live_only_output() {
+        let path = std::env::temp_dir().join(format!(
+            "pickgauge-usage-cli-test-{}",
+            std::process::id()
+        ));
+        let cache_path = path.join("snapshots.json");
+        std::fs::create_dir_all(&cache_path).expect("blocking cache directory is created");
+
+        assert!(load_persisted_snapshots(&path).is_empty());
+
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]

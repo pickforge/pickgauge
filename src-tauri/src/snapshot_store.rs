@@ -42,6 +42,15 @@ pub fn save_in(
     )
 }
 
+pub fn clear_in(app_data_dir: &Path) -> Result<(), String> {
+    let path = app_data_dir.join(SNAPSHOT_FILE_NAME);
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not clear usage snapshots: {error}")),
+    }
+}
+
 fn load_from_path(path: &Path) -> Result<HashMap<String, UsageSnapshot>, String> {
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
@@ -68,16 +77,39 @@ fn save_to_path(
     fs::create_dir_all(parent)
         .map_err(|error| format!("Could not create usage snapshot directory: {error}"))?;
 
+    let mut merged_snapshots = snapshots.clone();
+    if let Ok(existing_snapshots) = load_from_path(path) {
+        for (provider_key, existing) in existing_snapshots {
+            let Some(next) = merged_snapshots.get(&provider_key) else {
+                continue;
+            };
+
+            // A stale parsed gauge remains useful to headless consumers because
+            // `lastUpdated` and `staleSeconds` make its age explicit.
+            if snapshot_is_parsed(&existing) && !snapshot_is_parsed(next) {
+                merged_snapshots.insert(provider_key, existing);
+            }
+        }
+    }
+
     let stored = StoredSnapshots {
         version: SNAPSHOT_VERSION,
         updated_at: updated_at.to_string(),
-        snapshots: snapshots.clone(),
+        snapshots: merged_snapshots,
     };
     let raw = serde_json::to_string_pretty(&stored)
         .map_err(|error| format!("Could not serialize usage snapshots: {error}"))?;
     let temp_path = temp_snapshot_path(path);
 
     write_atomic_with_temp_path(path, parent, &temp_path, raw.as_bytes())
+}
+
+fn snapshot_is_parsed(snapshot: &UsageSnapshot) -> bool {
+    snapshot
+        .details
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        == Some("parsed")
 }
 
 fn write_atomic_with_temp_path(
@@ -208,6 +240,14 @@ mod tests {
         }
     }
 
+    fn snapshot_with_status(status: &str, remaining_percent: Option<f32>) -> UsageSnapshot {
+        let mut snapshot = snapshot();
+        snapshot.remaining_percent = remaining_percent;
+        snapshot.used_percent = remaining_percent.map(|remaining| 100.0 - remaining);
+        snapshot.details["status"] = serde_json::Value::String(status.to_string());
+        snapshot
+    }
+
     #[test]
     fn snapshots_round_trip_through_store() {
         let dir = TestDir::new();
@@ -263,5 +303,85 @@ mod tests {
         assert!(load_in(&dir.path)
             .expect("unsupported snapshots are ignored")
             .is_empty());
+    }
+
+    #[test]
+    fn parsed_snapshot_survives_placeholder_overwrite() {
+        let dir = TestDir::new();
+        let key = "codex.web".to_string();
+        save_in(
+            &dir.path,
+            &HashMap::from([(key.clone(), snapshot_with_status("parsed", Some(64.0)))]),
+            "2026-07-09T12:00:00Z",
+        )
+        .expect("parsed snapshot saves");
+
+        save_in(
+            &dir.path,
+            &HashMap::from([(key.clone(), snapshot_with_status("login_required", None))]),
+            "2026-07-09T12:01:00Z",
+        )
+        .expect("placeholder snapshot saves");
+
+        let saved = load_in(&dir.path).expect("snapshots load");
+        assert_eq!(saved[&key].details["status"], "parsed");
+        assert_eq!(saved[&key].remaining_percent, Some(64.0));
+    }
+
+    #[test]
+    fn newer_parsed_snapshot_replaces_previous_parsed_snapshot() {
+        let dir = TestDir::new();
+        let key = "codex.web".to_string();
+        save_in(
+            &dir.path,
+            &HashMap::from([(key.clone(), snapshot_with_status("parsed", Some(64.0)))]),
+            "2026-07-09T12:00:00Z",
+        )
+        .expect("initial parsed snapshot saves");
+
+        save_in(
+            &dir.path,
+            &HashMap::from([(key.clone(), snapshot_with_status("parsed", Some(42.0)))]),
+            "2026-07-09T12:01:00Z",
+        )
+        .expect("new parsed snapshot saves");
+
+        assert_eq!(
+            load_in(&dir.path).expect("snapshots load")[&key].remaining_percent,
+            Some(42.0)
+        );
+    }
+
+    #[test]
+    fn non_parsed_snapshot_persists_when_no_parsed_snapshot_exists() {
+        let dir = TestDir::new();
+        let key = "codex.web".to_string();
+        save_in(
+            &dir.path,
+            &HashMap::from([(key.clone(), snapshot_with_status("login_required", None))]),
+            "2026-07-09T12:00:00Z",
+        )
+        .expect("placeholder snapshot saves");
+
+        assert_eq!(
+            load_in(&dir.path).expect("snapshots load")[&key].details["status"],
+            "login_required"
+        );
+    }
+
+    #[test]
+    fn clear_removes_snapshot_file() {
+        let dir = TestDir::new();
+        save_in(
+            &dir.path,
+            &HashMap::from([("codex.cli".to_string(), snapshot())]),
+            "2026-07-09T12:00:00Z",
+        )
+        .expect("snapshots save");
+
+        clear_in(&dir.path).expect("snapshots clear");
+
+        assert!(!dir.snapshot_path().exists());
+        clear_in(&dir.path).expect("missing snapshots clear");
     }
 }

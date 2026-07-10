@@ -943,6 +943,9 @@ fn clear_cached_snapshots(
     let display_state = engine
         .clear_cached_snapshots()
         .map_err(map_snapshot_cache_error)?;
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let _ = snapshot_store::clear_in(&app_data_dir);
+    }
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
         .map_err(map_event_emit_error)?;
     Ok(display_state)

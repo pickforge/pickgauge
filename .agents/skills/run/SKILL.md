@@ -19,7 +19,9 @@ If `sidecars/playwright/` changed, run `bun run prepare:sidecar` before launchin
 
 ## Isolated lab setup (Linux)
 
-Run this once. It creates an all-provider-off profile and persists the values for later shells.
+Run this once. It creates an all-provider-off profile and persists the values in
+`$PWD/.lab.env` for later shells — one lab per checkout; concurrent labs need
+separate worktrees.
 
 ```bash
 set -e
@@ -33,7 +35,7 @@ for p in $(seq 1421 1499); do ss -ltnH "sport = :$p" | grep -q . || { PORT=$p; b
 : "${PORT:?No free port in 1421-1499}"
 unset DISPLAY_NUM; for n in $(seq 90 120); do [ ! -e "/tmp/.X11-unix/X$n" ] && DISPLAY_NUM=$n && break; done
 : "${DISPLAY_NUM:?No free X display in 90-120}"
-printf 'export PORT=%s\nexport DISPLAY_NUM=%s\nexport LAB_HOME=%s\nexport REAL_CARGO_HOME=%s\nexport REAL_RUSTUP_HOME=%s\n' "$PORT" "$DISPLAY_NUM" "$LAB_HOME" "$REAL_CARGO_HOME" "$REAL_RUSTUP_HOME" > /tmp/pickgauge-lab.env
+printf 'export PORT=%s\nexport DISPLAY_NUM=%s\nexport LAB_HOME=%s\nexport REAL_CARGO_HOME=%s\nexport REAL_RUSTUP_HOME=%s\n' "$PORT" "$DISPLAY_NUM" "$LAB_HOME" "$REAL_CARGO_HOME" "$REAL_RUSTUP_HOME" > "$PWD/.lab.env"
 ```
 
 ## Launch the lab
@@ -41,7 +43,7 @@ printf 'export PORT=%s\nexport DISPLAY_NUM=%s\nexport LAB_HOME=%s\nexport REAL_C
 Run in a terminal and leave it open. Every later snippet starts by loading the same state.
 
 ```bash
-source /tmp/pickgauge-lab.env
+source "$PWD/.lab.env"
 Xvfb ":$DISPLAY_NUM" -screen 0 1440x1000x24 -nolisten tcp &
 for _ in {1..50}; do [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] && break; sleep 0.1; done
 [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] || { echo "Xvfb did not start" >&2; false; }
@@ -60,7 +62,7 @@ The lab profile disables providers and autostart. If enabled, autostart writes o
 ## Verify and screenshot
 
 ```bash
-source /tmp/pickgauge-lab.env
+source "$PWD/.lab.env"
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT/" >/dev/null && break; sleep 0.1; done
 curl -f "http://127.0.0.1:$PORT/"
 DISPLAY=":$DISPLAY_NUM" xdotool mousemove --sync 168 124 mousedown 1 sleep 0.2 mouseup 1
@@ -76,13 +78,13 @@ Inspect `/tmp/pickgauge-lab.png` before calling the UI verified.
 Stop each process with a PID from `pgrep`; run each as its own Bash call. Never put `pkill -f` in a compound command: it can match the wrapper shell and exit 144.
 
 ```bash
-source /tmp/pickgauge-lab.env
+source "$PWD/.lab.env"
 bash -c 'for pid in $(pgrep -f "[t]arget/debug/pickgauge" || true); do tr "\0" "\n" <"/proc/$pid/environ" 2>/dev/null | grep -qF "$LAB_HOME" && kill "$pid" 2>/dev/null || true; done'
 bash -c 'for pid in $(pgrep -f "[t]auri dev --config.*com\\.pickforge\\.pickgauge\\.labtest$DISPLAY_NUM" || true); do kill "$pid" 2>/dev/null || true; done'
 bash -c 'for pid in $(pgrep -f "[v]ite --host 127.0.0.1 --port $PORT" || true); do kill "$pid" 2>/dev/null || true; done'
 bash -c 'for pid in $(pgrep -f "[x]fwm4 --display=:$DISPLAY_NUM" || true); do kill "$pid" 2>/dev/null || true; done'
 bash -c 'for pid in $(pgrep -f "[X]vfb :$DISPLAY_NUM" || true); do kill "$pid" 2>/dev/null || true; done'
-rm -f /tmp/pickgauge-lab.env
+rm -f "$PWD/.lab.env"
 ```
 
 Keep `$LAB_HOME` until inspection is complete, then remove it if no longer needed.

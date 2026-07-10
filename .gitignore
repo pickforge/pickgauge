@@ -9,3 +9,4 @@ src-tauri/pickgauge-updater.key*
 .playwright-mcp/
 .worktrees/
 .codegraph/
+.lab.env

@@ -396,6 +396,18 @@ impl UsageEngine {
         Self::with_clock(config, Box::new(SystemClock))
     }
 
+    pub(crate) fn new_headless(config: AppConfig) -> Self {
+        let mut engine = Self::new(config);
+        let state = engine
+            .inner
+            .get_mut()
+            .expect("new usage engine state is not poisoned");
+        state
+            .providers
+            .retain(|provider| provider.source() != UsageSource::Fake);
+        engine
+    }
+
     fn with_clock(config: AppConfig, clock: Box<dyn Clock>) -> Self {
         Self::with_clock_and_local_roots(config, clock, LocalProviderRoots::default())
     }
@@ -471,6 +483,52 @@ impl UsageEngine {
 
     pub fn snapshots(&self) -> Result<Vec<UsageSnapshot>, String> {
         Ok(self.display_state()?.snapshots)
+    }
+
+    pub(crate) fn raw_snapshots(&self) -> Result<HashMap<String, UsageSnapshot>, String> {
+        let state = self.lock()?;
+        Ok(state.snapshots.clone())
+    }
+
+    pub(crate) fn overlay_persisted_snapshots(
+        &self,
+        persisted_snapshots: HashMap<String, UsageSnapshot>,
+    ) -> Result<UsageDisplayState, String> {
+        let now = self.clock.now_rfc3339();
+        let mut state = self.lock()?;
+        let placeholder_keys = state
+            .providers
+            .iter()
+            .filter(|provider| {
+                provider.is_placeholder() && provider.source() == UsageSource::Web
+            })
+            .map(|provider| (provider.provider_key(), provider.service()))
+            .collect::<Vec<_>>();
+
+        for (provider_key, service) in placeholder_keys {
+            let Some(live_snapshot) = state.snapshots.get(&provider_key) else {
+                continue;
+            };
+            let live_login_required = live_snapshot
+                .details
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                == Some(UsageProviderError::LoginRequired.code());
+            let Some(persisted_snapshot) = persisted_snapshots.get(&provider_key) else {
+                continue;
+            };
+
+            if live_login_required
+                && persisted_snapshot.service == service
+                && persisted_snapshot.source == UsageSource::Web
+            {
+                state
+                    .snapshots
+                    .insert(provider_key, persisted_snapshot.clone());
+            }
+        }
+
+        Ok(headless_display_state(&state, &now))
     }
 
     pub fn clear_cached_snapshots(&self) -> Result<UsageDisplayState, String> {
@@ -1001,6 +1059,48 @@ fn merged_display_snapshots(
             merge_service_snapshots(service_snapshots, config, now)
         })
         .collect()
+}
+
+fn headless_display_state(state: &UsageEngineState, now: &str) -> UsageDisplayState {
+    let mut display_state = state.display_state(now);
+    let present_services = display_state
+        .snapshots
+        .iter()
+        .map(|snapshot| snapshot.service)
+        .collect::<HashSet<_>>();
+
+    for service in [Service::Codex, Service::Claude, Service::Grok, Service::Ollama] {
+        if state.config.service_enabled(service) && !present_services.contains(&service) {
+            display_state
+                .snapshots
+                .push(unavailable_service_snapshot(service, now));
+        }
+    }
+
+    display_state.snapshots.sort_by_key(|snapshot| match snapshot.service {
+        Service::Codex => 0,
+        Service::Claude => 1,
+        Service::Grok => 2,
+        Service::Ollama => 3,
+    });
+    display_state
+}
+
+fn unavailable_service_snapshot(service: Service, now: &str) -> UsageSnapshot {
+    UsageSnapshot {
+        service,
+        remaining_percent: None,
+        used_percent: None,
+        reset_at: None,
+        source: UsageSource::Merged,
+        confidence: UsageConfidence::Unknown,
+        last_updated: now.to_string(),
+        details: serde_json::json!({
+            "status": UsageProviderError::NotConfigured.code(),
+            "providerId": "merged",
+            "source": UsageSource::Merged.code(),
+        }),
+    }
 }
 
 fn merge_service_snapshots(
@@ -2169,6 +2269,130 @@ mod tests {
         assert_eq!(display_state.snapshots[0].source, UsageSource::Fake);
         assert_eq!(display_state.snapshots[1].service, Service::Claude);
         assert_eq!(display_state.snapshots[1].remaining_percent, Some(41.0));
+    }
+
+    #[test]
+    fn headless_display_includes_enabled_service_without_registered_provider() {
+        let config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: true,
+                ollama: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: false,
+                cli_enabled: false,
+            },
+            ..AppConfig::default()
+        };
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(FixedClock {
+                now: "2026-07-09T12:00:00Z".to_string(),
+            }),
+        );
+
+        let display_state = engine
+            .overlay_persisted_snapshots(HashMap::new())
+            .expect("headless display state loads");
+
+        assert_eq!(display_state.snapshots.len(), 1);
+        assert_eq!(display_state.snapshots[0].service, Service::Grok);
+        assert_eq!(display_state.snapshots[0].source, UsageSource::Merged);
+        assert_eq!(display_state.snapshots[0].confidence, UsageConfidence::Unknown);
+        assert_eq!(display_state.snapshots[0].details["status"], "not_configured");
+    }
+
+    #[test]
+    fn persisted_snapshot_replaces_live_fail_closed_login_placeholder() {
+        let config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: true,
+                claude: false,
+                grok: false,
+                ollama: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: true,
+                cli_enabled: false,
+            },
+            ..AppConfig::default()
+        };
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(FixedClock {
+                now: "2026-07-09T12:00:00Z".to_string(),
+            }),
+        );
+        engine.refresh_all().expect("placeholder refresh succeeds");
+        let persisted = HashMap::from([(
+            "codex.web".to_string(),
+            web_snapshot(Service::Codex, 64.0, "2026-07-09T11:00:00Z"),
+        )]);
+
+        let display_state = engine
+            .overlay_persisted_snapshots(persisted)
+            .expect("persisted snapshot overlays placeholder");
+
+        assert_eq!(display_state.snapshots[0].remaining_percent, Some(64.0));
+        assert_eq!(display_state.snapshots[0].details["status"], "parsed");
+    }
+
+    #[test]
+    fn persisted_snapshot_does_not_replace_live_cli_login_error() {
+        let config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: true,
+                claude: false,
+                grok: false,
+                ollama: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: true,
+                cli_enabled: true,
+            },
+            ..AppConfig::default()
+        };
+        let engine = UsageEngine::with_clock(
+            config,
+            Box::new(FixedClock {
+                now: "2026-07-09T12:00:00Z".to_string(),
+            }),
+        );
+        let live_cli_error = UsageSnapshot {
+            service: Service::Codex,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            source: UsageSource::Web,
+            confidence: UsageConfidence::Unknown,
+            last_updated: "2026-07-09T12:00:00Z".to_string(),
+            details: serde_json::json!({
+                "status": "login_required",
+                "providerId": "codex.cli",
+                "source": "web",
+            }),
+        };
+        engine
+            .lock()
+            .expect("engine state locks")
+            .snapshots
+            .insert("codex.cli".to_string(), live_cli_error);
+        let persisted = HashMap::from([(
+            "codex.cli".to_string(),
+            web_snapshot(Service::Codex, 64.0, "2026-07-09T11:00:00Z"),
+        )]);
+
+        engine
+            .overlay_persisted_snapshots(persisted)
+            .expect("overlay completes");
+
+        let raw_snapshots = engine.raw_snapshots().expect("raw snapshots load");
+        assert_eq!(raw_snapshots["codex.cli"].details["status"], "login_required");
     }
 
     #[test]

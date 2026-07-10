@@ -3,6 +3,8 @@ mod cli_provider;
 mod kwin;
 mod browser_session;
 mod config;
+mod snapshot_store;
+mod usage_cli;
 pub mod history;
 pub mod local_provider;
 mod ollama_provider;
@@ -1087,6 +1089,15 @@ fn clear_provider_profile_for_service(
 fn after_snapshots_updated(app: &AppHandle, display_state: &UsageDisplayState) {
     if let Some(store) = app.try_state::<history::HistoryStore>() {
         let _ = store.record(&display_state.snapshots, history::now_unix());
+    }
+
+    if let (Some(engine), Ok(app_data_dir)) = (
+        app.try_state::<UsageEngine>(),
+        app.path().app_data_dir(),
+    ) {
+        if let Ok(snapshots) = engine.raw_snapshots() {
+            let _ = snapshot_store::save_in(&app_data_dir, &snapshots, &display_state.updated_at);
+        }
     }
 
     play_threshold_cues(app, display_state);
@@ -2226,6 +2237,14 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    if let Some(exit_code) = usage_cli::try_run_from_env() {
+        std::process::exit(exit_code);
+    }
+
+    run_tray();
+}
+
+fn run_tray() {
     let context = tauri::generate_context!();
     let release = format!(
         "pickgauge@{}",

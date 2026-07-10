@@ -47,6 +47,25 @@ PickGauge ships a full Tauri 2 + Svelte 5 GUI in the Pickforge "one ember on a c
 - **Sounds, not notifications** — short synthesized chimes when a gauge crosses below the low-usage threshold and when it recovers (toggle in Settings). PickGauge never posts desktop notifications.
 - **Settings** — services, providers, refresh rhythm, quota calibration, browser profiles, autostart, sounds, and the floating button, all persisted locally.
 
+## The gauge your agents read
+
+Your tray gauge can also answer one small, useful question before an agent wave:
+how much room is left in each pool?
+
+```sh
+pickgauge usage --json
+```
+
+```json
+{"version":1,"services":[{"service":"codex","remainingPercent":72,"status":"parsed"}]}
+```
+
+It refreshes CLI, local, and daemon readings, reuses the tray app's latest
+sanitized web readings when they exist, prints once, and exits—no tray or window
+required. See [`docs/usage-json.md`](docs/usage-json.md) for the stable schema
+and [`skills/pickgauge-usage/SKILL.md`](skills/pickgauge-usage/SKILL.md) for the
+short routing rule agents can use.
+
 ## Screenshots
 
 Real captures of the app in its studio chrome (frameless bracket titlebar, unified status bar).
@@ -101,6 +120,7 @@ PickGauge reads how much quota you have left without ever holding your account.
 - **Web reads are opt-in and isolated.** Browser-based reading of the official usage pages is disabled by default. When enabled, it runs only in dedicated, app-owned Codex, Claude Code, Grok, and Ollama browser profiles (under `com.pickforge.pickgauge`) that you log into yourself — never your personal browser, never a shared cookie jar.
 - **Grok web reads are narrow.** The sidecar uses the managed Grok profile's cookies only for `GET grok.com/rest/grok/credits`, then returns sanitized weekly percentages, reset time, and per-product percentages to Rust. It never passes cookies or the raw response body across that boundary. On-demand dollar credits are deliberately not read.
 - **Ollama plan reads use your local daemon.** When Ollama is enabled, the zero-setup plan read sends a read-only request only to the local daemon at `http://localhost:11434/api/me`; the daemon resolves the account with ollama.com using its own credentials. PickGauge itself only contacts ollama.com if you separately enable the opt-in web readings above. PickGauge retains only the returned plan name; account IDs, email addresses, names, and avatars are never stored, logged, or included in snapshots.
+- **Sanitized snapshots stay local.** Each tray refresh atomically writes `~/.local/share/com.pickforge.pickgauge/snapshots.json` so the headless usage command can reuse the latest web gauge. It contains only the sanitized numbers, labels, status codes, confidence, source, and timestamps already held by the UI—never tokens, cookies, account identity, auth headers, or raw provider responses.
 - **Data minimization.** No raw page HTML, auth headers, cookies, tokens, or account identifiers are written to PickGauge logs, fixtures, or its local SQLite history — only computed percentages, confidence, source, and timestamps.
 - **Honest confidence.** Every reading is labeled official, estimated, merged, stale, or unavailable, so you always know how much to trust the number.
 

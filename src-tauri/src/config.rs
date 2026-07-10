@@ -224,6 +224,11 @@ pub fn load() -> Result<AppConfig, String> {
     load_from_path(&path)
 }
 
+pub fn load_read_only() -> Result<AppConfig, String> {
+    let path = config_path()?;
+    load_existing_from_path(&path)
+}
+
 pub fn load_existing_or_default() -> AppConfig {
     match config_path() {
         Ok(path) => load_existing_or_default_from_path(&path),
@@ -737,6 +742,17 @@ mod tests {
                 .file_name()
                 .to_string_lossy()
                 .contains(".tmp.")));
+    }
+
+    #[test]
+    fn read_only_load_uses_defaults_without_creating_missing_config() {
+        let dir = TestDir::new();
+        let path = dir.config_path();
+
+        let config = load_existing_from_path(&path).expect("missing config uses defaults");
+
+        assert_eq!(config, AppConfig::default());
+        assert!(!path.exists());
     }
 
     #[test]

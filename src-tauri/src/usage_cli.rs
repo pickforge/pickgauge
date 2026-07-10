@@ -60,6 +60,8 @@ struct UsageJsonWindow {
 
 pub fn try_run_from_env() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    #[cfg(windows)]
+    attach_parent_console_if_usage(&args);
     let command = match parse_args(&args) {
         Ok(command) => command,
         Err(()) => {
@@ -69,6 +71,19 @@ pub fn try_run_from_env() -> Option<i32> {
     }?;
 
     Some(run_usage(command))
+}
+
+#[cfg(windows)]
+fn attach_parent_console_if_usage(args: &[OsString]) {
+    if args.first().map(OsString::as_os_str) != Some(OsStr::new("usage")) {
+        return;
+    }
+
+    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
 }
 
 fn parse_args(args: &[OsString]) -> Result<Option<UsageCommand>, ()> {

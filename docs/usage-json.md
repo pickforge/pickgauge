@@ -5,6 +5,9 @@ providers, overlays the latest sanitized browser readings saved by the running
 tray app, prints one JSON object, and exits. It never starts Tauri, opens a
 window, or launches a browser.
 
+On Windows, invoke the command from Command Prompt or PowerShell so PickGauge
+can attach to the parent console and write its output.
+
 ## Version 1
 
 ```json

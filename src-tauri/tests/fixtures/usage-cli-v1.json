@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-09T12:00:05Z",
+  "services": [
+    {
+      "service": "codex",
+      "label": "Codex",
+      "status": "parsed",
+      "plan": "Pro",
+      "remainingPercent": 64.0,
+      "usedPercent": 36.0,
+      "resetAt": "2026-07-09T14:00:00Z",
+      "windows": {
+        "fiveHour": {
+          "remainingPercent": 64.0,
+          "usedPercent": 36.0,
+          "resetAt": "2026-07-09T14:00:00Z"
+        },
+        "week": {
+          "remainingPercent": 88.0,
+          "usedPercent": 12.0,
+          "resetAt": null
+        }
+      },
+      "source": "web",
+      "confidence": "high",
+      "lastUpdated": "2026-07-09T12:00:00Z",
+      "staleSeconds": 5
+    }
+  ]
+}

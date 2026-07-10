@@ -25,6 +25,7 @@ separate worktrees.
 
 ```bash
 set -e
+[ ! -f "$PWD/.lab.env" ] || { echo "lab state exists — clean up the previous lab first" >&2; false; }
 bun install --frozen-lockfile
 REAL_HOME="$HOME"; REAL_CARGO_HOME="${CARGO_HOME:-$REAL_HOME/.cargo}"; REAL_RUSTUP_HOME="${RUSTUP_HOME:-$REAL_HOME/.rustup}"
 LAB_HOME="$(mktemp -d /tmp/pickgauge-lab-home.XXXX)"
@@ -44,6 +45,7 @@ Run in a terminal and leave it open. Every later snippet starts by loading the s
 
 ```bash
 source "$PWD/.lab.env"
+set -e
 Xvfb ":$DISPLAY_NUM" -screen 0 1440x1000x24 -nolisten tcp &
 for _ in {1..50}; do [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] && break; sleep 0.1; done
 [ -e "/tmp/.X11-unix/X$DISPLAY_NUM" ] || { echo "Xvfb did not start" >&2; false; }
@@ -78,7 +80,9 @@ Inspect `/tmp/pickgauge-lab.png` before calling the UI verified.
 Stop each process with a PID from `pgrep`; run each as its own Bash call. Never put `pkill -f` in a compound command: it can match the wrapper shell and exit 144.
 
 ```bash
+[ -f "$PWD/.lab.env" ] || { echo "no lab state in this checkout" >&2; false; }
 source "$PWD/.lab.env"
+: "${PORT:?}" "${DISPLAY_NUM:?}" "${LAB_HOME:?}"
 bash -c 'for pid in $(pgrep -f "[t]arget/debug/pickgauge" || true); do tr "\0" "\n" <"/proc/$pid/environ" 2>/dev/null | grep -qF "$LAB_HOME" && kill "$pid" 2>/dev/null || true; done'
 bash -c 'for pid in $(pgrep -f "[t]auri dev --config.*com\\.pickforge\\.pickgauge\\.labtest$DISPLAY_NUM" || true); do kill "$pid" 2>/dev/null || true; done'
 bash -c 'for pid in $(pgrep -f "[v]ite --host 127.0.0.1 --port $PORT" || true); do kill "$pid" 2>/dev/null || true; done'

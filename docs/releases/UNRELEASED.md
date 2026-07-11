@@ -6,6 +6,7 @@ reset this file.
 
 ## User-facing changes
 
+- Double-clicking empty titlebar space now maximizes or restores the window.
 - Added a headless `pickgauge usage --json` export for agents and scripts, plus a repository-canonical usage-routing skill.
 - Added zero-setup Grok plan detection through the local Grok CLI login. PickGauge shows the active
   plan and billing-period end without reporting a usage percentage.
@@ -31,7 +32,7 @@ reset this file.
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
 - `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets`
 - `bun run check`
-- `bun run test`
+- `bun run test:coverage` (70 tests, including the titlebar double-click regression)
 
 ### Not tested yet
 

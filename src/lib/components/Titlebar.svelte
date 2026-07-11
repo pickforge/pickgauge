@@ -12,22 +12,21 @@
   class="pf-titlebar"
   class:pf-titlebar--controls-left={side === "left"}
   role="presentation"
-  data-tauri-drag-region
   onmousedown={handleTitlebarMouseDown}
 >
-  <div class="pf-titlebar-left" data-tauri-drag-region>
+  <div class="pf-titlebar-left">
     {#if side === "left"}
       <WindowControls />
     {/if}
-    <div class="pf-brand" data-tauri-drag-region>
+    <div class="pf-brand">
       <span class="pf-mark"></span>
       <span class="pf-wordmark">PickGauge</span>
     </div>
   </div>
 
-  <div class="titlebar-center" data-tauri-drag-region aria-hidden="true"></div>
+  <div class="titlebar-center" aria-hidden="true"></div>
 
-  <div class="pf-titlebar-right" data-tauri-drag-region>
+  <div class="pf-titlebar-right">
     <span
       class="pf-pill"
       title={refreshing ? "syncing" : "watching"}

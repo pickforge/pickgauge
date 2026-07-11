@@ -204,9 +204,11 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    width: calc(100vw - 4px);
-    height: calc(100vh - 4px);
-    margin: 2px;
+    /* Must match FLOAT_GLOW_MARGIN in src-tauri/src/lib.rs: the window is
+       oversized by 24px per side so the glow fades out before the edge. */
+    width: calc(100vw - 48px);
+    height: calc(100vh - 48px);
+    margin: 24px;
     padding: 0 14px 0 10px;
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius-pill);

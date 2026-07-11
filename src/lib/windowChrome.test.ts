@@ -14,11 +14,24 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 import {
   closeWindow,
+  handleTitlebarMouseDown,
   minimizeWindow,
   readMaximized,
   startResize,
   toggleMaximizeWindow,
 } from "./windowChrome";
+
+function mouseDown(detail = 2, button = 0, interactive = false): MouseEvent {
+  return {
+    button,
+    detail,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    target: {
+      closest: vi.fn(() => (interactive ? {} : null)),
+    },
+  } as unknown as MouseEvent;
+}
 
 beforeEach(() => {
   Object.values(win).forEach((fn) => fn.mockClear());
@@ -63,6 +76,40 @@ describe("toggleMaximizeWindow", () => {
   it("returns false when the toggle fails", async () => {
     win.toggleMaximize.mockRejectedValueOnce(new Error("closing"));
     await expect(toggleMaximizeWindow()).resolves.toBe(false);
+  });
+});
+
+describe("handleTitlebarMouseDown", () => {
+  it("toggles maximize for a primary-button double click", async () => {
+    const event = mouseDown();
+    handleTitlebarMouseDown(event);
+
+    await vi.waitFor(() => expect(win.toggleMaximize).toHaveBeenCalledOnce());
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+  });
+
+  it("ignores interactive titlebar children", async () => {
+    handleTitlebarMouseDown(mouseDown(2, 0, true));
+
+    await Promise.resolve();
+    expect(win.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-primary double clicks", async () => {
+    handleTitlebarMouseDown(mouseDown(2, 2));
+
+    await Promise.resolve();
+    expect(win.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("leaves a single press available for window dragging", async () => {
+    const event = mouseDown(1);
+    handleTitlebarMouseDown(event);
+
+    await Promise.resolve();
+    expect(win.toggleMaximize).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
   });
 });
 

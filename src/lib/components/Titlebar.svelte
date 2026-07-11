@@ -1,5 +1,6 @@
 <script lang="ts">
   import { controlsSide, hostPlatform } from "../platform";
+  import { handleTitlebarMouseDown } from "../windowChrome";
   import WindowControls from "./WindowControls.svelte";
 
   let { refreshing = false }: { refreshing?: boolean } = $props();
@@ -10,7 +11,9 @@
 <header
   class="pf-titlebar"
   class:pf-titlebar--controls-left={side === "left"}
+  role="presentation"
   data-tauri-drag-region
+  onmousedown={handleTitlebarMouseDown}
 >
   <div class="pf-titlebar-left" data-tauri-drag-region>
     {#if side === "left"}

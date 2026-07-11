@@ -12,6 +12,10 @@ reset this file.
 - Added zero-setup Ollama plan detection from the signed-in local daemon. Usage limits remain unavailable.
 - Added opt-in Grok weekly usage gauges through an isolated browser profile. The existing Grok CLI plan is carried into the official usage reading.
 
+- The float capsule's glow now fades out smoothly instead of being clipped
+  into a hard rectangle by the window edge; the transparent margin around
+  the capsule is click-through (#38).
+
 ## Internal/release changes
 
 - Switched AppImage libwayland post-processing to `pickforge-tauri-release fix-appimage`.

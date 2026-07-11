@@ -7,6 +7,10 @@
   import { defaultConfig, floatDisplaySnapshots } from "./lib/usage";
   import { serviceLabels } from "./lib/display";
 
+  // Non-Linux has no input-shape equivalent for the glow margin, so the
+  // window stays snug there and the outer glow is dropped (see lib.rs).
+  const hasGlowMargin = /\bLinux\b/.test(navigator.userAgent);
+
   let snapshots = $state<UsageSnapshot[]>([]);
   let displaySnapshots = $derived(floatDisplaySnapshots(snapshots));
   let config = $state<AppConfig>(defaultConfig);
@@ -153,6 +157,7 @@
 
 <div
   class="capsule"
+  class:snug={!hasGlowMargin}
   role="button"
   tabindex="-1"
   aria-label="PickGauge — click to open, right-click to refresh, middle-click to hide"
@@ -204,9 +209,11 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    width: calc(100vw - 4px);
-    height: calc(100vh - 4px);
-    margin: 2px;
+    /* Must match FLOAT_GLOW_MARGIN in src-tauri/src/lib.rs: the window is
+       oversized by 24px per side so the glow fades out before the edge. */
+    width: calc(100vw - 48px);
+    height: calc(100vh - 48px);
+    margin: 24px;
     padding: 0 14px 0 10px;
     border: 1px solid var(--hairline-strong);
     border-radius: var(--radius-pill);
@@ -218,6 +225,12 @@
     -webkit-user-select: none;
     overflow: hidden;
     transition: border-color 500ms var(--ease-forge), box-shadow 500ms var(--ease-forge);
+  }
+  .capsule.snug {
+    width: calc(100vw - 4px);
+    height: calc(100vh - 4px);
+    margin: 2px;
+    box-shadow: none;
   }
   .capsule:hover {
     border-color: color-mix(in srgb, var(--ember) 40%, transparent);

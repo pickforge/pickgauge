@@ -1826,8 +1826,20 @@ fn ensure_float_window(app: &AppHandle, visible: bool) {
     }
 }
 
-const FLOAT_WINDOW_WIDTH: i32 = 208;
-const FLOAT_WINDOW_HEIGHT: i32 = 60;
+// Shared Pickforge float-capsule geometry (kept in sync with PickScribe).
+// On Linux the glow margin gives the capsule's box-shadow room to fade out
+// inside the window, and the GTK input shape below keeps that transparent
+// ring click-through. Other platforms have no input-shape equivalent, so
+// they keep a snug window (and Float.svelte drops the outer glow there).
+// Float.svelte's capsule margin must match FLOAT_GLOW_MARGIN per platform.
+const FLOAT_CAPSULE_WIDTH: i32 = 204;
+const FLOAT_CAPSULE_HEIGHT: i32 = 56;
+#[cfg(target_os = "linux")]
+const FLOAT_GLOW_MARGIN: i32 = 24;
+#[cfg(not(target_os = "linux"))]
+const FLOAT_GLOW_MARGIN: i32 = 2;
+const FLOAT_WINDOW_WIDTH: i32 = FLOAT_CAPSULE_WIDTH + 2 * FLOAT_GLOW_MARGIN;
+const FLOAT_WINDOW_HEIGHT: i32 = FLOAT_CAPSULE_HEIGHT + 2 * FLOAT_GLOW_MARGIN;
 
 /// GTK won't size the capsule correctly on its own: WebKitGTK requests a
 /// 200x200 minimum on X11, and on Wayland resizes issued before the surface
@@ -1850,6 +1862,17 @@ fn clamp_float_window_size(window: &WebviewWindow) {
                 }
 
                 gtk_window.resize(FLOAT_WINDOW_WIDTH, FLOAT_WINDOW_HEIGHT);
+                if let Some(gdk_window) = gtk_window.window() {
+                    // 2px slack so the capsule border stays clickable.
+                    let rect = gtk::cairo::RectangleInt::new(
+                        FLOAT_GLOW_MARGIN - 2,
+                        FLOAT_GLOW_MARGIN - 2,
+                        FLOAT_CAPSULE_WIDTH + 4,
+                        FLOAT_CAPSULE_HEIGHT + 4,
+                    );
+                    let region = gtk::cairo::Region::create_rectangle(&rect);
+                    gdk_window.input_shape_combine_region(&region, 0, 0);
+                }
             }
         });
     }

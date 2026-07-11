@@ -5,6 +5,7 @@ const win = {
   close: vi.fn(() => Promise.resolve()),
   toggleMaximize: vi.fn(() => Promise.resolve()),
   isMaximized: vi.fn(() => Promise.resolve(false)),
+  startDragging: vi.fn(() => Promise.resolve()),
   startResizeDragging: vi.fn(() => Promise.resolve()),
 };
 
@@ -103,13 +104,13 @@ describe("handleTitlebarMouseDown", () => {
     expect(win.toggleMaximize).not.toHaveBeenCalled();
   });
 
-  it("leaves a single press available for window dragging", async () => {
+  it("starts window dragging for a single press", async () => {
     const event = mouseDown(1);
     handleTitlebarMouseDown(event);
 
-    await Promise.resolve();
+    await vi.waitFor(() => expect(win.startDragging).toHaveBeenCalledOnce());
     expect(win.toggleMaximize).not.toHaveBeenCalled();
-    expect(event.stopPropagation).not.toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
   });
 });
 

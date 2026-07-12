@@ -44,6 +44,8 @@ pub struct VisibleUsageInput {
     #[serde(default)]
     pub second_window: Option<VisibleWindowInput>,
     #[serde(default)]
+    pub fable_window: Option<VisibleWindowInput>,
+    #[serde(default)]
     pub products: Vec<VisibleProductInput>,
 }
 
@@ -208,6 +210,11 @@ fn parse_usage_state(
             used_percent,
             input.reset_at.as_deref(),
             input.second_window.as_ref(),
+            if input.service == Service::Claude {
+                input.fable_window.as_ref()
+            } else {
+                None
+            },
         )
     };
 
@@ -251,27 +258,46 @@ fn parse_usage_state(
     }
 }
 
-/// Build the dual-window detail block when a valid secondary window is present.
-/// The headline (primary) window is mirrored as `fiveHour` so the card renders
-/// it as the first bar, and the secondary becomes `week`. Returns `None` when
-/// there is no secondary window, leaving single-window providers byte-identical.
+/// Build the detail block when a valid optional window is present. The headline
+/// is mirrored as `fiveHour`; the standard secondary becomes `week`, while
+/// Claude's distinct Fable allowance becomes `fable`.
 fn build_windows(
     primary_remaining: f32,
     primary_used: f32,
     primary_reset_at: Option<&str>,
     second: Option<&VisibleWindowInput>,
+    fable: Option<&VisibleWindowInput>,
 ) -> Option<serde_json::Value> {
-    let second = second?;
-    let week = window_detail(
-        second.remaining_percent,
-        second.used_percent,
-        second.reset_at.as_deref(),
-    )?;
+    let week = second.and_then(|window| {
+        window_detail(
+            window.remaining_percent,
+            window.used_percent,
+            window.reset_at.as_deref(),
+        )
+    });
+    let fable = fable.and_then(|window| {
+        window_detail(
+            window.remaining_percent,
+            window.used_percent,
+            window.reset_at.as_deref(),
+        )
+    });
 
-    Some(serde_json::json!({
+    if week.is_none() && fable.is_none() {
+        return None;
+    }
+
+    let mut windows = serde_json::json!({
         "fiveHour": window_json(primary_remaining, primary_used, primary_reset_at),
-        "week": week,
-    }))
+    });
+    let object = windows.as_object_mut().expect("window details are an object");
+    if let Some(week) = week {
+        object.insert("week".into(), week);
+    }
+    if let Some(fable) = fable {
+        object.insert("fable".into(), fable);
+    }
+    Some(windows)
 }
 
 fn window_json(remaining: f32, used: f32, reset_at: Option<&str>) -> serde_json::Value {
@@ -528,6 +554,7 @@ mod tests {
                 used_percent: Some(57.0),
                 reset_at: Some("2026-06-22T00:00:00Z".to_string()),
             }),
+            fable_window: None,
             products: Vec::new(),
         };
 
@@ -560,6 +587,7 @@ mod tests {
                 used_percent: Some(80.0),
                 reset_at: None,
             }),
+            fable_window: None,
             products: Vec::new(),
         };
 
@@ -569,6 +597,65 @@ mod tests {
         assert_eq!(snapshot.confidence, UsageConfidence::High);
         assert_eq!(snapshot.remaining_percent, Some(83.0));
         assert!(snapshot.details.get("windows").is_none());
+    }
+
+    #[test]
+    fn claude_fable_window_is_carried_without_replacing_the_weekly_window() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: Some(82.0),
+            used_percent: Some(18.0),
+            reset_at: None,
+            visible_fields: vec!["remaining_percent".to_string(), "used_percent".to_string()],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
+            }),
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+        let windows = &snapshot.details["windows"];
+
+        assert_eq!(windows["fiveHour"]["remainingPercent"], 82.0);
+        assert_eq!(windows["week"]["usedPercent"], 43.0);
+        assert_eq!(windows["fable"]["remainingPercent"], 88.0);
+    }
+
+    #[test]
+    fn invalid_claude_fable_window_is_dropped_without_losing_other_windows() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: Some(82.0),
+            used_percent: Some(18.0),
+            reset_at: None,
+            visible_fields: vec!["remaining_percent".to_string(), "used_percent".to_string()],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
+            }),
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(80.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+        let windows = &snapshot.details["windows"];
+
+        assert_eq!(windows["week"]["remainingPercent"], 57.0);
+        assert!(windows.get("fable").is_none());
     }
 
     #[test]

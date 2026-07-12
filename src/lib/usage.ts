@@ -22,7 +22,7 @@ export type UsageWindow = {
 };
 
 /**
- * Pull the 5-hour and weekly windows out of a snapshot's details, when the
+ * Pull the 5-hour, weekly, and Claude Fable windows out of a snapshot's details, when the
  * provider supplies them (the CLI-credentials provider does). Falls back to
  * the headline `remainingPercent` for the 5-hour window so providers without
  * window detail still render.
@@ -30,6 +30,7 @@ export type UsageWindow = {
 export function usageWindows(snapshot: UsageSnapshot): {
   fiveHour: UsageWindow | null;
   week: UsageWindow | null;
+  fable: UsageWindow | null;
 } {
   const readWindow = (value: unknown): UsageWindow | null => {
     if (!value || typeof value !== "object") return null;
@@ -45,6 +46,7 @@ export function usageWindows(snapshot: UsageSnapshot): {
   const windows = snapshot.details?.windows as Record<string, unknown> | undefined;
   const fiveHour = readWindow(windows?.fiveHour);
   const week = readWindow(windows?.week);
+  const fable = readWindow(windows?.fable);
 
   return {
     fiveHour:
@@ -57,6 +59,7 @@ export function usageWindows(snapshot: UsageSnapshot): {
           }
         : null),
     week,
+    fable,
   };
 }
 
@@ -336,6 +339,26 @@ export const fallbackSnapshots: UsageSnapshot[] = [
     lastUpdated: "Waiting for local provider",
     details: { status: "placeholder" },
   },
+  {
+    service: "grok",
+    remainingPercent: 78,
+    usedPercent: 22,
+    resetAt: null,
+    source: "fake",
+    confidence: "unknown",
+    lastUpdated: "Waiting for CLI provider",
+    details: { status: "placeholder" },
+  },
+  {
+    service: "ollama",
+    remainingPercent: 88,
+    usedPercent: 12,
+    resetAt: null,
+    source: "fake",
+    confidence: "unknown",
+    lastUpdated: "Waiting for local daemon",
+    details: { status: "placeholder" },
+  },
 ];
 
 export type BrowserPreviewState =
@@ -384,12 +407,7 @@ export function browserPreviewStateFromSearch(search: string): BrowserPreviewSta
 export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapshot[] {
   switch (state) {
     case "official-usage":
-      return previewSnapshots({
-        confidence: "medium",
-        details: { providerId: "preview.web", status: "parsed" },
-        lastUpdated: "2026-06-04T12:00:00Z",
-        source: "web",
-      });
+      return officialPreviewSnapshots();
     case "missing-local-data":
       return previewSnapshots({
         confidence: "unknown",
@@ -487,4 +505,59 @@ function previewSnapshots(partial: Partial<UsageSnapshot>): UsageSnapshot[] {
       ...partial.details,
     },
   }));
+}
+
+function officialPreviewSnapshots(): UsageSnapshot[] {
+  const reset = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+  const readings: Record<
+    Service,
+    { remaining: number; windows: Record<string, UsageWindow> }
+  > = {
+    codex: {
+      remaining: 67,
+      windows: {
+        fiveHour: { remainingPercent: 67, usedPercent: 33, resetAt: reset(2) },
+        week: { remainingPercent: 76, usedPercent: 24, resetAt: reset(120) },
+      },
+    },
+    claude: {
+      remaining: 61,
+      windows: {
+        fiveHour: { remainingPercent: 61, usedPercent: 39, resetAt: reset(2) },
+        week: { remainingPercent: 92, usedPercent: 8, resetAt: reset(144) },
+        fable: { remainingPercent: 34, usedPercent: 66, resetAt: reset(96) },
+      },
+    },
+    grok: {
+      remaining: 73,
+      windows: {
+        week: { remainingPercent: 73, usedPercent: 27, resetAt: reset(132) },
+      },
+    },
+    ollama: {
+      remaining: 88,
+      windows: {
+        fiveHour: { remainingPercent: 88, usedPercent: 12, resetAt: reset(4) },
+        week: { remainingPercent: 64, usedPercent: 36, resetAt: reset(108) },
+      },
+    },
+  };
+
+  return fallbackSnapshots.map((snapshot) => {
+    const reading = readings[snapshot.service];
+    return {
+      ...snapshot,
+      remainingPercent: reading.remaining,
+      usedPercent: 100 - reading.remaining,
+      resetAt: reading.windows.fiveHour?.resetAt ?? reading.windows.week?.resetAt ?? null,
+      source: "web",
+      confidence: "high",
+      lastUpdated: new Date().toISOString(),
+      details: {
+        providerId: "preview.web",
+        status: "parsed",
+        windows: reading.windows,
+      },
+    };
+  });
 }

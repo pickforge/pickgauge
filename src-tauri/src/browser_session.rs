@@ -228,6 +228,7 @@ pub struct PlaywrightSidecarUsageResponse {
     pub reset_at: Option<String>,
     pub visible_fields: Vec<String>,
     pub weekly: Option<PlaywrightSidecarUsageWindow>,
+    pub fable: Option<PlaywrightSidecarUsageWindow>,
     pub products: Vec<PlaywrightSidecarUsageProduct>,
 }
 
@@ -281,6 +282,7 @@ struct RawPlaywrightSidecarUsageResponse {
     reset_at: Option<String>,
     visible_fields: Option<Vec<String>>,
     weekly: Option<PlaywrightSidecarUsageWindow>,
+    fable: Option<PlaywrightSidecarUsageWindow>,
     products: Option<Vec<PlaywrightSidecarUsageProduct>>,
 }
 
@@ -886,6 +888,7 @@ pub fn playwright_sidecar_usage_response(
         reset_at: response.reset_at,
         visible_fields,
         weekly: response.weekly,
+        fable: response.fable,
         products,
     })
 }
@@ -1979,6 +1982,42 @@ mod tests {
         assert_eq!(weekly.used_percent, Some(57.0));
         assert_eq!(weekly.remaining_percent, Some(43.0));
         assert_eq!(weekly.reset_at.as_deref(), Some("2026-06-22T00:00:00Z"));
+    }
+
+    #[test]
+    fn playwright_sidecar_usage_response_carries_fable_window() {
+        let plan = chromium_launch_plan(Service::Claude, "/tmp/pickgauge/claude");
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_refresh_request(
+            &launch_request,
+            "https://claude.ai/usage",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "checked",
+            "protocolVersion": 1,
+            "action": "refreshUsage",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "claude",
+            "profileLabel": "claude-profile",
+            "headless": true,
+            "argCount": sidecar_request.args.len(),
+            "pageState": "usage",
+            "fable": {
+                "remainingPercent": 88.0,
+                "usedPercent": 12.0,
+                "resetAt": null
+            }
+        })
+        .to_string();
+        let response = playwright_sidecar_usage_response(&raw, &sidecar_request)
+            .expect("checked response is accepted");
+
+        let fable = response.fable.expect("Fable window is carried");
+        assert_eq!(fable.remaining_percent, Some(88.0));
+        assert_eq!(fable.used_percent, Some(12.0));
+        assert_eq!(fable.reset_at, None);
     }
 
     #[test]

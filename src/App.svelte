@@ -204,8 +204,9 @@
     <main class="content fade-up">
       {#if loading}
         <div class="loading">
-          <div class="skeleton"></div>
-          <div class="skeleton"></div>
+          {#each [1, 2, 3, 4] as item (item)}
+            <div class="skeleton"></div>
+          {/each}
         </div>
       {:else if view === "dashboard"}
         <Dashboard {snapshots} {config} {setStatus} />
@@ -404,13 +405,13 @@
   }
 
   .loading {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .skeleton {
-    height: 180px;
+    height: 176px;
     border-radius: var(--radius-card);
     background: linear-gradient(
       100deg,
@@ -453,6 +454,10 @@
 
     .content {
       padding: 18px 14px 24px;
+    }
+
+    .loading {
+      grid-template-columns: 1fr;
     }
   }
 </style>

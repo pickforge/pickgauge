@@ -1388,6 +1388,11 @@ fn usage_snapshot_from_sidecar_usage_response(
                 used_percent: window.used_percent,
                 reset_at: window.reset_at,
             }),
+            fable_window: response.fable.map(|window| VisibleWindowInput {
+                remaining_percent: window.remaining_percent,
+                used_percent: window.used_percent,
+                reset_at: window.reset_at,
+            }),
             products: response
                 .products
                 .into_iter()
@@ -2802,6 +2807,38 @@ mod tests {
     }
 
     #[test]
+    fn claude_sidecar_usage_response_carries_fable_window() {
+        let response = browser_session::PlaywrightSidecarUsageResponse {
+            remaining_percent: Some(82.0),
+            used_percent: Some(18.0),
+            visible_fields: vec![
+                "remaining_percent".to_string(),
+                "used_percent".to_string(),
+                "quota_window".to_string(),
+            ],
+            weekly: Some(browser_session::PlaywrightSidecarUsageWindow {
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
+            }),
+            fable: Some(browser_session::PlaywrightSidecarUsageWindow {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            ..sidecar_usage_response(Service::Claude, "usage")
+        };
+
+        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
+            .expect("snapshot is built");
+        let windows = &snapshot.details["windows"];
+
+        assert_eq!(windows["fiveHour"]["usedPercent"], 18.0);
+        assert_eq!(windows["week"]["remainingPercent"], 57.0);
+        assert_eq!(windows["fable"]["usedPercent"], 12.0);
+    }
+
+    #[test]
     fn grok_sidecar_usage_response_maps_weekly_usage_and_products() {
         let response = browser_session::PlaywrightSidecarUsageResponse {
             remaining_percent: Some(71.5),
@@ -2917,6 +2954,7 @@ mod tests {
             reset_at: None,
             visible_fields: Vec::new(),
             weekly: None,
+            fable: None,
             products: Vec::new(),
         }
     }

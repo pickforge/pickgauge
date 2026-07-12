@@ -118,6 +118,7 @@ test("parses sanitized Grok weekly credits without exposing the response body", 
     usedPercent: 28.5,
     visibleFields: ["used_percent", "remaining_percent", "quota_window", "reset_at"],
     weekly: null,
+    fable: null,
     products: [
       { product: "PRODUCT_GROK_BUILD", usagePercent: 42 },
       { product: "PRODUCT_API", usagePercent: 3 },
@@ -269,7 +270,65 @@ test("extracts sanitized visible usage fields from page text", async () => {
       "quota_window",
     ],
     weekly: null,
+    fable: null,
   });
+});
+
+test("extracts Claude session, weekly, and Fable allowances from labeled text", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({
+      bodyText:
+        "Plan usage limits\nCurrent session\n18% used\nWeekly limits\nAll models\n43% used\nFable 5 only\n12% used",
+    }),
+    "claude",
+  );
+
+  assert.deepEqual(usage, {
+    remainingPercent: 82,
+    resetAt: null,
+    service: "claude",
+    usedPercent: 18,
+    visibleFields: ["remaining_percent", "used_percent", "quota_window", "plan_label"],
+    weekly: { remainingPercent: 57, resetAt: null, usedPercent: 43 },
+    fable: { remainingPercent: 88, resetAt: null, usedPercent: 12 },
+  });
+});
+
+test("does not infer a Claude Fable allowance without its label", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({ bodyText: "Current session\n18% used\nAll models\n43% used" }),
+    "claude",
+  );
+
+  assert.equal(usage.fable, null);
+});
+
+test("does not borrow a percentage from the next Claude quota row", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({
+      bodyText:
+        "Current session\nTemporarily unavailable\nWeekly limits\nAll models\n43% used\nFable 5 only\n12% used",
+    }),
+    "claude",
+  );
+
+  assert.equal(usage.remainingPercent, null);
+  assert.equal(usage.usedPercent, null);
+  assert.deepEqual(usage.weekly, { remainingPercent: 57, resetAt: null, usedPercent: 43 });
+  assert.deepEqual(usage.fable, { remainingPercent: 88, resetAt: null, usedPercent: 12 });
+});
+
+test("keeps a missing Claude weekly percentage separate from Fable", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({
+      bodyText:
+        "Current session\n18% used\nAll models\nTemporarily unavailable\nFable only\n12% used",
+    }),
+    "claude",
+  );
+
+  assert.equal(usage.weekly, null);
+  assert.deepEqual(usage.fable, { remainingPercent: 88, resetAt: null, usedPercent: 12 });
 });
 
 test("parses the ollama session window as the headline gauge with weekly secondary", () => {
@@ -290,6 +349,7 @@ test("parses the ollama session window as the headline gauge with weekly seconda
       resetAt: "2026-06-22T00:00:00Z",
       usedPercent: 37.5,
     },
+    fable: null,
   });
 });
 

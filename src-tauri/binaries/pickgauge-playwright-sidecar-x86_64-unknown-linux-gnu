@@ -209,6 +209,7 @@ async function runRefreshUsageRequest(request) {
       usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
       visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
       weekly: pageState === "usage" ? visibleUsage.weekly : null,
+      fable: pageState === "usage" ? visibleUsage.fable : null,
       products: pageState === "usage" ? (visibleUsage.products ?? []) : [],
     };
   } catch (error) {
@@ -234,6 +235,7 @@ function sanitizedCheckedResponse(request, pageState, visibleUsage = emptyVisibl
     usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
     visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
     weekly: pageState === "usage" ? visibleUsage.weekly : null,
+    fable: pageState === "usage" ? visibleUsage.fable : null,
     products: pageState === "usage" ? (visibleUsage.products ?? []) : [],
   };
 }
@@ -245,6 +247,7 @@ function emptyVisibleUsage() {
     usedPercent: null,
     visibleFields: [],
     weekly: null,
+    fable: null,
     products: [],
   };
 }
@@ -495,6 +498,10 @@ export async function extractVisibleUsage(page, service) {
   }
 
   const text = await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
+  if (service === "claude") {
+    return extractClaudeUsage(text);
+  }
+
   const percentages = visiblePercentages(text);
   const resetAt = visibleResetAt(text);
   const visibleFields = [];
@@ -526,7 +533,74 @@ export async function extractVisibleUsage(page, service) {
     usedPercent: percentages.usedPercent,
     visibleFields: [...new Set(visibleFields)],
     weekly: null,
+    fable: null,
   };
+}
+
+function extractClaudeUsage(text) {
+  const sessionLabel = /\bcurrent\s+session\b/iu;
+  const sessionUsed = usedPercentFollowingLabel(text, sessionLabel);
+  const weeklyUsed = usedPercentFollowingLabel(text, /\ball\s+models\b/iu);
+  const fableUsed = usedPercentFollowingLabel(text, /\bfable(?:\s+5)?(?:\s+only)?\b/iu);
+  const fallback = visiblePercentages(text);
+  const usedPercent = labelIsPresent(text, sessionLabel) ? sessionUsed : fallback.usedPercent;
+  const resetAt = visibleResetAt(text);
+  const visibleFields = [];
+
+  if (usedPercent !== null) {
+    visibleFields.push("remaining_percent", "used_percent");
+  }
+  if (resetAt !== null) {
+    visibleFields.push("reset_at");
+  }
+
+  const weekly = usageWindowFromUsedPercent(weeklyUsed);
+  const fable = usageWindowFromUsedPercent(fableUsed);
+  if (weekly !== null || fable !== null) {
+    visibleFields.push("quota_window");
+  }
+  if (/\b(plan|pro|team|max|plus)\b/iu.test(text)) {
+    visibleFields.push("plan_label");
+  }
+
+  return {
+    remainingPercent: usedPercent === null ? null : 100 - usedPercent,
+    resetAt,
+    service: "claude",
+    usedPercent,
+    visibleFields,
+    weekly,
+    fable,
+  };
+}
+
+function labelIsPresent(text, labelPattern) {
+  return new RegExp(labelPattern.source, labelPattern.flags).test(text.replace(/\s+/gu, " "));
+}
+
+function usedPercentFollowingLabel(text, labelPattern) {
+  const normalized = text.replace(/\s+/gu, " ");
+  const label = new RegExp(labelPattern.source, labelPattern.flags).exec(normalized);
+  if (label === null) {
+    return null;
+  }
+
+  const afterLabel = normalized.slice(label.index + label[0].length);
+  const nextLabel = /\b(?:current\s+session|all\s+models|fable(?:\s+5)?(?:\s+only)?)\b/iu.exec(
+    afterLabel,
+  );
+  const section = nextLabel === null ? afterLabel : afterLabel.slice(0, nextLabel.index);
+  const match = /\b([0-9]{1,3}(?:\.[0-9]{1,2})?)\s*%\s*used\b/iu.exec(section);
+  const value = match === null ? null : Number.parseFloat(match[1]);
+  return value !== null && validPercent(value) ? value : null;
+}
+
+function usageWindowFromUsedPercent(usedPercent) {
+  if (usedPercent === null || !validPercent(usedPercent)) {
+    return null;
+  }
+
+  return { remainingPercent: 100 - usedPercent, resetAt: null, usedPercent };
 }
 
 export function parseGrokCreditsBody(body) {
@@ -595,6 +669,7 @@ export function extractGrokCreditsUsage(value) {
     usedPercent,
     visibleFields,
     weekly: null,
+    fable: null,
     products,
   };
 }
@@ -739,6 +814,7 @@ export function extractOllamaUsageFromHtml(html) {
     usedPercent,
     visibleFields,
     weekly,
+    fable: null,
   };
 }
 

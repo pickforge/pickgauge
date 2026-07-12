@@ -41,6 +41,11 @@ describe("usage windows", () => {
                 usedPercent: 20,
                 resetAt: "2026-06-10T00:00:00Z",
               },
+              fable: {
+                remainingPercent: 88,
+                usedPercent: 12,
+                resetAt: null,
+              },
             },
           },
         }),
@@ -55,6 +60,11 @@ describe("usage windows", () => {
         remainingPercent: 80,
         usedPercent: 20,
         resetAt: "2026-06-10T00:00:00Z",
+      },
+      fable: {
+        remainingPercent: 88,
+        usedPercent: 12,
+        resetAt: null,
       },
     });
   });
@@ -75,6 +85,7 @@ describe("usage windows", () => {
         resetAt: "2026-06-03T17:00:00Z",
       },
       week: null,
+      fable: null,
     });
   });
 
@@ -100,6 +111,7 @@ describe("usage windows", () => {
         resetAt: null,
       },
       week: null,
+      fable: null,
     });
   });
 });
@@ -140,8 +152,20 @@ describe("usage fixtures and redaction", () => {
         confidence: "unknown",
         details: { status: "placeholder" },
       }),
+      expect.objectContaining({
+        service: "grok",
+        source: "fake",
+        confidence: "unknown",
+        details: { status: "placeholder" },
+      }),
+      expect.objectContaining({
+        service: "ollama",
+        source: "fake",
+        confidence: "unknown",
+        details: { status: "placeholder" },
+      }),
     ]);
-    expect(fallbackSnapshots.map(providerStatusMessage)).toEqual([null, null]);
+    expect(fallbackSnapshots.map(providerStatusMessage)).toEqual([null, null, null, null]);
   });
 
   it("names a missing local Ollama daemon honestly", () => {
@@ -177,7 +201,12 @@ describe("usage fixtures and redaction", () => {
   it("creates preview snapshots with independent detail objects", () => {
     const snapshots = browserPreviewSnapshots("network-unavailable");
 
-    expect(snapshots.map(providerStatusMessage)).toEqual(["Network unavailable", "Network unavailable"]);
+    expect(snapshots.map(providerStatusMessage)).toEqual([
+      "Network unavailable",
+      "Network unavailable",
+      "Network unavailable",
+      "Network unavailable",
+    ]);
     expect(snapshots[0].details).not.toBe(snapshots[1].details);
   });
 

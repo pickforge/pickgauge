@@ -35,7 +35,7 @@ reset this file.
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
 - `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets`
 - `bun run check`
-- `bun run test:coverage` (73 tests, including the titlebar double-click regression)
+- `bun run test:coverage` (74 tests, including the titlebar double-click regression)
 - `bun run test:browser-preview` (four providers across 1000px, 820px, 680px, and 390px widths and all preview states)
 - PickLab visual and interaction checks at 1000×700, 820×600, and 680×600, including official usage and login-required states.
 

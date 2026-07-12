@@ -144,6 +144,7 @@ export function providerStatusKind(snapshot: UsageSnapshot): "ok" | "warn" | "ba
   if (
     status === "permission_denied" ||
     status === "parse_failed" ||
+    status === "unavailable" ||
     status === "network_unavailable" ||
     status === "timed_out" ||
     status === "unexpected_ui" ||

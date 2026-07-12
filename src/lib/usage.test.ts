@@ -160,6 +160,10 @@ describe("provider status kind", () => {
       ),
     ).toBe("warn");
   });
+
+  it("marks an unavailable provider as bad", () => {
+    expect(providerStatusKind(snapshot({ details: { status: "unavailable" } }))).toBe("bad");
+  });
 });
 
 describe("usage fixtures and redaction", () => {

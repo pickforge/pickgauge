@@ -1114,6 +1114,22 @@ fn merge_service_snapshots(
     let fake = latest_snapshot_with_source(&snapshots, UsageSource::Fake);
 
     if let Some(web) = web.as_ref() {
+        if !web_has_usage_percent(web) && web_has_usage_window(web) {
+            let mut snapshot = web.clone();
+            if web_baseline_stale(web, config, now) {
+                snapshot.confidence = lower_confidence(snapshot.confidence);
+                set_detail(&mut snapshot, "mergeStatus", "stale_web_windows");
+            } else {
+                set_detail(&mut snapshot, "mergeStatus", "web_windows_only");
+            }
+            set_detail(
+                &mut snapshot,
+                "lastOfficialCheckAt",
+                web.last_updated.clone(),
+            );
+            return Some(snapshot);
+        }
+
         if !web_has_usage_percent(web) {
             if let Some(local) = local.filter(|snapshot| is_plan_only_local_snapshot(snapshot)) {
                 return Some(local.clone());
@@ -1179,6 +1195,27 @@ fn merge_service_snapshots(
 
 fn web_has_usage_percent(snapshot: &UsageSnapshot) -> bool {
     snapshot.remaining_percent.is_some() || snapshot.used_percent.is_some()
+}
+
+fn web_has_usage_window(snapshot: &UsageSnapshot) -> bool {
+    snapshot
+        .details
+        .get("windows")
+        .and_then(|windows| windows.as_object())
+        .is_some_and(|windows| {
+            windows.values().any(|window| {
+                window.as_object().is_some_and(|window| {
+                    ["remainingPercent", "usedPercent"].iter().any(|field| {
+                        window
+                            .get(*field)
+                            .and_then(|value| value.as_f64())
+                            .is_some_and(|value| {
+                                value.is_finite() && (0.0..=100.0).contains(&value)
+                            })
+                    })
+                })
+            })
+        })
 }
 
 fn is_plan_only_local_snapshot(snapshot: &UsageSnapshot) -> bool {
@@ -3365,6 +3402,41 @@ mod tests {
             snapshot.details["lastOfficialCheckAt"],
             "2026-06-03T23:00:00Z"
         );
+    }
+
+    #[test]
+    fn display_state_preserves_fable_only_web_window_with_local_fallback() {
+        let mut web = web_snapshot(Service::Claude, 88.0, "2026-06-03T23:00:00Z");
+        web.remaining_percent = None;
+        web.used_percent = None;
+        web.reset_at = None;
+        web.details["windows"] = serde_json::json!({
+            "fable": {
+                "remainingPercent": 88.0,
+                "usedPercent": 12.0,
+                "resetAt": null,
+            }
+        });
+        let display_state = display_state_from_provider_snapshots(
+            web_enabled_config(),
+            vec![
+                ("claude.web", web),
+                (
+                    "claude.local",
+                    uncalibrated_local_snapshot(Service::Claude, "2026-06-03T23:01:00Z"),
+                ),
+            ],
+            "2026-06-03T23:01:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(
+            snapshot.details["windows"]["fable"]["remainingPercent"],
+            88.0
+        );
+        assert_eq!(snapshot.details["mergeStatus"], "web_windows_only");
     }
 
     #[test]

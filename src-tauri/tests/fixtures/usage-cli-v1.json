@@ -3,8 +3,8 @@
   "generatedAt": "2026-07-09T12:00:05Z",
   "services": [
     {
-      "service": "codex",
-      "label": "Codex",
+      "service": "claude",
+      "label": "Claude Code",
       "status": "parsed",
       "plan": "Pro",
       "remainingPercent": 64.0,
@@ -20,6 +20,11 @@
           "remainingPercent": 88.0,
           "usedPercent": 12.0,
           "resetAt": null
+        },
+        "fable": {
+          "remainingPercent": 52.0,
+          "usedPercent": 48.0,
+          "resetAt": "2026-07-11T12:00:00Z"
         }
       },
       "source": "web",

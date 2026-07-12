@@ -303,6 +303,17 @@ test("does not infer a Claude Fable allowance without its label", async () => {
   assert.equal(usage.fable, null);
 });
 
+test("preserves a remaining-only Claude fallback without a session label", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({ bodyText: "Max plan usage. 42% remaining." }),
+    "claude",
+  );
+
+  assert.equal(usage.remainingPercent, 42);
+  assert.equal(usage.usedPercent, null);
+  assert.deepEqual(usage.visibleFields, ["remaining_percent", "plan_label"]);
+});
+
 test("does not borrow a percentage from the next Claude quota row", async () => {
   const usage = await extractVisibleUsage(
     fakePage({

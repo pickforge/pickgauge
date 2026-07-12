@@ -25,7 +25,8 @@ can attach to the parent console and write its output.
       "resetAt": "2026-07-10T17:00:00Z",
       "windows": {
         "fiveHour": { "remainingPercent": 72, "usedPercent": 28, "resetAt": "2026-07-10T17:00:00Z" },
-        "week": { "remainingPercent": 41, "usedPercent": 59, "resetAt": "2026-07-15T12:00:00Z" }
+        "week": { "remainingPercent": 41, "usedPercent": 59, "resetAt": "2026-07-15T12:00:00Z" },
+        "fable": null
       },
       "source": "web",
       "confidence": "high",

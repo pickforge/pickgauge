@@ -48,6 +48,7 @@ struct UsageJsonService {
 struct UsageJsonWindows {
     five_hour: Option<UsageJsonWindow>,
     week: Option<UsageJsonWindow>,
+    fable: Option<UsageJsonWindow>,
 }
 
 #[derive(Serialize)]
@@ -172,6 +173,7 @@ fn usage_json_service(snapshot: &UsageSnapshot, generated_at: &str) -> UsageJson
         windows: UsageJsonWindows {
             five_hour: detail_window(snapshot, "fiveHour"),
             week: detail_window(snapshot, "week"),
+            fable: detail_window(snapshot, "fable"),
         },
         source: snapshot.source.code().to_string(),
         confidence: snapshot.confidence,
@@ -374,7 +376,7 @@ mod tests {
     fn serializes_usage_json_v1_golden_response() {
         let display_state = UsageDisplayState {
             snapshots: vec![UsageSnapshot {
-                service: Service::Codex,
+                service: Service::Claude,
                 remaining_percent: Some(64.0),
                 used_percent: Some(36.0),
                 reset_at: Some("2026-07-09T14:00:00Z".to_string()),
@@ -394,6 +396,11 @@ mod tests {
                             "remainingPercent": 88.0,
                             "usedPercent": 12.0,
                             "resetAt": null
+                        },
+                        "fable": {
+                            "remainingPercent": 52.0,
+                            "usedPercent": 48.0,
+                            "resetAt": "2026-07-11T12:00:00Z"
                         }
                     }
                 }),

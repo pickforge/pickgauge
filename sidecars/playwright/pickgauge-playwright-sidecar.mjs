@@ -542,13 +542,22 @@ function extractClaudeUsage(text) {
   const sessionUsed = usedPercentFollowingLabel(text, sessionLabel);
   const weeklyUsed = usedPercentFollowingLabel(text, /\ball\s+models\b/iu);
   const fableUsed = usedPercentFollowingLabel(text, /\bfable(?:\s+5)?(?:\s+only)?\b/iu);
-  const fallback = visiblePercentages(text);
-  const usedPercent = labelIsPresent(text, sessionLabel) ? sessionUsed : fallback.usedPercent;
+  const fallback = claudeFallbackPercentages(text);
+  const hasSessionLabel = labelIsPresent(text, sessionLabel);
+  const usedPercent = hasSessionLabel ? sessionUsed : fallback.usedPercent;
+  const remainingPercent = hasSessionLabel
+    ? sessionUsed === null
+      ? null
+      : 100 - sessionUsed
+    : fallback.remainingPercent;
   const resetAt = visibleResetAt(text);
   const visibleFields = [];
 
+  if (remainingPercent !== null) {
+    visibleFields.push("remaining_percent");
+  }
   if (usedPercent !== null) {
-    visibleFields.push("remaining_percent", "used_percent");
+    visibleFields.push("used_percent");
   }
   if (resetAt !== null) {
     visibleFields.push("reset_at");
@@ -564,13 +573,23 @@ function extractClaudeUsage(text) {
   }
 
   return {
-    remainingPercent: usedPercent === null ? null : 100 - usedPercent,
+    remainingPercent,
     resetAt,
     service: "claude",
     usedPercent,
     visibleFields,
     weekly,
     fable,
+  };
+}
+
+function claudeFallbackPercentages(text) {
+  const remaining = percentNearLabel(text, /\b(remaining|left|available)\b/iu);
+  const used = percentNearLabel(text, /\b(used|consumed)\b/iu);
+
+  return {
+    remainingPercent: remaining ?? (used === null ? firstPercentValue(text) : null),
+    usedPercent: used,
   };
 }
 

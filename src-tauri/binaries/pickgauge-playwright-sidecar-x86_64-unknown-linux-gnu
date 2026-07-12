@@ -544,12 +544,21 @@ function extractClaudeUsage(text) {
   const fableUsed = usedPercentFollowingLabel(text, /\bfable(?:\s+5)?(?:\s+only)?\b/iu);
   const fallback = claudeFallbackPercentages(text);
   const hasSessionLabel = labelIsPresent(text, sessionLabel);
-  const usedPercent = hasSessionLabel ? sessionUsed : fallback.usedPercent;
+  const hasSecondaryLabel =
+    labelIsPresent(text, /\ball\s+models\b/iu) ||
+    labelIsPresent(text, /\bfable(?:\s+5)?(?:\s+only)?\b/iu);
+  const usedPercent = hasSessionLabel
+    ? sessionUsed
+    : hasSecondaryLabel
+      ? null
+      : fallback.usedPercent;
   const remainingPercent = hasSessionLabel
     ? sessionUsed === null
       ? null
       : 100 - sessionUsed
-    : fallback.remainingPercent;
+    : hasSecondaryLabel
+      ? null
+      : fallback.remainingPercent;
   const resetAt = visibleResetAt(text);
   const visibleFields = [];
 

@@ -217,6 +217,18 @@
     return snapshot.service === "grok" ? "Plan unavailable" : null;
   }
 
+  function serviceStateMessage(snapshot: UsageSnapshot) {
+    const primary =
+      providerStatusMessage(snapshot) ??
+      localActivitySummary(snapshot) ??
+      (grokBuildUsage(snapshot) !== null
+        ? `Grok Build ${Math.round(grokBuildUsage(snapshot) ?? 0)}% used`
+        : null);
+    return [primary, snapshotIsStale(snapshot) ? "Stale data" : null]
+      .filter((message): message is string => message !== null)
+      .join(" · ");
+  }
+
   function billingPeriodEnd(snapshot: UsageSnapshot) {
     const value = snapshot.details.billingPeriodEnd;
     return typeof value === "string" && value.length > 0 ? formatTimestamp(value) : null;
@@ -450,15 +462,10 @@
               class:bad={providerStatusKind(snapshot) === "bad"}
             >
               <span>
-                {providerStatusMessage(snapshot) ??
-                  (snapshotIsStale(snapshot)
-                    ? "Stale data"
-                    : localActivitySummary(snapshot) ??
-                      (grokBuildUsage(snapshot) !== null
-                        ? `Grok Build ${Math.round(grokBuildUsage(snapshot) ?? 0)}% used`
-                        : ""))}
+                {serviceStateMessage(snapshot)}
               </span>
-              {#if loginPromptVisible(snapshot)}
+              {#if loginPromptVisible(snapshot) &&
+                (snapshot.service !== "grok" || config.providers.webEnabled)}
                 <button
                   class="state-action"
                   type="button"

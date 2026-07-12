@@ -171,19 +171,20 @@ fn parse_usage_state(
     }
 
     let primary = visible_percentages(input.remaining_percent, input.used_percent);
-    let secondary_headline = if input.service == Service::Claude {
-        input
-            .second_window
-            .as_ref()
-            .and_then(window_values)
-            .or_else(|| input.fable_window.as_ref().and_then(window_values))
+    let weekly_headline = if input.service == Service::Claude {
+        input.second_window.as_ref().and_then(window_values)
     } else {
         None
     };
-    let Some((remaining_percent, used_percent, headline_reset_at)) = primary
+    let headline = primary
         .map(|(remaining, used)| (remaining, used, input.reset_at.as_deref()))
-        .or(secondary_headline)
-    else {
+        .or(weekly_headline);
+    let has_fable_window = input
+        .fable_window
+        .as_ref()
+        .and_then(window_values)
+        .is_some();
+    if headline.is_none() && !(input.service == Service::Claude && has_fable_window) {
         return unknown_web_snapshot(
             input.service,
             provider_id,
@@ -194,7 +195,7 @@ fn parse_usage_state(
                 "visibleFields": visible_fields,
             }),
         );
-    };
+    }
 
     if let Some(reset_at) = &input.reset_at {
         if time::OffsetDateTime::parse(reset_at, &Rfc3339).is_err() {
@@ -212,6 +213,8 @@ fn parse_usage_state(
     }
 
     let windows = if input.service == Service::Grok {
+        let (remaining_percent, used_percent, headline_reset_at) =
+            headline.expect("Grok usage requires a headline window");
         Some(serde_json::json!({
             "week": window_json(remaining_percent, used_percent, headline_reset_at),
         }))
@@ -257,9 +260,9 @@ fn parse_usage_state(
 
     UsageSnapshot {
         service: input.service,
-        remaining_percent: Some(remaining_percent),
-        used_percent: Some(used_percent),
-        reset_at: headline_reset_at.map(str::to_owned),
+        remaining_percent: headline.map(|(remaining, _, _)| remaining),
+        used_percent: headline.map(|(_, used, _)| used),
+        reset_at: headline.and_then(|(_, _, reset_at)| reset_at.map(str::to_owned)),
         source: UsageSource::Web,
         confidence: UsageConfidence::High,
         last_updated: observed_at.to_string(),
@@ -711,6 +714,35 @@ mod tests {
         assert_eq!(windows["week"]["remainingPercent"], 57.0);
         assert_eq!(windows["fable"]["remainingPercent"], 88.0);
         assert!(windows.get("fiveHour").is_none());
+    }
+
+    #[test]
+    fn claude_fable_only_window_does_not_become_the_headline() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            visible_fields: vec!["quota_window".to_string()],
+            second_window: None,
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.used_percent, None);
+        assert_eq!(
+            snapshot.details["windows"]["fable"]["remainingPercent"],
+            88.0
+        );
     }
 
     #[test]

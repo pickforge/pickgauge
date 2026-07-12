@@ -340,6 +340,18 @@ test("does not borrow a percentage from the next Claude quota row", async () => 
   assert.deepEqual(usage.fable, { remainingPercent: 88, resetAt: null, usedPercent: 12 });
 });
 
+test("does not promote secondary Claude rows without a session label", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({ bodyText: "All models\n43% used\nFable 5 only\n12% used" }),
+    "claude",
+  );
+
+  assert.equal(usage.remainingPercent, null);
+  assert.equal(usage.usedPercent, null);
+  assert.deepEqual(usage.weekly, { remainingPercent: 57, resetAt: null, usedPercent: 43 });
+  assert.deepEqual(usage.fable, { remainingPercent: 88, resetAt: null, usedPercent: 12 });
+});
+
 test("keeps a missing Claude weekly percentage separate from Fable", async () => {
   const usage = await extractVisibleUsage(
     fakePage({

@@ -18,8 +18,8 @@ pub(crate) struct OllamaLocalProvider {
 }
 
 #[derive(Deserialize)]
-struct OllamaMeResponse {
-    plan: Option<String>,
+struct OllamaVersionResponse {
+    version: String,
 }
 
 impl Default for OllamaLocalProvider {
@@ -53,7 +53,7 @@ impl OllamaLocalProvider {
     }
 
     fn endpoint(&self) -> String {
-        format!("{}/api/me", self.base_url.trim_end_matches('/'))
+        format!("{}/api/version", self.base_url.trim_end_matches('/'))
     }
 
     fn refresh_snapshot(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
@@ -64,7 +64,7 @@ impl OllamaLocalProvider {
             .build()
             .map_err(|_| UsageProviderError::Internal)?;
         let response = client
-            .post(self.endpoint())
+            .get(self.endpoint())
             .send()
             .map_err(map_request_error)?;
         let status = response.status();
@@ -75,7 +75,7 @@ impl OllamaLocalProvider {
         let body = response
             .text()
             .map_err(|_| UsageProviderError::ParseFailed)?;
-        parse_me_body(&body, now)
+        parse_version_body(&body, now)
     }
 }
 
@@ -91,32 +91,17 @@ fn map_request_error(error: reqwest::Error) -> UsageProviderError {
 
 fn map_status_error(status: reqwest::StatusCode) -> UsageProviderError {
     match status {
-        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
-            UsageProviderError::LoginRequired
-        }
         status if status.is_server_error() => UsageProviderError::NetworkUnavailable,
         _ => UsageProviderError::ParseFailed,
     }
 }
 
-fn parse_me_body(body: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let body = body.trim();
-    if body.is_empty() {
-        return Err(UsageProviderError::LoginRequired);
-    }
-
-    let body: Option<OllamaMeResponse> =
-        serde_json::from_str(body).map_err(|_| UsageProviderError::ParseFailed)?;
-    let plan = body
-        .and_then(|body| body.plan)
-        .ok_or(UsageProviderError::LoginRequired)?;
-    snapshot_from_plan(plan, now)
-}
-
-fn snapshot_from_plan(plan: String, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let plan = plan.trim();
-    if plan.is_empty() {
-        return Err(UsageProviderError::LoginRequired);
+fn parse_version_body(body: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+    let body: OllamaVersionResponse =
+        serde_json::from_str(body.trim()).map_err(|_| UsageProviderError::ParseFailed)?;
+    let version = body.version.trim();
+    if version.is_empty() {
+        return Err(UsageProviderError::ParseFailed);
     }
 
     Ok(UsageSnapshot {
@@ -132,7 +117,7 @@ fn snapshot_from_plan(plan: String, now: &str) -> Result<UsageSnapshot, UsagePro
             "providerId": UsageProviderId::OllamaLocal.code(),
             "source": UsageSource::Local.code(),
             "via": "daemon",
-            "plan": plan,
+            "version": version,
         }),
     })
 }
@@ -166,17 +151,12 @@ mod tests {
 
     use super::*;
 
-    const ME_FIXTURE: &str = r#"{
-        "id": "<redacted>",
-        "email": "<redacted>",
-        "name": "<redacted>",
-        "avatarurl": "<redacted>",
-        "plan": "pro"
-    }"#;
+    const VERSION_FIXTURE: &str = r#"{"version":"0.12.1"}"#;
 
     #[test]
-    fn parses_plan_only_snapshot_without_identity_fields() {
-        let snapshot = parse_me_body(ME_FIXTURE, "2026-07-09T12:00:00Z").expect("plan parses");
+    fn parses_local_daemon_status_without_account_or_quota_fields() {
+        let snapshot =
+            parse_version_body(VERSION_FIXTURE, "2026-07-09T12:00:00Z").expect("version parses");
 
         assert_eq!(snapshot.service, Service::Ollama);
         assert_eq!(snapshot.remaining_percent, None);
@@ -191,43 +171,21 @@ mod tests {
                 "providerId": "ollama.local",
                 "source": "local",
                 "via": "daemon",
-                "plan": "pro",
+                "version": "0.12.1",
             })
         );
+        assert!(snapshot.details.get("plan").is_none());
+        assert!(snapshot.details.get("windows").is_none());
     }
 
     #[test]
-    fn missing_plan_requires_login() {
-        assert_eq!(
-            parse_me_body(r#"{"id":"<redacted>"}"#, "2026-07-09T12:00:00Z"),
-            Err(UsageProviderError::LoginRequired)
-        );
-    }
-
-    #[test]
-    fn empty_identity_bodies_require_login() {
-        for body in ["", "null", r#"{"plan":null}"#] {
+    fn missing_or_invalid_version_is_parse_failed() {
+        for body in ["", "null", "{}", r#"{"version":""}"#, "{"] {
             assert_eq!(
-                parse_me_body(body, "2026-07-09T12:00:00Z"),
-                Err(UsageProviderError::LoginRequired)
+                parse_version_body(body, "2026-07-09T12:00:00Z"),
+                Err(UsageProviderError::ParseFailed)
             );
         }
-    }
-
-    #[test]
-    fn empty_plan_requires_login() {
-        assert_eq!(
-            snapshot_from_plan("  ".to_string(), "2026-07-09T12:00:00Z"),
-            Err(UsageProviderError::LoginRequired)
-        );
-    }
-
-    #[test]
-    fn malformed_identity_body_is_parse_failed() {
-        assert_eq!(
-            parse_me_body("{", "2026-07-09T12:00:00Z"),
-            Err(UsageProviderError::ParseFailed)
-        );
     }
 
     #[test]
@@ -290,14 +248,12 @@ mod tests {
 
     #[test]
     fn status_errors_map_to_user_facing_states() {
-        assert_eq!(
-            map_status_error(reqwest::StatusCode::UNAUTHORIZED),
-            UsageProviderError::LoginRequired
-        );
-        assert_eq!(
-            map_status_error(reqwest::StatusCode::FORBIDDEN),
-            UsageProviderError::LoginRequired
-        );
+        for status in [
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::FORBIDDEN,
+        ] {
+            assert_eq!(map_status_error(status), UsageProviderError::ParseFailed);
+        }
         for status in [
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             reqwest::StatusCode::SERVICE_UNAVAILABLE,
@@ -319,12 +275,15 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires a running, signed-in local Ollama daemon"]
+    #[ignore = "requires a running local Ollama daemon"]
     fn live_daemon_response_parses() {
         let snapshot = OllamaLocalProvider::new()
             .refresh_snapshot("2026-07-09T12:00:00Z")
             .expect("local daemon response parses");
 
-        assert!(snapshot.details["plan"].as_str().is_some_and(|plan| !plan.is_empty()));
+        assert!(snapshot.details["version"]
+            .as_str()
+            .is_some_and(|version| !version.is_empty()));
+        assert!(snapshot.details.get("plan").is_none());
     }
 }

@@ -190,7 +190,6 @@
     }
   }
 
-  let loggingIn = $state<Service | null>(null);
 
   const themeOptions: { value: AppConfig["ui"]["theme"]; label: string }[] = [
     { value: "system", label: "System" },
@@ -205,36 +204,6 @@
     void setTheme(value);
   }
 
-  async function startProviderLogin(service: Service) {
-    if (!desktopApiAvailable()) {
-      setStatus(`${serviceLabels[service]} sign-in runs in the desktop app`, true);
-      return;
-    }
-
-    loggingIn = service;
-
-    try {
-      const result = await api.startProviderLogin(service);
-      const label = serviceLabels[service];
-
-      if (result.status === "launched") {
-        setStatus(`Opened ${label} sign-in — finish in the browser window, then refresh`);
-      } else if (result.status === "already_authenticated") {
-        setStatus(`${label} is already signed in`);
-      } else if (result.status === "preflight_unavailable") {
-        setStatus(`Couldn't reach ${label} to check sign-in — verify your connection, then try again`, true);
-      } else {
-        setStatus(
-          `Couldn't open the ${label} sign-in window — make sure official web readings are on, then try again`,
-          true,
-        );
-      }
-    } catch (caught) {
-      setStatus(formatError(caught, `Could not start ${serviceLabels[service]} sign-in`), true);
-    } finally {
-      loggingIn = null;
-    }
-  }
 </script>
 
 <section aria-label="Settings">
@@ -250,6 +219,7 @@
   </header>
 
   <div class="settings-grid fade-up">
+    <div class="settings-column">
     <div class="card group">
       <h4>Services & providers</h4>
       <label class="switch">
@@ -280,54 +250,121 @@
       <label class="switch">
         <input type="checkbox" bind:checked={config.providers.cliEnabled} />
         <span class="track"></span>
-        Official readings via CLI login
+        Official readings via supported CLI sessions
       </label>
       <label class="switch">
         <input
           type="checkbox"
           bind:checked={config.providers.webEnabled}
-          disabled={
-            config.providers.cliEnabled &&
-            !config.enabledServices.grok &&
-            !config.enabledServices.ollama
-          }
+          disabled={config.providers.cliEnabled}
         />
         <span class="track"></span>
-        Official web readings (browser)
+        Official Codex/Claude web readings
       </label>
       <p class="hint">
-        CLI readings reuse the Codex, Claude Code, and Grok logins already on this machine. Grok
-        reads its bearer once for a plan-only subscription check and never refreshes, stores, or writes it.
-        Enable official web readings to sign in to an isolated Grok profile for weekly usage. Ollama
-        reads the signed-in local daemon's plan when it is running.
+        CLI and web readings are limited to provider-supported local sessions. PickGauge never
+        imports browser cookies or account credentials.
       </p>
-      {#if config.enabledServices.grok && config.providers.webEnabled}
-        <button
-          class="btn btn-sm"
-          type="button"
-          disabled={loggingIn === "grok"}
-          onclick={() => startProviderLogin("grok")}
-        >
-          {loggingIn === "grok" ? "Opening…" : "Sign in to Grok"}
-        </button>
+      {#if config.enabledServices.grok}
+        <p class="provider-note">
+          <strong>Grok consumer quota unavailable.</strong>
+          xAI does not provide a supported third-party quota API, so PickGauge does not automate
+          grok.com or reuse Grok session data.
+        </p>
       {/if}
       {#if config.enabledServices.ollama}
-        {#if config.providers.webEnabled}
-          <button
-            class="btn btn-sm"
-            type="button"
-            disabled={loggingIn === "ollama"}
-            onclick={() => startProviderLogin("ollama")}
-          >
-            {loggingIn === "ollama" ? "Opening…" : "Sign in to Ollama"}
-          </button>
-        {/if}
-        <p class="hint">
-          The local daemon reports only your plan. Enable official web readings to add usage limits;
-          PickGauge never stores your account identity.
+        <p class="provider-note">
+          <strong>Ollama is local-only.</strong>
+          PickGauge reads the loopback daemon when it is running. Cloud quota and sign-in remain
+          owned by Ollama.
         </p>
       {/if}
     </div>
+
+      <div class="card group">
+        <h4>Rhythm</h4>
+        <div class="number-grid">
+          <label class="field">
+            <span>Local refresh (s)</span>
+            <input class="input" type="number" min="30" max="60" bind:value={config.intervals.localSeconds} />
+          </label>
+          <label class="field">
+            <span>Web refresh (min)</span>
+            <input
+              class="input"
+              type="number"
+              min="15"
+              max="60"
+              bind:value={config.intervals.webMinutes}
+              disabled={webControls.webRefreshDisabled}
+            />
+          </label>
+          <label class="field">
+            <span>Web cooldown (s)</span>
+            <input
+              class="input"
+              type="number"
+              min="60"
+              bind:value={config.intervals.manualWebRefreshCooldownSeconds}
+              disabled={webControls.webCooldownDisabled}
+            />
+          </label>
+          <label class="field">
+            <span>Tray switch (s)</span>
+            <input class="input" type="number" min="5" max="10" bind:value={config.intervals.gaugeSwitchSeconds} />
+          </label>
+          <label class="field">
+            <span>Low threshold (%)</span>
+            <input class="input" type="number" min="1" max="100" bind:value={config.lowUsageThreshold} />
+          </label>
+        </div>
+      </div>
+
+      <div class="card group">
+        <h4>Browser profiles</h4>
+        <label class="field">
+          <span>Profile root</span>
+          <input
+            class="input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Default app data path"
+            value={profilePathValue(config.browserProfiles.rootPath)}
+            oninput={(event) => updateProfilePath("rootPath", event)}
+            disabled={webControls.profilePathInputsDisabled}
+          />
+        </label>
+        <label class="field">
+          <span>Codex profile</span>
+          <input
+            class="input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Default under root"
+            value={profilePathValue(config.browserProfiles.codexPath)}
+            oninput={(event) => updateProfilePath("codexPath", event)}
+            disabled={cliProvidedProfilePathsDisabled}
+          />
+        </label>
+        <label class="field">
+          <span>Claude profile</span>
+          <input
+            class="input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Default under root"
+            value={profilePathValue(config.browserProfiles.claudePath)}
+            oninput={(event) => updateProfilePath("claudePath", event)}
+            disabled={cliProvidedProfilePathsDisabled}
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-column">
 
     <div class="card group">
       <h4>App</h4>
@@ -380,44 +417,6 @@
       </p>
     </div>
 
-    <div class="card group">
-      <h4>Rhythm</h4>
-      <div class="number-grid">
-        <label class="field">
-          <span>Local refresh (s)</span>
-          <input class="input" type="number" min="30" max="60" bind:value={config.intervals.localSeconds} />
-        </label>
-        <label class="field">
-          <span>Web refresh (min)</span>
-          <input
-            class="input"
-            type="number"
-            min="15"
-            max="60"
-            bind:value={config.intervals.webMinutes}
-            disabled={webControls.webRefreshDisabled}
-          />
-        </label>
-        <label class="field">
-          <span>Web cooldown (s)</span>
-          <input
-            class="input"
-            type="number"
-            min="60"
-            bind:value={config.intervals.manualWebRefreshCooldownSeconds}
-            disabled={webControls.webCooldownDisabled}
-          />
-        </label>
-        <label class="field">
-          <span>Tray switch (s)</span>
-          <input class="input" type="number" min="5" max="10" bind:value={config.intervals.gaugeSwitchSeconds} />
-        </label>
-        <label class="field">
-          <span>Low threshold (%)</span>
-          <input class="input" type="number" min="1" max="100" bind:value={config.lowUsageThreshold} />
-        </label>
-      </div>
-    </div>
 
     {#each calibratedServices as service (service)}
       <div class="card group">
@@ -468,74 +467,6 @@
       </div>
     {/each}
 
-    <div class="card group">
-      <h4>Browser profiles</h4>
-      <label class="field">
-        <span>Profile root</span>
-        <input
-          class="input"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default app data path"
-          value={profilePathValue(config.browserProfiles.rootPath)}
-          oninput={(event) => updateProfilePath("rootPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
-        />
-      </label>
-      <label class="field">
-        <span>Codex profile</span>
-        <input
-          class="input"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default under root"
-          value={profilePathValue(config.browserProfiles.codexPath)}
-          oninput={(event) => updateProfilePath("codexPath", event)}
-          disabled={cliProvidedProfilePathsDisabled}
-        />
-      </label>
-      <label class="field">
-        <span>Claude profile</span>
-        <input
-          class="input"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default under root"
-          value={profilePathValue(config.browserProfiles.claudePath)}
-          oninput={(event) => updateProfilePath("claudePath", event)}
-          disabled={cliProvidedProfilePathsDisabled}
-        />
-      </label>
-      <label class="field">
-        <span>Grok profile</span>
-        <input
-          class="input"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default under root"
-          value={profilePathValue(config.browserProfiles.grokPath)}
-          oninput={(event) => updateProfilePath("grokPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
-        />
-      </label>
-      <label class="field">
-        <span>Ollama profile</span>
-        <input
-          class="input"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Default under root"
-          value={profilePathValue(config.browserProfiles.ollamaPath)}
-          oninput={(event) => updateProfilePath("ollamaPath", event)}
-          disabled={webControls.profilePathInputsDisabled}
-        />
-      </label>
-    </div>
 
     <div class="card group">
       <h4>Maintenance</h4>
@@ -546,7 +477,7 @@
         <button class="btn btn-sm" type="button" disabled={locatingLogs} onclick={showLogLocation}>
           {locatingLogs ? "Checking…" : "Log location"}
         </button>
-        {#each ["codex", "claude", "grok", "ollama"] as service (service)}
+        {#each ["codex", "claude"] as service (service)}
           <button
             class="btn btn-sm"
             type="button"
@@ -565,6 +496,7 @@
           </button>
         {/each}
       </div>
+    </div>
     </div>
   </div>
 
@@ -595,15 +527,18 @@
     letter-spacing: -0.02em;
   }
 
-  .section-head .eyebrow {
-    margin-bottom: 6px;
-  }
-
   .settings-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
     align-items: start;
+  }
+
+  .settings-column {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .group {
@@ -623,6 +558,21 @@
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--muted);
+  }
+
+  .provider-note {
+    padding: 10px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    background: var(--wash);
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+
+  .provider-note strong {
+    color: var(--text);
+    font-weight: 600;
   }
 
   .number-grid {
@@ -707,6 +657,12 @@
     border-radius: var(--radius-pill);
     background: var(--ember);
     animation: ember-pulse 2.4s var(--ease-forge) infinite;
+  }
+
+  @media (max-width: 905px) {
+    .settings-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .save-text {

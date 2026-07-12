@@ -4,7 +4,12 @@
   import { onMount } from "svelte";
   import { api, desktopApiAvailable, EVENT_SETTINGS, EVENT_SNAPSHOTS } from "./lib/api";
   import type { AppConfig, Service, UsageDisplayState, UsageSnapshot } from "./lib/usage";
-  import { defaultConfig, floatDisplaySnapshots } from "./lib/usage";
+  import {
+    browserPreviewSnapshots,
+    browserPreviewStateFromSearch,
+    defaultConfig,
+    floatDisplaySnapshots,
+  } from "./lib/usage";
   import { serviceLabels } from "./lib/display";
 
   // Non-Linux has no input-shape equivalent for the glow margin, so the
@@ -110,6 +115,7 @@
 
   onMount(() => {
     if (!desktopApiAvailable()) {
+      snapshots = browserPreviewSnapshots(browserPreviewStateFromSearch(window.location.search));
       return;
     }
 
@@ -279,6 +285,7 @@
 
   .rings {
     display: flex;
+    flex: none;
     gap: 8px;
   }
 
@@ -286,6 +293,7 @@
     position: relative;
     width: 34px;
     height: 34px;
+    flex: none;
   }
 
   .ring svg {

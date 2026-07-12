@@ -47,6 +47,8 @@ try {
     }
 
     await validateDesktopOnlyControlFallbacks(browser);
+    await validateSettingsLayout(browser);
+    await validateFloatCapsule(browser);
   } finally {
     await browser.close();
   }
@@ -143,12 +145,18 @@ async function validatePreviewState(browser, viewport, previewState) {
     await assertVisibleText(page, "Grok");
     await assertVisibleText(page, "Ollama");
     await assertVisibleText(page, "Remaining usage");
+    await assertVisibleText(page, "Consumer quota unsupported");
+    await assertVisibleText(page, "No supported consumer quota API");
+    await assertVisibleText(page, "Local daemon connected");
+    await assertVisibleText(page, "Cloud quota unavailable");
+    assert.equal(await page.getByRole("button", { name: "Start Grok login" }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Start Ollama login" }).count(), 0);
 
     for (const note of previewState.notes) {
       assert.equal(
         await page.getByText(note, { exact: true }).count(),
-        4,
-        `${viewport.label} ${previewState.state} should render ${note} for all services`,
+        2,
+        `${viewport.label} ${previewState.state} should render ${note} for Codex and Claude`,
       );
     }
 
@@ -208,7 +216,7 @@ async function validateDesktopOnlyControlFallbacks(browser) {
 
 async function openSettingsView(page) {
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByLabel("Official web readings").waitFor({ state: "attached" });
+  await page.getByLabel("Official Codex/Claude web readings").waitFor({ state: "attached" });
 }
 
 async function validateStartLoginPrompt(page, state, { expectedVisible }) {
@@ -275,6 +283,58 @@ async function assertNoHorizontalOverflow(page, viewport, state) {
     [],
     `${viewport.label} ${state} has horizontally overflowing elements`,
   );
+}
+
+async function validateSettingsLayout(browser) {
+  for (const { width, expectedColumns } of [
+    { width: 1000, expectedColumns: 2 },
+    { width: 820, expectedColumns: 1 },
+    { width: 680, expectedColumns: 1 },
+  ]) {
+    const context = await browser.newContext({ viewport: { width, height: 700 } });
+    const page = await context.newPage();
+    try {
+      await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+      await openSettingsView(page);
+      const columnCount = await page.locator(".settings-grid").evaluate((element) =>
+        getComputedStyle(element).gridTemplateColumns.split(" ").length,
+      );
+      assert.equal(columnCount, expectedColumns, `${width}px settings column count`);
+      await assertNoHorizontalOverflow(page, { label: `${width}px`, width }, "settings");
+    } finally {
+      await context.close();
+    }
+  }
+}
+
+async function validateFloatCapsule(browser) {
+  const context = await browser.newContext({
+    viewport: { width: 256, height: 60 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}?window=float&previewState=official-usage`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.locator(".ring").first().waitFor();
+    const geometry = await page.evaluate(() => {
+      const capsule = document.querySelector(".capsule").getBoundingClientRect();
+      const rings = Array.from(document.querySelectorAll(".ring"), (ring) =>
+        ring.getBoundingClientRect(),
+      );
+      return {
+        capsule: { width: capsule.width, height: capsule.height },
+        rings: rings.map(({ width, height }) => ({ width, height })),
+      };
+    });
+    assert.deepEqual(geometry.capsule, { width: 252, height: 56 });
+    assert.equal(geometry.rings.length, 4);
+    assert.deepEqual(geometry.rings, Array(4).fill({ width: 34, height: 34 }));
+    await assertNoHorizontalOverflow(page, { label: "float", width: 256 }, "official-usage");
+  } finally {
+    await context.close();
+  }
 }
 
 async function stopServer(server) {

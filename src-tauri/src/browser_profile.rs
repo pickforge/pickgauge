@@ -60,8 +60,6 @@ pub fn prepare_browser_profiles(
     ensure_profile_root_directory(&paths.root)?;
     ensure_profile_directory(&paths.codex, BrowserProfileService::Codex)?;
     ensure_profile_directory(&paths.claude, BrowserProfileService::Claude)?;
-    ensure_profile_directory(&paths.grok, BrowserProfileService::Grok)?;
-    ensure_profile_directory(&paths.ollama, BrowserProfileService::Ollama)?;
 
     Ok(paths)
 }
@@ -505,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn web_enabled_profiles_use_default_app_owned_paths() {
+    fn web_enabled_profiles_create_only_supported_managed_services() {
         let dir = TestDir::new();
         let paths =
             prepare_browser_profiles(&empty_settings(), &dir.path).expect("profiles prepare");
@@ -513,12 +511,12 @@ mod tests {
         assert_eq!(paths.root, dir.path.join("browser-profiles"));
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.ollama.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.grok.exists());
+        assert!(!paths.ollama.exists());
     }
 
     #[test]
-    fn missing_app_data_dir_is_created_before_default_profiles() {
+    fn missing_app_data_dir_is_created_before_supported_profiles() {
         let dir = TestDir::new();
         let app_data_dir = dir.path.join("nested").join("app-data");
 
@@ -528,7 +526,8 @@ mod tests {
         assert!(app_data_dir.exists());
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.grok.exists());
+        assert!(!paths.ollama.exists());
     }
 
     #[test]
@@ -548,9 +547,8 @@ mod tests {
         assert_eq!(paths.codex, dir.path.join("codex-custom"));
         assert_eq!(paths.claude, dir.path.join("claude-custom"));
         assert_eq!(paths.grok, dir.path.join("root").join("grok"));
-        assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.grok.exists());
+        assert!(!paths.ollama.exists());
     }
 
     #[test]

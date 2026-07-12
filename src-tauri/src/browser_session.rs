@@ -20,7 +20,6 @@ pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
 pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
 pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
-pub const PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE: &str = "httpRefreshUsage";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
 pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
@@ -673,22 +672,6 @@ pub fn playwright_sidecar_refresh_request(
     )
 }
 
-/// Lightweight refresh that replays the harvested session cookie over plain HTTP
-/// inside the sidecar (no Chromium). Same headless protocol shape as the browser
-/// refresh; only the action differs.
-#[allow(dead_code)]
-pub fn playwright_sidecar_http_refresh_request(
-    request: &PlaywrightLaunchRequest,
-    url: impl Into<String>,
-) -> Result<PlaywrightSidecarLaunchRequest, String> {
-    playwright_sidecar_request(
-        request,
-        url,
-        PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE,
-        true,
-        "Managed browser refresh URL must use HTTPS",
-    )
-}
 
 fn playwright_sidecar_request(
     request: &PlaywrightLaunchRequest,
@@ -1823,23 +1806,6 @@ mod tests {
         assert!(value.get("diagnostics").is_none());
     }
 
-    #[test]
-    fn playwright_sidecar_http_refresh_request_serializes_to_http_action() {
-        let profile_path = "/tmp/pickgauge/browser-profiles/ollama";
-        let plan = chromium_launch_plan(Service::Ollama, profile_path);
-        let launch_request = playwright_launch_request(&plan);
-        let sidecar_request =
-            playwright_sidecar_http_refresh_request(&launch_request, "https://ollama.com/settings")
-                .expect("sidecar request is created");
-        let value = serde_json::to_value(&sidecar_request).expect("sidecar request serializes");
-
-        assert_eq!(sidecar_request.action, "httpRefreshUsage");
-        assert_eq!(sidecar_request.service, Service::Ollama);
-        assert_eq!(sidecar_request.user_data_dir, profile_path);
-        assert!(sidecar_request.headless);
-        assert_eq!(value["action"], "httpRefreshUsage");
-        assert_eq!(value["headless"], true);
-    }
 
     #[test]
     fn playwright_sidecar_refresh_request_debug_redacts_sensitive_input() {

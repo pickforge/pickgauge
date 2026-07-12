@@ -1,17 +1,15 @@
-//! Official usage readings via installed CLIs' own OAuth credentials.
+//! Official usage readings via the installed Codex and Claude CLIs' OAuth
+//! credentials.
 //!
-//! Instead of scraping the dashboards in a headless browser, this reads the
-//! tokens the installed CLIs already stored on disk and calls the same
-//! usage endpoints the CLIs call. The result is the provider's real quota
-//! number with no browser, captcha, or login flow.
+//! Instead of scraping dashboards in a headless browser, this reads the tokens
+//! those CLIs already stored on disk and calls the same usage endpoints they
+//! call. Grok consumer credentials are deliberately unsupported.
 //!
 //! Endpoints/clients discovered from the shipped CLI binaries:
 //! - Codex   refresh: POST https://auth.openai.com/oauth/token (client app_EMoamEEZ73f0CkXaXp7hrann)
 //!           usage:   GET  https://chatgpt.com/backend-api/codex/usage
 //! - Claude  refresh: POST https://platform.claude.com/v1/oauth/token (client 9d1c250a-…)
 //!           usage:   GET  https://api.anthropic.com/api/oauth/usage
-//! - Grok    usage:   GET  https://grok.com/rest/subscriptions
-
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -29,8 +27,6 @@ const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
-
-const GROK_SUBSCRIPTIONS_URL: &str = "https://grok.com/rest/subscriptions";
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 // Refresh a Claude token this many ms before its stated expiry.
@@ -68,8 +64,7 @@ pub fn refresh(service: Service, now: &str) -> Result<UsageSnapshot, UsageProvid
     match service {
         Service::Codex => refresh_codex(now),
         Service::Claude => refresh_claude(now),
-        Service::Grok => refresh_grok(now),
-        Service::Ollama => Err(UsageProviderError::Internal),
+        Service::Grok | Service::Ollama => Err(UsageProviderError::Disabled),
     }
 }
 
@@ -93,9 +88,9 @@ fn window_json(window: &Option<Window>) -> Value {
     }
 }
 
-/// Build a snapshot carrying BOTH windows. The headline number (drives the
-/// float capsule and the OS tray) is the 5-hour session window, falling back
-/// to the weekly window when the session window is absent.
+/// Build a snapshot carrying both windows. The headline number (drives the
+/// float capsule and OS tray) uses the primary window only when the payload
+/// identifies its duration as the expected service window.
 fn build_snapshot(
     service: Service,
     five_hour: Option<Window>,
@@ -235,9 +230,10 @@ fn codex_usage(
 fn parse_codex_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
     let rate = body.get("rate_limit").ok_or(UsageProviderError::ParseFailed)?;
 
-    // primary_window = 5-hour session, secondary_window = weekly.
-    let five_hour = codex_window(rate.get("primary_window"));
-    let week = codex_window(rate.get("secondary_window"));
+    // The payload declares each duration; only label the actual five-hour and
+    // seven-day windows as such.
+    let five_hour = codex_window(rate.get("primary_window"), 5 * 60 * 60);
+    let week = codex_window(rate.get("secondary_window"), 7 * 24 * 60 * 60);
 
     let extra = match body.get("plan_type").and_then(Value::as_str) {
         Some(plan) => json!({ "plan": plan }),
@@ -247,10 +243,18 @@ fn parse_codex_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProvi
     build_snapshot(Service::Codex, five_hour, week, extra, now)
 }
 
-/// A Codex rate-limit window (`used_percent`, unix `reset_at`).
-fn codex_window(window: Option<&Value>) -> Option<Window> {
-    let window = window?;
-    let used = window.get("used_percent").and_then(Value::as_f64)? as f32;
+/// A Codex rate-limit window with its payload-declared duration.
+fn codex_window(window: Option<&Value>, expected_seconds: u64) -> Option<Window> {
+    let window = window?.as_object()?;
+    let duration = window.get("limit_window_seconds")?.as_u64()?;
+    if duration != expected_seconds {
+        return None;
+    }
+
+    let used = window.get("used_percent")?.as_f64()? as f32;
+    if !used.is_finite() || !(0.0..=100.0).contains(&used) {
+        return None;
+    }
     let reset = window
         .get("reset_at")
         .and_then(Value::as_i64)
@@ -354,135 +358,11 @@ fn claude_window(window: Option<&Value>) -> Option<Window> {
     Some(Window { used, reset })
 }
 
-// ---------------------------------------------------------------- Grok
-
-fn refresh_grok(now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let access = read_grok_access_token()?;
-    grok_subscriptions(&access, now)
-}
-
-fn read_grok_access_token() -> Result<String, UsageProviderError> {
-    let path = home()?.join(".grok/auth.json");
-    let raw = std::fs::read_to_string(&path).map_err(|_| UsageProviderError::NotConfigured)?;
-    let auth: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
-    grok_access_token_from_auth(&auth).ok_or(UsageProviderError::NotConfigured)
-}
-
-fn grok_access_token_from_auth(auth: &Value) -> Option<String> {
-    let entries = auth.as_object()?;
-    if let Some((_, entry)) = entries
-        .iter()
-        .find(|(entry_key, _)| entry_key.starts_with("https://auth.x.ai"))
-    {
-        return grok_entry_access_token(entry);
-    }
-
-    entries.values().find_map(grok_entry_access_token)
-}
-
-fn grok_entry_access_token(entry: &Value) -> Option<String> {
-    entry
-        .get("key")
-        .and_then(Value::as_str)
-        .filter(|access| !access.is_empty())
-        .map(str::to_string)
-}
-
-fn grok_subscriptions(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let response = client()?
-        .get(GROK_SUBSCRIPTIONS_URL)
-        .bearer_auth(access)
-        .send()
-        .map_err(|_| UsageProviderError::NetworkUnavailable)?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(map_status_error(status));
-    }
-    let body: Value = response.json().map_err(|_| UsageProviderError::ParseFailed)?;
-    parse_grok_body(&body, now)
-}
-
-fn parse_grok_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let subscriptions = body
-        .get("subscriptions")
-        .and_then(Value::as_array)
-        .ok_or(UsageProviderError::ParseFailed)?;
-    let subscription = subscriptions
-        .iter()
-        .find(|subscription| {
-            active_grok_subscription_tier(subscription)
-                .is_some_and(|tier| tier.starts_with("SUBSCRIPTION_TIER_GROK_"))
-        })
-        .or_else(|| {
-            subscriptions
-                .iter()
-                .find(|subscription| active_grok_subscription_tier(subscription).is_some())
-        })
-        .ok_or(UsageProviderError::MissingData)?;
-    let tier = active_grok_subscription_tier(subscription).ok_or(UsageProviderError::ParseFailed)?;
-    let billing_period_end = subscription
-        .get("billingPeriodEnd")
-        .and_then(Value::as_str)
-        .filter(|value| OffsetDateTime::parse(value, &Rfc3339).is_ok())
-        .map(str::to_string);
-    let mut details = base_details(Service::Grok);
-    let details_object = details
-        .as_object_mut()
-        .ok_or(UsageProviderError::Internal)?;
-    details_object.insert("plan".to_string(), Value::String(grok_plan_name(tier)));
-    if let Some(billing_period_end) = billing_period_end {
-        details_object.insert(
-            "billingPeriodEnd".to_string(),
-            Value::String(billing_period_end),
-        );
-    }
-
-    Ok(UsageSnapshot {
-        service: Service::Grok,
-        remaining_percent: None,
-        used_percent: None,
-        reset_at: None,
-        source: UsageSource::Web,
-        confidence: UsageConfidence::Medium,
-        last_updated: now.to_string(),
-        details,
-    })
-}
-
-fn active_grok_subscription_tier(subscription: &Value) -> Option<&str> {
-    let tier = subscription.get("tier").and_then(Value::as_str)?;
-    (subscription.get("status").and_then(Value::as_str)
-        == Some("SUBSCRIPTION_STATUS_ACTIVE")
-        && (tier.starts_with("SUBSCRIPTION_TIER_GROK_")
-            || tier.starts_with("SUBSCRIPTION_TIER_X_")))
-    .then_some(tier)
-}
-
-fn grok_plan_name(tier: &str) -> String {
-    let tier = tier.strip_prefix("SUBSCRIPTION_TIER_").unwrap_or(tier);
-    tier.split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => format!(
-                    "{}{}",
-                    first.to_ascii_uppercase(),
-                    chars.as_str().to_ascii_lowercase()
-                ),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const GROK_SUBSCRIPTIONS_FIXTURE: &str =
-        include_str!("../tests/fixtures/grok-cli/subscriptions-success.json");
 
     // Real response shape from https://chatgpt.com/backend-api/codex/usage.
     #[test]
@@ -490,8 +370,16 @@ mod tests {
         let body = json!({
             "plan_type": "pro",
             "rate_limit": {
-                "primary_window": { "used_percent": 1, "reset_at": 1781145921 },
-                "secondary_window": { "used_percent": 77, "reset_at": 1781137520 }
+                "primary_window": {
+                    "used_percent": 1,
+                    "limit_window_seconds": 18000,
+                    "reset_at": 1781145921
+                },
+                "secondary_window": {
+                    "used_percent": 77,
+                    "limit_window_seconds": 604800,
+                    "reset_at": 1781137520
+                }
             }
         });
         let snap = parse_codex_body(&body, "2026-06-10T00:00:00Z").unwrap();
@@ -524,12 +412,43 @@ mod tests {
     }
 
     #[test]
-    fn codex_missing_rate_limit_is_parse_failed() {
-        let body = json!({ "plan_type": "pro" });
-        assert_eq!(
-            parse_codex_body(&body, "2026-06-10T00:00:00Z"),
-            Err(UsageProviderError::ParseFailed)
-        );
+    fn codex_absent_disabled_or_invalid_primary_does_not_become_five_hour_window() {
+        for primary in [
+            Value::Null,
+            json!({
+                "used_percent": 0,
+                "limit_window_seconds": 0,
+                "reset_at": 1781145921
+            }),
+            json!({
+                "used_percent": 12,
+                "limit_window_seconds": 3600,
+                "reset_at": 1781145921
+            }),
+            json!({
+                "used_percent": 101,
+                "limit_window_seconds": 18000,
+                "reset_at": 1781145921
+            }),
+        ] {
+            let body = json!({
+                "plan_type": "pro",
+                "rate_limit": {
+                    "primary_window": primary,
+                    "secondary_window": {
+                        "used_percent": 40,
+                        "limit_window_seconds": 604800,
+                        "reset_at": 1781137520
+                    }
+                }
+            });
+
+            let snapshot = parse_codex_body(&body, "2026-06-10T00:00:00Z")
+                .expect("valid weekly window remains usable");
+            assert!(snapshot.details["windows"]["fiveHour"].is_null());
+            assert_eq!(snapshot.details["windows"]["week"]["remainingPercent"], 60.0);
+            assert_eq!(snapshot.remaining_percent, Some(60.0));
+        }
     }
 
     #[test]
@@ -544,87 +463,11 @@ mod tests {
     }
 
     #[test]
-    fn prefers_active_grok_subscription_over_active_x_tier() {
-        let body: Value = serde_json::from_str(GROK_SUBSCRIPTIONS_FIXTURE).unwrap();
-        let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();
-
-        assert_eq!(snapshot.service, Service::Grok);
-        assert_eq!(snapshot.remaining_percent, None);
-        assert_eq!(snapshot.used_percent, None);
-        assert_eq!(snapshot.reset_at, None);
-        assert_eq!(snapshot.source, UsageSource::Web);
-        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
-        assert_eq!(snapshot.details["status"], "parsed");
-        assert_eq!(snapshot.details["providerId"], "grok.cli");
-        assert_eq!(snapshot.details["source"], "web");
-        assert_eq!(snapshot.details["via"], "cli");
-        assert_eq!(snapshot.details["plan"], "Grok Pro");
-        assert_eq!(snapshot.details["billingPeriodEnd"], "2026-08-24T20:20:59Z");
-        assert!(snapshot.details.get("windows").is_none());
-    }
-
-    #[test]
-    fn parses_an_active_x_tier_subscription() {
-        let body = json!({
-            "subscriptions": [{
-                "tier": "SUBSCRIPTION_TIER_X_PREMIUM",
-                "status": "SUBSCRIPTION_STATUS_ACTIVE"
-            }]
-        });
-
-        let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();
-
-        assert_eq!(snapshot.details["plan"], "X Premium");
-        assert!(snapshot.details.get("billingPeriodEnd").is_none());
-    }
-
-    #[test]
-    fn grok_missing_subscriptions_is_parse_failed() {
+    fn grok_cli_collection_is_unsupported() {
         assert_eq!(
-            parse_grok_body(&json!({}), "2026-07-09T20:00:00Z"),
-            Err(UsageProviderError::ParseFailed)
+            refresh(Service::Grok, "2026-07-09T20:00:00Z"),
+            Err(UsageProviderError::Disabled)
         );
-    }
-
-    #[test]
-    fn grok_without_an_active_grok_subscription_is_missing_data() {
-        let body = json!({
-            "subscriptions": [{
-                "tier": "SUBSCRIPTION_TIER_GROK_PRO",
-                "status": "SUBSCRIPTION_STATUS_INACTIVE"
-            }]
-        });
-
-        assert_eq!(
-            parse_grok_body(&body, "2026-07-09T20:00:00Z"),
-            Err(UsageProviderError::MissingData)
-        );
-    }
-
-    #[test]
-    fn grok_auth_status_requires_cli_login() {
-        for status in [reqwest::StatusCode::UNAUTHORIZED, reqwest::StatusCode::FORBIDDEN] {
-            assert_eq!(map_status_error(status), UsageProviderError::LoginRequired);
-        }
-    }
-
-    #[test]
-    fn prefers_current_grok_auth_entry_over_legacy_entries() {
-        let auth = json!({
-            "https://accounts.x.ai/sign-in": { "key": "legacy" },
-            "https://auth.x.ai::current-client": { "key": "current" }
-        });
-
-        assert_eq!(grok_access_token_from_auth(&auth).as_deref(), Some("current"));
-    }
-
-    #[test]
-    fn uses_legacy_grok_auth_entry_when_current_entry_is_absent() {
-        let auth = json!({
-            "https://accounts.x.ai/sign-in": { "key": "legacy" }
-        });
-
-        assert_eq!(grok_access_token_from_auth(&auth).as_deref(), Some("legacy"));
     }
 
 }

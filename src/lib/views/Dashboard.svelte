@@ -147,26 +147,31 @@
   }
 
   function windowsFor(snapshot: UsageSnapshot): QuotaRow[] {
+    if (snapshot.service === "grok" || snapshot.service === "ollama") {
+      return [];
+    }
     const { fiveHour, week, fable } = usageWindows(snapshot);
     const low = (remaining: number | null) =>
       remaining !== null && remaining <= config.lowUsageThreshold;
     const rows: QuotaRow[] = [];
-    if (snapshot.service !== "grok") {
+    if (fiveHour) {
       rows.push({
         key: "five-hour",
-        label: snapshot.service === "ollama" ? "Session" : "5-hour",
-        remainingPercent: fiveHour?.remainingPercent ?? null,
-        low: low(fiveHour?.remainingPercent ?? null),
-        resetLabel: formatReset(fiveHour?.resetAt ?? null),
+        label: "5-hour",
+        remainingPercent: fiveHour.remainingPercent,
+        low: low(fiveHour.remainingPercent),
+        resetLabel: formatReset(fiveHour.resetAt),
       });
     }
-    rows.push({
-      key: "week",
-      label: "Weekly",
-      remainingPercent: week?.remainingPercent ?? null,
-      low: low(week?.remainingPercent ?? null),
-      resetLabel: formatReset(week?.resetAt ?? null),
-    });
+    if (week) {
+      rows.push({
+        key: "week",
+        label: "Weekly",
+        remainingPercent: week.remainingPercent,
+        low: low(week.remainingPercent),
+        resetLabel: formatReset(week.resetAt),
+      });
+    }
     if (snapshot.service === "claude") {
       rows.push({
         key: "fable",
@@ -207,14 +212,18 @@
   });
 
   function planOnly(snapshot: UsageSnapshot) {
+    if (snapshot.service === "grok") {
+      return "Consumer quota unsupported";
+    }
+    if (snapshot.service === "ollama") {
+      return snapshot.details.status === "not_configured"
+        ? "Local daemon not running"
+        : "Local daemon connected";
+    }
     if (snapshot.remainingPercent !== null) {
       return null;
     }
-    const plan = detailString(snapshot, "plan");
-    if (plan) {
-      return plan;
-    }
-    return snapshot.service === "grok" ? "Plan unavailable" : null;
+    return detailString(snapshot, "plan");
   }
 
   function serviceStateMessage(snapshot: UsageSnapshot) {
@@ -235,8 +244,11 @@
   }
 
   function planOnlyNote(snapshot: UsageSnapshot) {
-    if (snapshot.service === "grok" && !config.providers.webEnabled) {
-      return "Connect web session to see remaining quota";
+    if (snapshot.service === "grok") {
+      return "No supported consumer quota API";
+    }
+    if (snapshot.service === "ollama") {
+      return "Cloud quota unavailable";
     }
     return snapshot.details.via === "daemon"
       ? "Usage limits unavailable from the local daemon"
@@ -392,10 +404,13 @@
         <article class="card service-card usage-card">
           <header class="service-head">
             <div class="service-identity">
-              <span class={`status-dot ${providerStatusKind(snapshot)}`} aria-hidden="true"></span>
+              <span
+                class={`status-dot ${snapshot.service === "grok" ? "idle" : providerStatusKind(snapshot)}`}
+                aria-hidden="true"
+              ></span>
               <h3>{serviceLabels[snapshot.service]}</h3>
             </div>
-            {#if snapshot.service !== "grok" || config.providers.webEnabled}
+            {#if snapshot.service === "codex" || snapshot.service === "claude"}
               <div class="header-actions">
                 <button
                   class="icon-btn"
@@ -424,7 +439,10 @@
           </header>
 
           {#if planOnly(snapshot)}
-            <div class="plan-row">
+            <div
+              class="plan-row"
+              class:provider-summary={snapshot.service === "grok" || snapshot.service === "ollama"}
+            >
               <span class="window-label">Plan</span>
               <strong>{planOnly(snapshot)}</strong>
               <span class="plan-note">{planOnlyNote(snapshot)}</span>
@@ -455,7 +473,8 @@
             <span class="truncate">{formatTimestamp(snapshot.lastUpdated)}</span>
           </div>
 
-          {#if snapshotIsStale(snapshot) || providerStatusMessage(snapshot) || localActivitySummary(snapshot) || grokBuildUsage(snapshot) !== null}
+          {#if snapshot.service === "codex" || snapshot.service === "claude"}
+            {#if snapshotIsStale(snapshot) || providerStatusMessage(snapshot) || localActivitySummary(snapshot)}
             <div
               class="service-state"
               class:warn={snapshotIsStale(snapshot) || providerStatusKind(snapshot) === "warn"}
@@ -465,7 +484,7 @@
                 {serviceStateMessage(snapshot)}
               </span>
               {#if loginPromptVisible(snapshot) &&
-                (snapshot.service !== "grok" || config.providers.webEnabled)}
+                (snapshot.service === "codex" || snapshot.service === "claude")}
                 <button
                   class="state-action"
                   type="button"
@@ -478,6 +497,7 @@
                 </button>
               {/if}
             </div>
+          {/if}
           {/if}
         </article>
       {/each}
@@ -703,6 +723,18 @@
     padding: 0 2px;
   }
 
+
+  .plan-row.provider-summary {
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-content: center;
+  }
+
+  .provider-summary .plan-note {
+    grid-column: 2;
+    overflow: visible;
+    text-align: left;
+    white-space: normal;
+  }
   .plan-row strong {
     font-size: 17px;
     line-height: 1.2;
@@ -776,14 +808,25 @@
   }
 
   .state-action {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--ember);
     font-size: 11px;
     font-weight: 650;
+    line-height: 16px;
     cursor: pointer;
     white-space: nowrap;
+  }
+
+  .state-action :global(svg) {
+    display: block;
+    flex: none;
   }
 
   .state-action:focus-visible {

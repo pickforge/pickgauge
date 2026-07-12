@@ -233,19 +233,20 @@ describe("usage fixtures and redaction", () => {
     ).toBe("Ollama isn't running");
   });
 
-  it("guides a signed-out local Ollama daemon to the CLI", () => {
-    expect(
-      providerStatusMessage({
-        service: "ollama",
-        remainingPercent: null,
-        usedPercent: null,
-        resetAt: null,
-        source: "local",
-        confidence: "unknown",
-        lastUpdated: "2026-07-09T12:00:00Z",
-        details: { providerId: "ollama.local", status: "login_required" },
-      }),
-    ).toBe("Sign in with the Ollama CLI: ollama signin");
+  it("keeps Ollama sign-in outside PickGauge", () => {
+    const ollama = {
+      service: "ollama",
+      remainingPercent: null,
+      usedPercent: null,
+      resetAt: null,
+      source: "local",
+      confidence: "unknown",
+      lastUpdated: "2026-07-09T12:00:00Z",
+      details: { providerId: "ollama.local", status: "login_required" },
+    } satisfies UsageSnapshot;
+
+    expect(providerStatusMessage(ollama)).toBe("Ollama daemon requires sign-in outside PickGauge");
+    expect(providerStatusKind(ollama)).toBe("warn");
   });
 
   it("creates preview snapshots with independent detail objects", () => {
@@ -260,7 +261,7 @@ describe("usage fixtures and redaction", () => {
     expect(snapshots[0].details).not.toBe(snapshots[1].details);
   });
 
-  it("explains when the Grok CLI bearer has expired", () => {
+  it("does not direct users to reuse Grok CLI authentication", () => {
     expect(
       providerStatusMessage(
         snapshot({
@@ -269,7 +270,7 @@ describe("usage fixtures and redaction", () => {
           details: { providerId: "grok.cli", status: "login_required" },
         }),
       ),
-    ).toBe("Sign in with the Grok CLI");
+    ).toBe("Login required");
   });
 
   it("hides successful plan-only snapshots from the float capsule", () => {

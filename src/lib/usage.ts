@@ -115,12 +115,9 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
     ? snapshot.details.status
     : fallbackWebStatus(snapshot);
 
-  if (snapshot.service === "grok" && snapshot.details.providerId === "grok.cli" && status === "login_required") {
-    return "Sign in with the Grok CLI";
-  }
 
   if (snapshot.details.providerId === "ollama.local" && status === "login_required") {
-    return "Sign in with the Ollama CLI: ollama signin";
+    return "Ollama daemon requires sign-in outside PickGauge";
   }
 
   if (snapshot.details.providerId === "ollama.local" && status === "not_configured") {
@@ -132,6 +129,13 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
 
 export function providerStatusKind(snapshot: UsageSnapshot): "ok" | "warn" | "bad" | "idle" {
   const status = snapshot.details.webStatus ?? snapshot.details.status;
+
+  if (
+    snapshot.details.providerId === "ollama.local" &&
+    (status === "not_configured" || status === "login_required")
+  ) {
+    return "warn";
+  }
 
   if (
     status === "login_required" ||

@@ -314,6 +314,17 @@ test("preserves a remaining-only Claude fallback without a session label", async
   assert.deepEqual(usage.visibleFields, ["remaining_percent", "plan_label"]);
 });
 
+test("treats a legacy Claude percent-usage label as used", async () => {
+  const usage = await extractVisibleUsage(
+    fakePage({ bodyText: "Max plan limits. 42% usage." }),
+    "claude",
+  );
+
+  assert.equal(usage.remainingPercent, null);
+  assert.equal(usage.usedPercent, 42);
+  assert.deepEqual(usage.visibleFields, ["used_percent", "plan_label"]);
+});
+
 test("does not borrow a percentage from the next Claude quota row", async () => {
   const usage = await extractVisibleUsage(
     fakePage({

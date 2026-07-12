@@ -5,6 +5,7 @@ import {
   fallbackSnapshots,
   floatDisplaySnapshots,
   providerStatusMessage,
+  providerStatusKind,
   redactedUserPath,
   usageWindows,
   type UsageSnapshot,
@@ -113,6 +114,51 @@ describe("usage windows", () => {
       week: null,
       fable: null,
     });
+  });
+
+  it("does not relabel a secondary-only headline as five-hour usage", () => {
+    expect(
+      usageWindows(
+        snapshot({
+          remainingPercent: 57,
+          usedPercent: 43,
+          details: {
+            windows: {
+              week: { remainingPercent: 57, usedPercent: 43, resetAt: null },
+              fable: { remainingPercent: 88, usedPercent: 12, resetAt: null },
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      fiveHour: null,
+      week: { remainingPercent: 57, usedPercent: 43, resetAt: null },
+      fable: { remainingPercent: 88, usedPercent: 12, resetAt: null },
+    });
+  });
+});
+
+describe("provider status kind", () => {
+  it("prioritizes a failed web refresh over fallback usage", () => {
+    expect(
+      providerStatusKind(
+        snapshot({
+          remainingPercent: 72,
+          details: { status: "parsed", webStatus: "network_unavailable" },
+        }),
+      ),
+    ).toBe("bad");
+  });
+
+  it("marks an official verification gate as a warning", () => {
+    expect(
+      providerStatusKind(
+        snapshot({
+          remainingPercent: 72,
+          details: { status: "parsed", webStatus: "captcha_or_bot_check" },
+        }),
+      ),
+    ).toBe("warn");
   });
 });
 

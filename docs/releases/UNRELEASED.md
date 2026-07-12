@@ -25,7 +25,7 @@ reset this file.
 - Release CI now caches Rust builds (`Swatinem/rust-cache`).
 - Grok reads its CLI bearer without refreshing, storing, or writing it.
 - Grok web reads use only the managed profile's `grok.com/rest/grok/credits` request and return sanitized weekly usage data; on-demand dollar credits are not read.
-- Claude web reads now distinguish the current session, all-model weekly, and labeled Fable percentages without exposing page content.
+- Claude web reads preserve available weekly and Fable quotas when the session meter is unavailable, while keeping fallback percentage labels fail-closed.
 
 ## Validation
 
@@ -35,7 +35,7 @@ reset this file.
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
 - `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets`
 - `bun run check`
-- `bun run test:coverage` (70 tests, including the titlebar double-click regression)
+- `bun run test:coverage` (73 tests, including the titlebar double-click regression)
 - `bun run test:browser-preview` (four providers across 1000px, 820px, 680px, and 390px widths and all preview states)
 - PickLab visual and interaction checks at 1000×700, 820×600, and 680×600, including official usage and login-required states.
 

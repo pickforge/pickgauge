@@ -19,6 +19,7 @@
   } from "../display";
   import {
     providerStatusMessage,
+    providerStatusKind,
     usageWindows,
     type AppConfig,
     type Service,
@@ -205,20 +206,6 @@
     return focal?.key ?? null;
   });
 
-  function statusKind(snapshot: UsageSnapshot) {
-    const status = snapshot.details.webStatus ?? snapshot.details.status;
-    if (status === "login_required" || status === "mfa_required") return "warn";
-    if (
-      status === "permission_denied" ||
-      status === "parse_failed" ||
-      status === "internal"
-    ) {
-      return "bad";
-    }
-    if (snapshot.remainingPercent !== null || status === "parsed") return "ok";
-    return "idle";
-  }
-
   function planOnly(snapshot: UsageSnapshot) {
     if (snapshot.remainingPercent !== null) {
       return null;
@@ -393,7 +380,7 @@
         <article class="card service-card usage-card">
           <header class="service-head">
             <div class="service-identity">
-              <span class={`status-dot ${statusKind(snapshot)}`} aria-hidden="true"></span>
+              <span class={`status-dot ${providerStatusKind(snapshot)}`} aria-hidden="true"></span>
               <h3>{serviceLabels[snapshot.service]}</h3>
             </div>
             {#if snapshot.service !== "grok" || config.providers.webEnabled}
@@ -459,8 +446,8 @@
           {#if snapshotIsStale(snapshot) || providerStatusMessage(snapshot) || localActivitySummary(snapshot) || grokBuildUsage(snapshot) !== null}
             <div
               class="service-state"
-              class:warn={snapshotIsStale(snapshot) || statusKind(snapshot) === "warn"}
-              class:bad={statusKind(snapshot) === "bad"}
+              class:warn={snapshotIsStale(snapshot) || providerStatusKind(snapshot) === "warn"}
+              class:bad={providerStatusKind(snapshot) === "bad"}
             >
               <span>
                 {providerStatusMessage(snapshot) ??

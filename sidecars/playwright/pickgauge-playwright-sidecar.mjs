@@ -585,12 +585,25 @@ function extractClaudeUsage(text) {
 
 function claudeFallbackPercentages(text) {
   const remaining = percentNearLabel(text, /\b(remaining|left|available)\b/iu);
-  const used = percentNearLabel(text, /\b(used|consumed)\b/iu);
+  const used =
+    percentNearLabel(text, /\b(used|consumed)\b/iu) ??
+    percentImmediatelyBeforeLabel(text, /\busage\b/iu);
 
   return {
     remainingPercent: remaining ?? (used === null ? firstPercentValue(text) : null),
     usedPercent: used,
   };
+}
+
+function percentImmediatelyBeforeLabel(text, labelPattern) {
+  const normalized = text.replace(/\s+/gu, " ");
+  const flags = labelPattern.flags.replace("g", "");
+  const match = new RegExp(
+    `\\b([0-9]{1,3}(?:\\.[0-9]{1,2})?)\\s*%\\s*${labelPattern.source}`,
+    flags,
+  ).exec(normalized);
+  const value = match === null ? null : Number.parseFloat(match[1]);
+  return value !== null && validPercent(value) ? value : null;
 }
 
 function labelIsPresent(text, labelPattern) {

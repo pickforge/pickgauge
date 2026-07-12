@@ -51,7 +51,7 @@ export function usageWindows(snapshot: UsageSnapshot): {
   return {
     fiveHour:
       fiveHour ??
-      (snapshot.remainingPercent !== null
+      (windows === undefined && snapshot.remainingPercent !== null
         ? {
             remainingPercent: snapshot.remainingPercent,
             usedPercent: snapshot.usedPercent,
@@ -128,6 +128,36 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
   }
 
   return statusMessage(status);
+}
+
+export function providerStatusKind(snapshot: UsageSnapshot): "ok" | "warn" | "bad" | "idle" {
+  const status = snapshot.details.webStatus ?? snapshot.details.status;
+
+  if (
+    status === "login_required" ||
+    status === "mfa_required" ||
+    status === "captcha_or_bot_check"
+  ) {
+    return "warn";
+  }
+
+  if (
+    status === "permission_denied" ||
+    status === "parse_failed" ||
+    status === "network_unavailable" ||
+    status === "timed_out" ||
+    status === "unexpected_ui" ||
+    status === "unsafe_path" ||
+    status === "internal"
+  ) {
+    return "bad";
+  }
+
+  if (snapshot.remainingPercent !== null || status === "parsed") {
+    return "ok";
+  }
+
+  return "idle";
 }
 
 function fallbackWebStatus(snapshot: UsageSnapshot) {

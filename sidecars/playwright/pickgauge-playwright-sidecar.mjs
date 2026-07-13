@@ -9,6 +9,7 @@ export const PROTOCOL_VERSION = 1;
 
 const allowedServices = new Set(["codex", "claude"]);
 const allowedActions = new Set(["launchLogin", "refreshUsage"]);
+const navigationTimeoutMs = 30_000;
 
 export function validateLaunchRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {

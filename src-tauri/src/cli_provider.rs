@@ -3,7 +3,7 @@
 //!
 //! Instead of scraping dashboards in a headless browser, this reads the tokens
 //! those CLIs already stored on disk and calls the same usage endpoints they
-//! call. Grok consumer credentials are deliberately unsupported.
+//! call.
 //!
 //! Endpoints/clients discovered from the shipped CLI binaries:
 //! - Codex   refresh: POST https://auth.openai.com/oauth/token (client app_EMoamEEZ73f0CkXaXp7hrann)
@@ -137,8 +137,9 @@ fn base_details(service: Service) -> Value {
     let provider_id = match service {
         Service::Codex => UsageProviderId::CodexCli,
         Service::Claude => UsageProviderId::ClaudeCli,
-        Service::Grok => UsageProviderId::GrokCli,
-        Service::Ollama => unreachable!("Ollama has no CLI provider"),
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services cannot build CLI snapshots")
+        }
     };
     json!({
         "status": "parsed",
@@ -463,11 +464,13 @@ mod tests {
     }
 
     #[test]
-    fn grok_cli_collection_is_unsupported() {
-        assert_eq!(
-            refresh(Service::Grok, "2026-07-09T20:00:00Z"),
-            Err(UsageProviderError::Disabled)
-        );
+    fn deferred_cli_collection_is_disabled() {
+        for service in [Service::Grok, Service::Ollama] {
+            assert_eq!(
+                refresh(service, "2026-07-09T20:00:00Z"),
+                Err(UsageProviderError::Disabled)
+            );
+        }
     }
 
 }

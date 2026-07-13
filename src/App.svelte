@@ -204,7 +204,7 @@
     <main class="content fade-up">
       {#if loading}
         <div class="loading">
-          {#each [1, 2, 3, 4] as item (item)}
+          {#each [1, 2] as item (item)}
             <div class="skeleton"></div>
           {/each}
         </div>

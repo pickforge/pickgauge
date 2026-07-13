@@ -185,6 +185,7 @@ export type UsageDisplayState = {
 export function floatDisplaySnapshots(snapshots: UsageSnapshot[]) {
   return snapshots.filter(
     (snapshot) =>
+      (snapshot.service === "codex" || snapshot.service === "claude") &&
       !(snapshot.remainingPercent === null && typeof snapshot.details.plan === "string"),
   );
 }
@@ -302,8 +303,8 @@ export const defaultConfig: AppConfig = {
   enabledServices: {
     codex: true,
     claude: true,
-    grok: true,
-    ollama: true,
+    grok: false,
+    ollama: false,
   },
   providers: {
     localEnabled: true,
@@ -353,7 +354,7 @@ export const defaultConfig: AppConfig = {
   },
 };
 
-export const fallbackSnapshots: UsageSnapshot[] = [
+export const fallbackSnapshots = [
   {
     service: "codex",
     remainingPercent: 72,
@@ -374,27 +375,7 @@ export const fallbackSnapshots: UsageSnapshot[] = [
     lastUpdated: "Waiting for local provider",
     details: { status: "placeholder" },
   },
-  {
-    service: "grok",
-    remainingPercent: 78,
-    usedPercent: 22,
-    resetAt: null,
-    source: "fake",
-    confidence: "unknown",
-    lastUpdated: "Waiting for CLI provider",
-    details: { status: "placeholder" },
-  },
-  {
-    service: "ollama",
-    remainingPercent: 88,
-    usedPercent: 12,
-    resetAt: null,
-    source: "fake",
-    confidence: "unknown",
-    lastUpdated: "Waiting for local daemon",
-    details: { status: "placeholder" },
-  },
-];
+] satisfies UsageSnapshot[];
 
 export type BrowserPreviewState =
   | "default"
@@ -545,7 +526,7 @@ function previewSnapshots(partial: Partial<UsageSnapshot>): UsageSnapshot[] {
 function officialPreviewSnapshots(): UsageSnapshot[] {
   const reset = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
   const readings: Record<
-    Service,
+    (typeof fallbackSnapshots)[number]["service"],
     { remaining: number; windows: Record<string, UsageWindow> }
   > = {
     codex: {
@@ -561,19 +542,6 @@ function officialPreviewSnapshots(): UsageSnapshot[] {
         fiveHour: { remainingPercent: 61, usedPercent: 39, resetAt: reset(2) },
         week: { remainingPercent: 92, usedPercent: 8, resetAt: reset(144) },
         fable: { remainingPercent: 34, usedPercent: 66, resetAt: reset(96) },
-      },
-    },
-    grok: {
-      remaining: 73,
-      windows: {
-        week: { remainingPercent: 73, usedPercent: 27, resetAt: reset(132) },
-      },
-    },
-    ollama: {
-      remaining: 88,
-      windows: {
-        fiveHour: { remainingPercent: 88, usedPercent: 12, resetAt: reset(4) },
-        week: { remainingPercent: 64, usedPercent: 36, resetAt: reset(108) },
       },
     },
   };

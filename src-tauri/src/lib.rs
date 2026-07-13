@@ -7,7 +7,6 @@ mod snapshot_store;
 mod usage_cli;
 pub mod history;
 pub mod local_provider;
-mod ollama_provider;
 pub mod sounds;
 pub mod usage;
 pub mod web_provider;
@@ -48,8 +47,6 @@ const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_availa
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
-const GROK_USAGE_URL: &str = "https://grok.com/";
-const OLLAMA_USAGE_URL: &str = "https://ollama.com/settings";
 const SENTRY_DSN: &str =
     "https://3a176d7b2fdccedfb2812e6a0b231f56@o4511699702317056.ingest.us.sentry.io/4511699813924864";
 const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
@@ -389,8 +386,9 @@ fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
         Service::Claude => CLAUDE_USAGE_URL,
-        Service::Grok => GROK_USAGE_URL,
-        Service::Ollama => OLLAMA_USAGE_URL,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services have no official runtime URL")
+        }
     }
 }
 
@@ -398,13 +396,14 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
     match service {
         Service::Codex => browser_profile::BrowserProfileService::Codex,
         Service::Claude => browser_profile::BrowserProfileService::Claude,
-        Service::Grok => browser_profile::BrowserProfileService::Grok,
-        Service::Ollama => browser_profile::BrowserProfileService::Ollama,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services have no managed browser profile")
+        }
     }
 }
 
 fn managed_browser_service(service: Service) -> bool {
-    matches!(service, Service::Codex | Service::Claude)
+    service.is_runtime()
 }
 
 fn prepare_log_dir(path: &Path) -> CommandResult<()> {
@@ -707,6 +706,12 @@ fn get_log_location(app: AppHandle) -> CommandResult<LogLocation> {
 
 #[tauri::command]
 fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<OfficialUsagePage> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_action_unsupported",
+            "Provider is deferred",
+        ));
+    }
     let url = official_usage_url(service);
 
     app.opener()
@@ -975,6 +980,9 @@ fn inspect_provider_profile_for_service(
     service: Service,
     inspected_at: String,
 ) -> Result<ProviderProfileInspection, String> {
+    if !managed_browser_service(service) {
+        return Err("Managed profile inspection is not available for this provider".to_string());
+    }
     let Some(paths) = prepare_managed_browser_profiles(config, app_data_dir)? else {
         return Ok(provider_profile_inspection_report(
             service,
@@ -987,8 +995,9 @@ fn inspect_provider_profile_for_service(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
-        Service::Grok => &paths.grok,
-        Service::Ollama => &paths.ollama,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services have no managed browser profile")
+        }
     };
     let inspection = browser_session::inspect_chromium_profile_storage(profile_path)?;
 
@@ -1050,6 +1059,12 @@ fn clear_provider_profile_for_service(
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_action_unsupported",
+            "Provider is deferred",
+        ));
+    }
     sessions
         .stop_service(service, browser_session::PROFILE_STOP_TIMEOUT)
         .map_err(map_browser_session_error)?;
@@ -1324,9 +1339,12 @@ fn usage_snapshot_from_sidecar_usage_response(
     response: browser_session::PlaywrightSidecarUsageResponse,
     observed_at: &str,
 ) -> Result<UsageSnapshot, UsageProviderError> {
+    if !response.service.is_runtime() {
+        return Err(UsageProviderError::Disabled);
+    }
     let page_state = visible_page_state_from_sidecar(response.page_state.as_str())?;
 
-    Ok(web_provider::parse_visible_usage(
+    web_provider::parse_visible_usage(
         VisibleUsageInput {
             service: response.service,
             page_state,
@@ -1354,7 +1372,7 @@ fn usage_snapshot_from_sidecar_usage_response(
                 .collect(),
         },
         observed_at,
-    ))
+    )
 }
 
 fn visible_page_state_from_sidecar(value: &str) -> Result<VisiblePageState, UsageProviderError> {
@@ -1493,6 +1511,12 @@ fn refresh_provider_blocking(
     service: Service,
     source: UsageSource,
 ) -> CommandResult<UsageDisplayState> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_refresh_unsupported",
+            "Provider is deferred",
+        ));
+    }
     let engine = app.state::<UsageEngine>();
     let sessions = app.state::<browser_session::BrowserSessionManager>();
 
@@ -1762,7 +1786,9 @@ fn ensure_float_window(app: &AppHandle, visible: bool) {
 // ring click-through. Other platforms have no input-shape equivalent, so
 // they keep a snug window (and Float.svelte drops the outer glow there).
 // Float.svelte's capsule margin must match FLOAT_GLOW_MARGIN per platform.
-const FLOAT_CAPSULE_WIDTH: i32 = 252;
+// Border-box width: 2px border + 10px left padding + 26px mark + 10px gap
+// + 89px two-ring slot + 10px gap + 7px status dot + 14px right padding.
+const FLOAT_CAPSULE_WIDTH: i32 = 168;
 const FLOAT_CAPSULE_HEIGHT: i32 = 56;
 #[cfg(target_os = "linux")]
 const FLOAT_GLOW_MARGIN: i32 = 24;
@@ -2495,8 +2521,8 @@ mod tests {
                 .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
                 .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
         );
-        assert!(!paths.grok.exists());
-        assert!(!paths.ollama.exists());
+        assert!(!paths.root.join("grok").exists());
+        assert!(!paths.root.join("ollama").exists());
 
         assert_preference_false(&codex_preferences, &["credentials_enable_service"]);
         assert_preference_false(&codex_preferences, &["credentials_enable_autosignin"]);
@@ -2536,6 +2562,27 @@ mod tests {
         assert!(value.get("path").is_none());
         assert!(value.get("profilePath").is_none());
         assert!(!format!("{value:?}").contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn deferred_profile_inspection_does_not_prepare_legacy_paths() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+        config.browser_profiles.grok_path = Some("relative-grok-profile".to_string());
+        config.browser_profiles.ollama_path = Some("relative-ollama-profile".to_string());
+
+        for service in [Service::Grok, Service::Ollama] {
+            assert!(inspect_provider_profile_for_service(
+                &config,
+                &dir.path,
+                service,
+                "2026-07-12T12:00:00Z".to_string(),
+            )
+            .is_err());
+        }
+
+        assert!(!dir.path.join("browser-profiles").exists());
     }
 
     #[test]
@@ -2695,34 +2742,17 @@ mod tests {
     }
 
     #[test]
-    fn ollama_sidecar_usage_response_carries_both_windows() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
-            remaining_percent: Some(83.0),
-            used_percent: Some(17.0),
-            reset_at: Some("2026-06-20T19:00:00Z".to_string()),
-            visible_fields: vec![
-                "remaining_percent".to_string(),
-                "used_percent".to_string(),
-                "reset_at".to_string(),
-                "quota_window".to_string(),
-            ],
-            weekly: Some(browser_session::PlaywrightSidecarUsageWindow {
-                remaining_percent: Some(43.0),
-                used_percent: Some(57.0),
-                reset_at: Some("2026-06-22T00:00:00Z".to_string()),
-            }),
-            ..sidecar_usage_response(Service::Ollama, "usage")
-        };
-
-        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
-            .expect("snapshot is built");
-
-        assert_eq!(snapshot.service, Service::Ollama);
-        assert_eq!(snapshot.remaining_percent, Some(83.0));
-        let windows = &snapshot.details["windows"];
-        assert_eq!(windows["fiveHour"]["remainingPercent"], 83.0);
-        assert_eq!(windows["week"]["remainingPercent"], 43.0);
-        assert_eq!(windows["week"]["resetAt"], "2026-06-22T00:00:00Z");
+    fn deferred_sidecar_responses_are_rejected_without_snapshots() {
+        for service in [Service::Grok, Service::Ollama] {
+            let response = sidecar_usage_response(service, "usage");
+            assert_eq!(
+                usage_snapshot_from_sidecar_usage_response(
+                    response,
+                    "2026-07-12T12:00:00Z",
+                ),
+                Err(UsageProviderError::Disabled)
+            );
+        }
     }
 
     #[test]
@@ -2755,34 +2785,6 @@ mod tests {
         assert_eq!(windows["fiveHour"]["usedPercent"], 18.0);
         assert_eq!(windows["week"]["remainingPercent"], 57.0);
         assert_eq!(windows["fable"]["usedPercent"], 12.0);
-    }
-
-    #[test]
-    fn grok_sidecar_usage_response_maps_weekly_usage_and_products() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
-            remaining_percent: Some(71.5),
-            used_percent: Some(28.5),
-            reset_at: Some("2026-07-16T00:00:00Z".to_string()),
-            visible_fields: vec![
-                "used_percent".to_string(),
-                "remaining_percent".to_string(),
-                "quota_window".to_string(),
-                "reset_at".to_string(),
-            ],
-            products: vec![browser_session::PlaywrightSidecarUsageProduct {
-                product: "PRODUCT_GROK_BUILD".to_string(),
-                usage_percent: 42.0,
-            }],
-            ..sidecar_usage_response(Service::Grok, "usage")
-        };
-
-        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-07-09T12:00:00Z")
-            .expect("snapshot is built");
-
-        assert_eq!(snapshot.details["providerId"], "grok.web");
-        assert!(snapshot.details["windows"].get("fiveHour").is_none());
-        assert_eq!(snapshot.details["windows"]["week"]["usedPercent"], 28.5);
-        assert_eq!(snapshot.details["products"][0]["product"], "PRODUCT_GROK_BUILD");
     }
 
     #[test]
@@ -2992,7 +2994,6 @@ mod tests {
             official_usage_url(Service::Claude),
             "https://claude.ai/new#settings/usage"
         );
-        assert_eq!(official_usage_url(Service::Grok), "https://grok.com/");
     }
 
     #[test]
@@ -3391,8 +3392,16 @@ mod tests {
     }
 
     #[test]
-    fn floating_window_geometry_keeps_252px_capsule_and_existing_glow_height() {
-        assert_eq!(FLOAT_CAPSULE_WIDTH, 252);
+    fn floating_window_geometry_fits_two_rings_in_the_168px_capsule() {
+        const RING_DIAMETER: i32 = 34;
+        const RING_GAP: i32 = 8;
+        const RING_SLOT_WIDTH: i32 = 89;
+        const FIXED_CONTENT_WIDTH: i32 = 2 + 10 + 26 + 10 + RING_SLOT_WIDTH + 10 + 7 + 14;
+
+        assert_eq!(2 * RING_DIAMETER + RING_GAP, 76);
+        assert_eq!(RING_SLOT_WIDTH - (2 * RING_DIAMETER + RING_GAP), 13);
+        assert_eq!(FIXED_CONTENT_WIDTH, 168);
+        assert_eq!(FLOAT_CAPSULE_WIDTH, FIXED_CONTENT_WIDTH);
         assert_eq!(FLOAT_CAPSULE_HEIGHT, 56);
         assert_eq!(
             FLOAT_WINDOW_WIDTH,

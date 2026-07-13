@@ -40,7 +40,7 @@ can attach to the parent console and write its output.
 `version` is the schema version. Consumers should reject unknown versions.
 `generatedAt`, `resetAt`, and `lastUpdated` are RFC 3339 timestamps.
 
-Each enabled service appears once, ordered Codex, Claude Code, Grok, Ollama.
+Each enabled service appears once, ordered Codex then Claude Code.
 Disabled services are omitted. `status` is the sanitized provider status:
 `parsed`, `login_required`, `not_configured`, `missing_data`,
 `network_unavailable`, and related error codes are all valid values. Provider

@@ -147,9 +147,6 @@
   }
 
   function windowsFor(snapshot: UsageSnapshot): QuotaRow[] {
-    if (snapshot.service === "grok" || snapshot.service === "ollama") {
-      return [];
-    }
     const { fiveHour, week, fable } = usageWindows(snapshot);
     const low = (remaining: number | null) =>
       remaining !== null && remaining <= config.lowUsageThreshold;
@@ -212,17 +209,6 @@
   });
 
   function planOnly(snapshot: UsageSnapshot) {
-    if (snapshot.service === "grok") {
-      return "Consumer quota unsupported";
-    }
-    if (snapshot.service === "ollama") {
-      if (snapshot.details.status === "disabled") {
-        return "Local estimates disabled";
-      }
-      return snapshot.details.status === "not_configured"
-        ? "Local daemon not running"
-        : "Local daemon connected";
-    }
     if (snapshot.remainingPercent !== null) {
       return null;
     }
@@ -230,13 +216,10 @@
   }
 
   function serviceStateMessage(snapshot: UsageSnapshot) {
-    const primary =
-      providerStatusMessage(snapshot) ??
-      localActivitySummary(snapshot) ??
-      (grokBuildUsage(snapshot) !== null
-        ? `Grok Build ${Math.round(grokBuildUsage(snapshot) ?? 0)}% used`
-        : null);
-    return [primary, snapshotIsStale(snapshot) ? "Stale data" : null]
+    return [
+      providerStatusMessage(snapshot) ?? localActivitySummary(snapshot),
+      snapshotIsStale(snapshot) ? "Stale data" : null,
+    ]
       .filter((message): message is string => message !== null)
       .join(" · ");
   }
@@ -246,34 +229,6 @@
     return typeof value === "string" && value.length > 0 ? formatTimestamp(value) : null;
   }
 
-  function planOnlyNote(snapshot: UsageSnapshot) {
-    if (snapshot.service === "grok") {
-      return "No supported consumer quota API";
-    }
-    if (snapshot.service === "ollama") {
-      return "Cloud quota unavailable";
-    }
-    return snapshot.details.via === "daemon"
-      ? "Usage limits unavailable from the local daemon"
-      : "Usage —";
-  }
-
-  function grokBuildUsage(snapshot: UsageSnapshot) {
-    const products = snapshot.details.products;
-    if (!Array.isArray(products)) {
-      return null;
-    }
-
-    const build = products.find(
-      (product) =>
-        product &&
-        typeof product === "object" &&
-        (product as Record<string, unknown>).product === "PRODUCT_GROK_BUILD",
-    ) as Record<string, unknown> | undefined;
-    const usage = build?.usagePercent;
-
-    return typeof usage === "number" && Number.isFinite(usage) ? usage : null;
-  }
 
   async function loadDaily() {
     if (!desktopApiAvailable()) {
@@ -407,13 +362,9 @@
         <article class="card service-card usage-card">
           <header class="service-head">
             <div class="service-identity">
-              <span
-                class={`status-dot ${snapshot.service === "grok" ? "idle" : providerStatusKind(snapshot)}`}
-                aria-hidden="true"
-              ></span>
+              <span class={`status-dot ${providerStatusKind(snapshot)}`} aria-hidden="true"></span>
               <h3>{serviceLabels[snapshot.service]}</h3>
             </div>
-            {#if snapshot.service === "codex" || snapshot.service === "claude"}
               <div class="header-actions">
                 <button
                   class="icon-btn"
@@ -438,17 +389,13 @@
                   <ArrowSquareOut size={13} />
                 </button>
               </div>
-            {/if}
           </header>
 
           {#if planOnly(snapshot)}
-            <div
-              class="plan-row"
-              class:provider-summary={snapshot.service === "grok" || snapshot.service === "ollama"}
-            >
+            <div class="plan-row">
               <span class="window-label">Plan</span>
               <strong>{planOnly(snapshot)}</strong>
-              <span class="plan-note">{planOnlyNote(snapshot)}</span>
+              <span class="plan-note">Usage —</span>
             </div>
             {#if billingPeriodEnd(snapshot)}
               <p class="note muted">Billing period ends {billingPeriodEnd(snapshot)}</p>
@@ -476,8 +423,7 @@
             <span class="truncate">{formatTimestamp(snapshot.lastUpdated)}</span>
           </div>
 
-          {#if snapshot.service === "codex" || snapshot.service === "claude"}
-            {#if snapshotIsStale(snapshot) || providerStatusMessage(snapshot) || localActivitySummary(snapshot)}
+          {#if snapshotIsStale(snapshot) || providerStatusMessage(snapshot) || localActivitySummary(snapshot)}
             <div
               class="service-state"
               class:warn={snapshotIsStale(snapshot) || providerStatusKind(snapshot) === "warn"}
@@ -486,8 +432,7 @@
               <span>
                 {serviceStateMessage(snapshot)}
               </span>
-              {#if loginPromptVisible(snapshot) &&
-                (snapshot.service === "codex" || snapshot.service === "claude")}
+              {#if loginPromptVisible(snapshot)}
                 <button
                   class="state-action"
                   type="button"
@@ -500,7 +445,6 @@
                 </button>
               {/if}
             </div>
-          {/if}
           {/if}
         </article>
       {/each}
@@ -726,18 +670,6 @@
     padding: 0 2px;
   }
 
-
-  .plan-row.provider-summary {
-    grid-template-columns: 56px minmax(0, 1fr);
-    align-content: center;
-  }
-
-  .provider-summary .plan-note {
-    grid-column: 2;
-    overflow: visible;
-    text-align: left;
-    white-space: normal;
-  }
   .plan-row strong {
     font-size: 17px;
     line-height: 1.2;

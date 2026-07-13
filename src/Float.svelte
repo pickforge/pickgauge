@@ -3,7 +3,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { api, desktopApiAvailable, EVENT_SETTINGS, EVENT_SNAPSHOTS } from "./lib/api";
-  import type { AppConfig, Service, UsageDisplayState, UsageSnapshot } from "./lib/usage";
+  import type { AppConfig, UsageDisplayState, UsageSnapshot } from "./lib/usage";
   import {
     browserPreviewSnapshots,
     browserPreviewStateFromSearch,
@@ -29,12 +29,6 @@
   const RING_RADIUS = 13;
   const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
 
-  const ringColors: Record<Service, string> = {
-    codex: "var(--text)",
-    claude: "var(--ember)",
-    grok: "var(--muted)",
-    ollama: "var(--pf-info)",
-  };
 
   function ringColor(snapshot: UsageSnapshot) {
     if (
@@ -44,7 +38,7 @@
       return "var(--ember-deep)";
     }
 
-    return ringColors[snapshot.service];
+    return snapshot.service === "claude" ? "var(--ember)" : "var(--text)";
   }
 
   function ringOffset(snapshot: UsageSnapshot) {

@@ -167,10 +167,10 @@ describe("provider status kind", () => {
 });
 
 describe("usage fixtures and redaction", () => {
-  it("keeps default privacy-sensitive settings opt-in", () => {
-    expect(defaultConfig.enabledServices.ollama).toBe(true);
+  it("keeps deferred services off while preserving legacy config fields", () => {
+    expect(defaultConfig.enabledServices.grok).toBe(false);
+    expect(defaultConfig.enabledServices.ollama).toBe(false);
     expect(defaultConfig.providers.webEnabled).toBe(false);
-    expect(defaultConfig.enabledServices.grok).toBe(true);
     expect(defaultConfig.browserProfiles).toEqual({
       rootPath: null,
       codexPath: null,
@@ -202,52 +202,10 @@ describe("usage fixtures and redaction", () => {
         confidence: "unknown",
         details: { status: "placeholder" },
       }),
-      expect.objectContaining({
-        service: "grok",
-        source: "fake",
-        confidence: "unknown",
-        details: { status: "placeholder" },
-      }),
-      expect.objectContaining({
-        service: "ollama",
-        source: "fake",
-        confidence: "unknown",
-        details: { status: "placeholder" },
-      }),
     ]);
-    expect(fallbackSnapshots.map(providerStatusMessage)).toEqual([null, null, null, null]);
+    expect(fallbackSnapshots.map(providerStatusMessage)).toEqual([null, null]);
   });
 
-  it("names a missing local Ollama daemon honestly", () => {
-    expect(
-      providerStatusMessage({
-        service: "ollama",
-        remainingPercent: null,
-        usedPercent: null,
-        resetAt: null,
-        source: "local",
-        confidence: "unknown",
-        lastUpdated: "2026-07-09T12:00:00Z",
-        details: { providerId: "ollama.local", status: "not_configured" },
-      }),
-    ).toBe("Ollama isn't running");
-  });
-
-  it("keeps Ollama sign-in outside PickGauge", () => {
-    const ollama = {
-      service: "ollama",
-      remainingPercent: null,
-      usedPercent: null,
-      resetAt: null,
-      source: "local",
-      confidence: "unknown",
-      lastUpdated: "2026-07-09T12:00:00Z",
-      details: { providerId: "ollama.local", status: "login_required" },
-    } satisfies UsageSnapshot;
-
-    expect(providerStatusMessage(ollama)).toBe("Ollama daemon requires sign-in outside PickGauge");
-    expect(providerStatusKind(ollama)).toBe("warn");
-  });
 
   it("creates preview snapshots with independent detail objects", () => {
     const snapshots = browserPreviewSnapshots("network-unavailable");
@@ -255,38 +213,17 @@ describe("usage fixtures and redaction", () => {
     expect(snapshots.map(providerStatusMessage)).toEqual([
       "Network unavailable",
       "Network unavailable",
-      "Network unavailable",
-      "Network unavailable",
     ]);
     expect(snapshots[0].details).not.toBe(snapshots[1].details);
   });
 
-  it("does not direct users to reuse Grok CLI authentication", () => {
-    expect(
-      providerStatusMessage(
-        snapshot({
-          service: "grok",
-          source: "web",
-          details: { providerId: "grok.cli", status: "login_required" },
-        }),
-      ),
-    ).toBe("Login required");
-  });
 
-  it("hides successful plan-only snapshots from the float capsule", () => {
-    const planOnly = snapshot({
-      service: "grok",
-      details: { plan: "Grok Pro", status: "parsed" },
-    });
-    const loginRequired = snapshot({
-      service: "grok",
-      details: { status: "login_required" },
-    });
-    const measured = snapshot({ service: "grok", remainingPercent: 72 });
+  it("keeps deferred services out of the floating capsule", () => {
+    const codex = snapshot({ service: "codex", remainingPercent: 72 });
+    const claude = snapshot({ service: "claude", remainingPercent: 61 });
+    const grok = snapshot({ service: "grok", remainingPercent: 50 });
+    const ollama = snapshot({ service: "ollama", remainingPercent: 40 });
 
-    expect(floatDisplaySnapshots([planOnly, loginRequired, measured])).toEqual([
-      loginRequired,
-      measured,
-    ]);
+    expect(floatDisplaySnapshots([codex, claude, grok, ollama])).toEqual([codex, claude]);
   });
 });

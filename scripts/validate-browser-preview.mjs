@@ -53,7 +53,7 @@ try {
     await browser.close();
   }
 
-  console.log("Browser preview validation passed for four-provider responsive checks");
+  console.log("Browser preview validation passed for two-provider responsive checks");
 } finally {
   await stopServer(server);
 }
@@ -137,23 +137,14 @@ async function validatePreviewState(browser, viewport, previewState) {
     assert.equal(await page.title(), "PickGauge");
     assert.equal(
       await page.locator("article.usage-card").count(),
-      4,
-      `${viewport.label} ${previewState.state} should render all usage cards`,
+      2,
+      `${viewport.label} ${previewState.state} should render both usage cards`,
     );
     await assertVisibleText(page, "Codex");
     await assertVisibleText(page, "Claude Code");
-    await assertVisibleText(page, "Grok");
-    await assertVisibleText(page, "Ollama");
     await assertVisibleText(page, "Remaining usage");
-    await assertVisibleText(page, "Consumer quota unsupported");
-    await assertVisibleText(page, "No supported consumer quota API");
-    await assertVisibleText(
-      page,
-      previewState.state === "provider-disabled" ? "Local estimates disabled" : "Local daemon connected",
-    );
-    await assertVisibleText(page, "Cloud quota unavailable");
-    assert.equal(await page.getByRole("button", { name: "Start Grok login" }).count(), 0);
-    assert.equal(await page.getByRole("button", { name: "Start Ollama login" }).count(), 0);
+    assert.equal(await page.getByText("Grok", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("Ollama", { exact: true }).count(), 0);
 
     for (const note of previewState.notes) {
       assert.equal(
@@ -312,7 +303,7 @@ async function validateSettingsLayout(browser) {
 
 async function validateFloatCapsule(browser) {
   const context = await browser.newContext({
-    viewport: { width: 256, height: 60 },
+    viewport: { width: 172, height: 60 },
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140 Safari/537.36",
   });
   const page = await context.newPage();
@@ -331,10 +322,10 @@ async function validateFloatCapsule(browser) {
         rings: rings.map(({ width, height }) => ({ width, height })),
       };
     });
-    assert.deepEqual(geometry.capsule, { width: 252, height: 56 });
-    assert.equal(geometry.rings.length, 4);
-    assert.deepEqual(geometry.rings, Array(4).fill({ width: 34, height: 34 }));
-    await assertNoHorizontalOverflow(page, { label: "float", width: 256 }, "official-usage");
+    assert.deepEqual(geometry.capsule, { width: 168, height: 56 });
+    assert.equal(geometry.rings.length, 2);
+    assert.deepEqual(geometry.rings, Array(2).fill({ width: 34, height: 34 }));
+    await assertNoHorizontalOverflow(page, { label: "float", width: 172 }, "official-usage");
   } finally {
     await context.close();
   }

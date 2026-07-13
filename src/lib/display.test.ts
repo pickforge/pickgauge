@@ -374,28 +374,23 @@ describe("browser preview state fixtures", () => {
       ["unsafe-profile-path", "Profile path blocked"],
       ["provider-disabled", "Provider disabled"],
     ] as const) {
-      expect(browserPreviewSnapshots(state).map(providerStatusMessage)).toEqual([
-        note,
-        note,
-        note,
-        note,
-      ]);
+      expect(browserPreviewSnapshots(state).map(providerStatusMessage)).toEqual([note, note]);
     }
   });
 
   it("renders stale browser-preview snapshots without inventing provider errors", () => {
     const snapshots = browserPreviewSnapshots("stale-data");
 
-    expect(snapshots.map(snapshotIsStale)).toEqual([true, true, true, true]);
-    expect(snapshots.map(providerStatusMessage)).toEqual([null, null, null, null]);
+    expect(snapshots.map(snapshotIsStale)).toEqual([true, true]);
+    expect(snapshots.map(providerStatusMessage)).toEqual([null, null]);
   });
 
   it("renders official-usage browser-preview snapshots without a login prompt", () => {
     const snapshots = browserPreviewSnapshots("official-usage");
 
-    expect(snapshots.map(({ source }) => source)).toEqual(["web", "web", "web", "web"]);
-    expect(snapshots.map(providerStatusMessage)).toEqual([null, null, null, null]);
-    expect(snapshots.map(loginPromptVisible)).toEqual([false, false, false, false]);
+    expect(snapshots.map(({ source }) => source)).toEqual(["web", "web"]);
+    expect(snapshots.map(providerStatusMessage)).toEqual([null, null]);
+    expect(snapshots.map(loginPromptVisible)).toEqual([false, false]);
   });
 });
 

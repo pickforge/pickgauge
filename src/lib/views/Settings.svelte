@@ -233,16 +233,6 @@
         Claude Code
       </label>
       <label class="switch">
-        <input type="checkbox" bind:checked={config.enabledServices.grok} />
-        <span class="track"></span>
-        Grok
-      </label>
-      <label class="switch">
-        <input type="checkbox" bind:checked={config.enabledServices.ollama} />
-        <span class="track"></span>
-        Ollama
-      </label>
-      <label class="switch">
         <input type="checkbox" bind:checked={config.providers.localEnabled} />
         <span class="track"></span>
         Local estimates
@@ -250,7 +240,7 @@
       <label class="switch">
         <input type="checkbox" bind:checked={config.providers.cliEnabled} />
         <span class="track"></span>
-        Official readings via supported CLI sessions
+        Official readings via Codex/Claude CLI sessions
       </label>
       <label class="switch">
         <input
@@ -262,23 +252,9 @@
         Official Codex/Claude web readings
       </label>
       <p class="hint">
-        CLI and web readings are limited to provider-supported local sessions. PickGauge never
-        imports browser cookies or account credentials.
+        CLI and web readings use provider-supported Codex and Claude Code sessions. PickGauge
+        never imports browser cookies or account credentials.
       </p>
-      {#if config.enabledServices.grok}
-        <p class="provider-note">
-          <strong>Grok consumer quota unavailable.</strong>
-          xAI does not provide a supported third-party quota API, so PickGauge does not automate
-          grok.com or reuse Grok session data.
-        </p>
-      {/if}
-      {#if config.enabledServices.ollama}
-        <p class="provider-note">
-          <strong>Ollama is local-only.</strong>
-          PickGauge reads the loopback daemon when it is running. Cloud quota and sign-in remain
-          owned by Ollama.
-        </p>
-      {/if}
     </div>
 
       <div class="card group">
@@ -560,20 +536,6 @@
     color: var(--muted);
   }
 
-  .provider-note {
-    padding: 10px 12px;
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius-sm);
-    background: var(--wash);
-    color: var(--muted);
-    font-size: 11.5px;
-    line-height: 1.5;
-  }
-
-  .provider-note strong {
-    color: var(--text);
-    font-weight: 600;
-  }
 
   .number-grid {
     display: grid;

@@ -231,9 +231,9 @@ pub struct PlaywrightSidecarUsageResponse {
     pub products: Vec<PlaywrightSidecarUsageProduct>,
 }
 
-/// A secondary rate-limit window (e.g. Ollama's weekly meter) carried alongside
-/// the headline window. Percentages and the reset timestamp are validated by the
-/// web provider, so this only transports the raw values.
+/// A secondary rate-limit window carried alongside the headline window.
+/// Percentages and the reset timestamp are validated by the web provider, so
+/// this only transports the raw values.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaywrightSidecarUsageWindow {
@@ -450,6 +450,9 @@ impl BrowserSessionManager {
         orphans.clear();
 
         for record in records {
+            if !record.service.is_runtime() {
+                continue;
+            }
             if process_matches_marker(record.process_id, &record.process_marker) {
                 orphans.insert(
                     record.service,
@@ -1585,6 +1588,43 @@ mod tests {
             }
         );
         assert!(!dir.registry_path().exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_ignores_legacy_deferred_browser_sessions() {
+        let dir = TestDir::new();
+        let registry_path = dir.registry_path();
+        let marker = BrowserSessionMarker::new(Service::Grok);
+        let mut child = sleeping_child(&marker);
+        let process_id = child.id();
+        wait_for_test_process_marker(process_id, &marker.process_marker);
+        let registry = BrowserSessionRegistry {
+            schema_version: SESSION_REGISTRY_SCHEMA_VERSION,
+            processes: vec![BrowserSessionRecord {
+                service: Service::Grok,
+                process_id,
+                process_marker: marker.process_marker.clone(),
+                started_at: marker.started_at,
+            }],
+        };
+        fs::write(
+            &registry_path,
+            serde_json::to_string_pretty(&registry).expect("legacy registry serializes"),
+        )
+        .expect("legacy registry is written");
+
+        let manager = BrowserSessionManager::with_registry_path(&registry_path);
+        let recovery = manager
+            .detect_orphans_on_startup()
+            .expect("orphan detection succeeds");
+
+        assert_eq!(recovery.orphaned_processes, 0);
+        assert!(!registry_path.exists());
+        assert!(process_matches_marker(process_id, &marker.process_marker));
+
+        child.kill().expect("test process stops");
+        child.wait().expect("test process is reaped");
     }
 
     #[test]

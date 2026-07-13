@@ -22,7 +22,7 @@ export type UsageWindow = {
 };
 
 /**
- * Pull the 5-hour and weekly windows out of a snapshot's details, when the
+ * Pull the 5-hour, weekly, and Claude Fable windows out of a snapshot's details, when the
  * provider supplies them (the CLI-credentials provider does). Falls back to
  * the headline `remainingPercent` for the 5-hour window so providers without
  * window detail still render.
@@ -30,6 +30,7 @@ export type UsageWindow = {
 export function usageWindows(snapshot: UsageSnapshot): {
   fiveHour: UsageWindow | null;
   week: UsageWindow | null;
+  fable: UsageWindow | null;
 } {
   const readWindow = (value: unknown): UsageWindow | null => {
     if (!value || typeof value !== "object") return null;
@@ -45,11 +46,12 @@ export function usageWindows(snapshot: UsageSnapshot): {
   const windows = snapshot.details?.windows as Record<string, unknown> | undefined;
   const fiveHour = readWindow(windows?.fiveHour);
   const week = readWindow(windows?.week);
+  const fable = readWindow(windows?.fable);
 
   return {
     fiveHour:
       fiveHour ??
-      (snapshot.remainingPercent !== null
+      (windows === undefined && snapshot.remainingPercent !== null
         ? {
             remainingPercent: snapshot.remainingPercent,
             usedPercent: snapshot.usedPercent,
@@ -57,6 +59,7 @@ export function usageWindows(snapshot: UsageSnapshot): {
           }
         : null),
     week,
+    fable,
   };
 }
 
@@ -112,12 +115,9 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
     ? snapshot.details.status
     : fallbackWebStatus(snapshot);
 
-  if (snapshot.service === "grok" && snapshot.details.providerId === "grok.cli" && status === "login_required") {
-    return "Sign in with the Grok CLI";
-  }
 
   if (snapshot.details.providerId === "ollama.local" && status === "login_required") {
-    return "Sign in with the Ollama CLI: ollama signin";
+    return "Ollama daemon requires sign-in outside PickGauge";
   }
 
   if (snapshot.details.providerId === "ollama.local" && status === "not_configured") {
@@ -125,6 +125,44 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
   }
 
   return statusMessage(status);
+}
+
+export function providerStatusKind(snapshot: UsageSnapshot): "ok" | "warn" | "bad" | "idle" {
+  const status = snapshot.details.webStatus ?? snapshot.details.status;
+
+  if (
+    snapshot.details.providerId === "ollama.local" &&
+    (status === "not_configured" || status === "login_required")
+  ) {
+    return "warn";
+  }
+
+  if (
+    status === "login_required" ||
+    status === "mfa_required" ||
+    status === "captcha_or_bot_check"
+  ) {
+    return "warn";
+  }
+
+  if (
+    status === "permission_denied" ||
+    status === "parse_failed" ||
+    status === "unavailable" ||
+    status === "network_unavailable" ||
+    status === "timed_out" ||
+    status === "unexpected_ui" ||
+    status === "unsafe_path" ||
+    status === "internal"
+  ) {
+    return "bad";
+  }
+
+  if (snapshot.remainingPercent !== null || status === "parsed") {
+    return "ok";
+  }
+
+  return "idle";
 }
 
 function fallbackWebStatus(snapshot: UsageSnapshot) {
@@ -147,6 +185,7 @@ export type UsageDisplayState = {
 export function floatDisplaySnapshots(snapshots: UsageSnapshot[]) {
   return snapshots.filter(
     (snapshot) =>
+      (snapshot.service === "codex" || snapshot.service === "claude") &&
       !(snapshot.remainingPercent === null && typeof snapshot.details.plan === "string"),
   );
 }
@@ -264,8 +303,8 @@ export const defaultConfig: AppConfig = {
   enabledServices: {
     codex: true,
     claude: true,
-    grok: true,
-    ollama: true,
+    grok: false,
+    ollama: false,
   },
   providers: {
     localEnabled: true,
@@ -315,7 +354,7 @@ export const defaultConfig: AppConfig = {
   },
 };
 
-export const fallbackSnapshots: UsageSnapshot[] = [
+export const fallbackSnapshots = [
   {
     service: "codex",
     remainingPercent: 72,
@@ -336,7 +375,7 @@ export const fallbackSnapshots: UsageSnapshot[] = [
     lastUpdated: "Waiting for local provider",
     details: { status: "placeholder" },
   },
-];
+] satisfies UsageSnapshot[];
 
 export type BrowserPreviewState =
   | "default"
@@ -384,12 +423,7 @@ export function browserPreviewStateFromSearch(search: string): BrowserPreviewSta
 export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapshot[] {
   switch (state) {
     case "official-usage":
-      return previewSnapshots({
-        confidence: "medium",
-        details: { providerId: "preview.web", status: "parsed" },
-        lastUpdated: "2026-06-04T12:00:00Z",
-        source: "web",
-      });
+      return officialPreviewSnapshots();
     case "missing-local-data":
       return previewSnapshots({
         confidence: "unknown",
@@ -487,4 +521,46 @@ function previewSnapshots(partial: Partial<UsageSnapshot>): UsageSnapshot[] {
       ...partial.details,
     },
   }));
+}
+
+function officialPreviewSnapshots(): UsageSnapshot[] {
+  const reset = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+  const readings: Record<
+    (typeof fallbackSnapshots)[number]["service"],
+    { remaining: number; windows: Record<string, UsageWindow> }
+  > = {
+    codex: {
+      remaining: 67,
+      windows: {
+        fiveHour: { remainingPercent: 67, usedPercent: 33, resetAt: reset(2) },
+        week: { remainingPercent: 76, usedPercent: 24, resetAt: reset(120) },
+      },
+    },
+    claude: {
+      remaining: 61,
+      windows: {
+        fiveHour: { remainingPercent: 61, usedPercent: 39, resetAt: reset(2) },
+        week: { remainingPercent: 92, usedPercent: 8, resetAt: reset(144) },
+        fable: { remainingPercent: 34, usedPercent: 66, resetAt: reset(96) },
+      },
+    },
+  };
+
+  return fallbackSnapshots.map((snapshot) => {
+    const reading = readings[snapshot.service];
+    return {
+      ...snapshot,
+      remainingPercent: reading.remaining,
+      usedPercent: 100 - reading.remaining,
+      resetAt: reading.windows.fiveHour?.resetAt ?? reading.windows.week?.resetAt ?? null,
+      source: "web",
+      confidence: "high",
+      lastUpdated: new Date().toISOString(),
+      details: {
+        providerId: "preview.web",
+        status: "parsed",
+        windows: reading.windows,
+      },
+    };
+  });
 }

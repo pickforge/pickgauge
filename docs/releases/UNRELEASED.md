@@ -6,12 +6,11 @@ reset this file.
 
 ## User-facing changes
 
-- Double-clicking empty titlebar space now maximizes or restores the window.
-- Added a headless `pickgauge usage --json` export for agents and scripts, plus a repository-canonical usage-routing skill.
-- Added zero-setup Grok plan detection through the local Grok CLI login. PickGauge shows the active
-  plan and billing-period end without reporting a usage percentage.
-- Added zero-setup Ollama plan detection from the signed-in local daemon. Usage limits remain unavailable.
-- Added opt-in Grok weekly usage gauges through an isolated browser profile. The existing Grok CLI plan is carried into the official usage reading.
+- Added Claude's separate Fable weekly allowance to official usage readings.
+- Reworked the dashboard into a compact Codex and Claude Code quota board with responsive meters and reduced-motion-aware transitions.
+- Corrected Codex window labels so disabled, missing, or invalid primary windows are not shown as five-hour quota.
+- Settings save and supported provider login work now run off the UI thread, keeping the app responsive while refreshes and browser launches continue.
+- Fixed provider action alignment, removed the Settings grid's blank wells, and resized the floating capsule for two provider rings.
 
 - The float capsule's glow now fades out smoothly instead of being clipped
   into a hard rectangle by the window edge; the transparent margin around
@@ -21,8 +20,9 @@ reset this file.
 
 - Switched AppImage libwayland post-processing to `pickforge-tauri-release fix-appimage`.
 - Release CI now caches Rust builds (`Swatinem/rust-cache`).
-- Grok reads its CLI bearer without refreshing, storing, or writing it.
-- Grok web reads use only the managed profile's `grok.com/rest/grok/credits` request and return sanitized weekly usage data; on-demand dollar credits are not read.
+- Managed browser profiles and web refreshes are restricted to Codex and Claude Code.
+- Grok and Ollama are deferred from the runtime and product surface; their browser automation, harvested-session HTTP requests, and managed profile actions remain removed.
+- Claude web reads preserve available weekly and Fable quotas when the session meter is unavailable, while keeping fallback percentage labels fail-closed.
 
 ## Validation
 
@@ -32,13 +32,16 @@ reset this file.
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
 - `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets`
 - `bun run check`
-- `bun run test:coverage` (70 tests, including the titlebar double-click regression)
+- `bun run test` (71 frontend tests and 18 Playwright sidecar tests)
+- `bun run test:browser-preview` (Codex and Claude Code across 1000px, 820px, 680px, and 390px widths, Settings column breakpoints, and the 168×56 two-ring capsule)
+- Browser-rendered visual checks at 1000×700 and 820×600, including the compact dashboard, Settings layout, and exact floating-capsule geometry.
 
 ### Not tested yet
 
 - App build.
 - Installer or updater flow.
 - Platform smoke checks.
+- `cargo fmt --check` (`rustfmt` is not installed in the current toolchain).
 
 ### Release blockers
 

@@ -129,8 +129,8 @@ impl Default for AppConfig {
             enabled_services: ServiceToggles {
                 codex: true,
                 claude: true,
-                grok: true,
-                ollama: true,
+                grok: false,
+                ollama: false,
             },
             providers: ProviderSettings {
                 local_enabled: true,
@@ -175,6 +175,10 @@ impl Default for LocalServiceQuotaSettings {
 impl AppConfig {
     pub fn normalized(mut self) -> Self {
         self.version = CONFIG_VERSION;
+        // Keep legacy fields deserializable, but deferred providers must never
+        // re-enter the runtime through an installed config.
+        self.enabled_services.grok = false;
+        self.enabled_services.ollama = false;
         self.intervals.local_seconds = self.intervals.local_seconds.clamp(30, 60);
         self.intervals.web_minutes = self.intervals.web_minutes.clamp(15, 60);
         self.intervals.manual_web_refresh_cooldown_seconds =
@@ -458,10 +462,7 @@ fn config_value_version(value: &Value) -> Result<u32, String> {
 }
 
 fn fill_missing_defaults(value: &mut Value) -> Result<(), String> {
-    let mut defaults = AppConfig::default();
-    defaults.enabled_services.grok = false;
-    defaults.enabled_services.ollama = false;
-    let defaults = serde_json::to_value(defaults)
+    let defaults = serde_json::to_value(AppConfig::default())
         .map_err(|error| format!("Could not serialize default config: {error}"))?;
 
     merge_missing_fields(value, &defaults);
@@ -659,8 +660,13 @@ mod tests {
     }
 
     #[test]
-    fn fresh_default_config_enables_ollama() {
-        assert!(AppConfig::default().enabled_services.ollama);
+    fn fresh_default_config_enables_only_runtime_services() {
+        let enabled = AppConfig::default().enabled_services;
+
+        assert!(enabled.codex);
+        assert!(enabled.claude);
+        assert!(!enabled.grok);
+        assert!(!enabled.ollama);
     }
 
     #[test]
@@ -729,12 +735,13 @@ mod tests {
             crash_reports: false,
             ..AppConfig::default()
         };
+        let expected = config.clone().normalized();
 
         let saved = save_to_path(&path, &config).expect("config saves");
         let loaded = load_from_path(&path).expect("config loads");
 
-        assert_eq!(saved, config);
-        assert_eq!(loaded, config);
+        assert_eq!(saved, expected);
+        assert_eq!(loaded, expected);
         assert!(fs::read_dir(&dir.path)
             .expect("read test dir")
             .all(|entry| !entry
@@ -1179,8 +1186,18 @@ mod tests {
     }
 
     #[test]
-    fn fresh_default_config_enables_grok() {
-        assert!(AppConfig::default().enabled_services.grok);
+    fn legacy_deferred_service_toggles_deserialize_but_normalize_inert() {
+        let mut raw = serde_json::to_value(AppConfig::default()).expect("default config serializes");
+        raw["enabledServices"]["grok"] = Value::Bool(true);
+        raw["enabledServices"]["ollama"] = Value::Bool(true);
+
+        let config = parse_config_raw(
+            &serde_json::to_string(&raw).expect("legacy config serializes"),
+        )
+        .expect("legacy config deserializes");
+
+        assert!(!config.enabled_services.grok);
+        assert!(!config.enabled_services.ollama);
     }
 
     #[test]

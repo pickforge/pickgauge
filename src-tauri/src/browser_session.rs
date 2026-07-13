@@ -20,7 +20,6 @@ pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
 pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
 pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
-pub const PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE: &str = "httpRefreshUsage";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
 pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
@@ -228,12 +227,13 @@ pub struct PlaywrightSidecarUsageResponse {
     pub reset_at: Option<String>,
     pub visible_fields: Vec<String>,
     pub weekly: Option<PlaywrightSidecarUsageWindow>,
+    pub fable: Option<PlaywrightSidecarUsageWindow>,
     pub products: Vec<PlaywrightSidecarUsageProduct>,
 }
 
-/// A secondary rate-limit window (e.g. Ollama's weekly meter) carried alongside
-/// the headline window. Percentages and the reset timestamp are validated by the
-/// web provider, so this only transports the raw values.
+/// A secondary rate-limit window carried alongside the headline window.
+/// Percentages and the reset timestamp are validated by the web provider, so
+/// this only transports the raw values.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaywrightSidecarUsageWindow {
@@ -281,6 +281,7 @@ struct RawPlaywrightSidecarUsageResponse {
     reset_at: Option<String>,
     visible_fields: Option<Vec<String>>,
     weekly: Option<PlaywrightSidecarUsageWindow>,
+    fable: Option<PlaywrightSidecarUsageWindow>,
     products: Option<Vec<PlaywrightSidecarUsageProduct>>,
 }
 
@@ -449,6 +450,9 @@ impl BrowserSessionManager {
         orphans.clear();
 
         for record in records {
+            if !record.service.is_runtime() {
+                continue;
+            }
             if process_matches_marker(record.process_id, &record.process_marker) {
                 orphans.insert(
                     record.service,
@@ -671,22 +675,6 @@ pub fn playwright_sidecar_refresh_request(
     )
 }
 
-/// Lightweight refresh that replays the harvested session cookie over plain HTTP
-/// inside the sidecar (no Chromium). Same headless protocol shape as the browser
-/// refresh; only the action differs.
-#[allow(dead_code)]
-pub fn playwright_sidecar_http_refresh_request(
-    request: &PlaywrightLaunchRequest,
-    url: impl Into<String>,
-) -> Result<PlaywrightSidecarLaunchRequest, String> {
-    playwright_sidecar_request(
-        request,
-        url,
-        PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE,
-        true,
-        "Managed browser refresh URL must use HTTPS",
-    )
-}
 
 fn playwright_sidecar_request(
     request: &PlaywrightLaunchRequest,
@@ -886,6 +874,7 @@ pub fn playwright_sidecar_usage_response(
         reset_at: response.reset_at,
         visible_fields,
         weekly: response.weekly,
+        fable: response.fable,
         products,
     })
 }
@@ -1601,6 +1590,43 @@ mod tests {
         assert!(!dir.registry_path().exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn startup_ignores_legacy_deferred_browser_sessions() {
+        let dir = TestDir::new();
+        let registry_path = dir.registry_path();
+        let marker = BrowserSessionMarker::new(Service::Grok);
+        let mut child = sleeping_child(&marker);
+        let process_id = child.id();
+        wait_for_test_process_marker(process_id, &marker.process_marker);
+        let registry = BrowserSessionRegistry {
+            schema_version: SESSION_REGISTRY_SCHEMA_VERSION,
+            processes: vec![BrowserSessionRecord {
+                service: Service::Grok,
+                process_id,
+                process_marker: marker.process_marker.clone(),
+                started_at: marker.started_at,
+            }],
+        };
+        fs::write(
+            &registry_path,
+            serde_json::to_string_pretty(&registry).expect("legacy registry serializes"),
+        )
+        .expect("legacy registry is written");
+
+        let manager = BrowserSessionManager::with_registry_path(&registry_path);
+        let recovery = manager
+            .detect_orphans_on_startup()
+            .expect("orphan detection succeeds");
+
+        assert_eq!(recovery.orphaned_processes, 0);
+        assert!(!registry_path.exists());
+        assert!(process_matches_marker(process_id, &marker.process_marker));
+
+        child.kill().expect("test process stops");
+        child.wait().expect("test process is reaped");
+    }
+
     #[test]
     fn chromium_launch_plan_uses_service_profile_path() {
         let profile_path = PathBuf::from("/tmp/pickgauge/browser-profiles/codex");
@@ -1820,23 +1846,6 @@ mod tests {
         assert!(value.get("diagnostics").is_none());
     }
 
-    #[test]
-    fn playwright_sidecar_http_refresh_request_serializes_to_http_action() {
-        let profile_path = "/tmp/pickgauge/browser-profiles/ollama";
-        let plan = chromium_launch_plan(Service::Ollama, profile_path);
-        let launch_request = playwright_launch_request(&plan);
-        let sidecar_request =
-            playwright_sidecar_http_refresh_request(&launch_request, "https://ollama.com/settings")
-                .expect("sidecar request is created");
-        let value = serde_json::to_value(&sidecar_request).expect("sidecar request serializes");
-
-        assert_eq!(sidecar_request.action, "httpRefreshUsage");
-        assert_eq!(sidecar_request.service, Service::Ollama);
-        assert_eq!(sidecar_request.user_data_dir, profile_path);
-        assert!(sidecar_request.headless);
-        assert_eq!(value["action"], "httpRefreshUsage");
-        assert_eq!(value["headless"], true);
-    }
 
     #[test]
     fn playwright_sidecar_refresh_request_debug_redacts_sensitive_input() {
@@ -1979,6 +1988,42 @@ mod tests {
         assert_eq!(weekly.used_percent, Some(57.0));
         assert_eq!(weekly.remaining_percent, Some(43.0));
         assert_eq!(weekly.reset_at.as_deref(), Some("2026-06-22T00:00:00Z"));
+    }
+
+    #[test]
+    fn playwright_sidecar_usage_response_carries_fable_window() {
+        let plan = chromium_launch_plan(Service::Claude, "/tmp/pickgauge/claude");
+        let launch_request = playwright_launch_request(&plan);
+        let sidecar_request = playwright_sidecar_refresh_request(
+            &launch_request,
+            "https://claude.ai/usage",
+        )
+        .expect("sidecar request is created");
+        let raw = serde_json::json!({
+            "ok": true,
+            "status": "checked",
+            "protocolVersion": 1,
+            "action": "refreshUsage",
+            "backend": "playwright-headed-chromium-sidecar",
+            "service": "claude",
+            "profileLabel": "claude-profile",
+            "headless": true,
+            "argCount": sidecar_request.args.len(),
+            "pageState": "usage",
+            "fable": {
+                "remainingPercent": 88.0,
+                "usedPercent": 12.0,
+                "resetAt": null
+            }
+        })
+        .to_string();
+        let response = playwright_sidecar_usage_response(&raw, &sidecar_request)
+            .expect("checked response is accepted");
+
+        let fable = response.fable.expect("Fable window is carried");
+        assert_eq!(fable.remaining_percent, Some(88.0));
+        assert_eq!(fable.used_percent, Some(12.0));
+        assert_eq!(fable.reset_at, None);
     }
 
     #[test]

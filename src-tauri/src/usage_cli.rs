@@ -48,6 +48,7 @@ struct UsageJsonService {
 struct UsageJsonWindows {
     five_hour: Option<UsageJsonWindow>,
     week: Option<UsageJsonWindow>,
+    fable: Option<UsageJsonWindow>,
 }
 
 #[derive(Serialize)]
@@ -172,6 +173,7 @@ fn usage_json_service(snapshot: &UsageSnapshot, generated_at: &str) -> UsageJson
         windows: UsageJsonWindows {
             five_hour: detail_window(snapshot, "fiveHour"),
             week: detail_window(snapshot, "week"),
+            fable: detail_window(snapshot, "fable"),
         },
         source: snapshot.source.code().to_string(),
         confidence: snapshot.confidence,
@@ -373,31 +375,63 @@ mod tests {
     #[test]
     fn serializes_usage_json_v1_golden_response() {
         let display_state = UsageDisplayState {
-            snapshots: vec![UsageSnapshot {
-                service: Service::Codex,
-                remaining_percent: Some(64.0),
-                used_percent: Some(36.0),
-                reset_at: Some("2026-07-09T14:00:00Z".to_string()),
-                source: UsageSource::Web,
-                confidence: UsageConfidence::High,
-                last_updated: "2026-07-09T12:00:00Z".to_string(),
-                details: serde_json::json!({
-                    "status": "parsed",
-                    "plan": "Pro",
-                    "windows": {
-                        "fiveHour": {
-                            "remainingPercent": 64.0,
-                            "usedPercent": 36.0,
-                            "resetAt": "2026-07-09T14:00:00Z"
-                        },
-                        "week": {
-                            "remainingPercent": 88.0,
-                            "usedPercent": 12.0,
-                            "resetAt": null
+            snapshots: vec![
+                UsageSnapshot {
+                    service: Service::Codex,
+                    remaining_percent: Some(79.0),
+                    used_percent: Some(21.0),
+                    reset_at: Some("2026-07-09T14:30:00Z".to_string()),
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::High,
+                    last_updated: "2026-07-09T12:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "plan": "Plus",
+                        "windows": {
+                            "fiveHour": {
+                                "remainingPercent": 79.0,
+                                "usedPercent": 21.0,
+                                "resetAt": "2026-07-09T14:30:00Z"
+                            },
+                            "week": {
+                                "remainingPercent": 91.0,
+                                "usedPercent": 9.0,
+                                "resetAt": null
+                            }
                         }
-                    }
-                }),
-            }],
+                    }),
+                },
+                UsageSnapshot {
+                    service: Service::Claude,
+                    remaining_percent: Some(64.0),
+                    used_percent: Some(36.0),
+                    reset_at: Some("2026-07-09T14:00:00Z".to_string()),
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::High,
+                    last_updated: "2026-07-09T12:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "plan": "Pro",
+                        "windows": {
+                            "fiveHour": {
+                                "remainingPercent": 64.0,
+                                "usedPercent": 36.0,
+                                "resetAt": "2026-07-09T14:00:00Z"
+                            },
+                            "week": {
+                                "remainingPercent": 88.0,
+                                "usedPercent": 12.0,
+                                "resetAt": null
+                            },
+                            "fable": {
+                                "remainingPercent": 52.0,
+                                "usedPercent": 48.0,
+                                "resetAt": "2026-07-11T12:00:00Z"
+                            }
+                        }
+                    }),
+                },
+            ],
             updated_at: "2026-07-09T12:00:00Z".to_string(),
         };
 

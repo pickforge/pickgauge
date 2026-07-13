@@ -5,12 +5,11 @@
   import SignIn from "phosphor-svelte/lib/SignIn";
   import { api, desktopApiAvailable, type DailyTokenUsage } from "../api";
   import Bars from "../components/Bars.svelte";
-  import Gauge from "../components/Gauge.svelte";
+  import QuotaMeter from "../components/QuotaMeter.svelte";
   import {
     confidenceLabels,
     detailString,
     formatTimestamp,
-    lastOfficialCheck,
     localActivitySummary,
     loginPromptVisible,
     serviceLabels,
@@ -20,6 +19,7 @@
   } from "../display";
   import {
     providerStatusMessage,
+    providerStatusKind,
     usageWindows,
     type AppConfig,
     type Service,
@@ -48,6 +48,14 @@
   let openingService = $state<Service | null>(null);
 
   const webControls = $derived(webProviderControlState(config));
+
+  type QuotaRow = {
+    key: "five-hour" | "week" | "fable";
+    label: string;
+    remainingPercent: number | null;
+    low: boolean;
+    resetLabel: string | null;
+  };
 
   function formatError(caught: unknown, fallback: string) {
     if (typeof caught === "object" && caught !== null && "message" in caught) {
@@ -131,31 +139,25 @@
     const diffMs = target - Date.now();
     if (diffMs <= 0) return "soon";
     const minutes = Math.round(diffMs / 60000);
-    if (minutes < 60) return `in ${minutes}m`;
+    if (minutes < 60) return `${minutes}m`;
     const hours = Math.round(minutes / 60);
-    if (hours < 24) return `in ${hours}h`;
+    if (hours < 24) return `${hours}h`;
     const days = Math.round(hours / 24);
-    return `in ${days}d`;
+    return `${days}d`;
   }
 
-  function windowsFor(snapshot: UsageSnapshot) {
-    const { fiveHour, week } = usageWindows(snapshot);
+  function windowsFor(snapshot: UsageSnapshot): QuotaRow[] {
+    const { fiveHour, week, fable } = usageWindows(snapshot);
     const low = (remaining: number | null) =>
       remaining !== null && remaining <= config.lowUsageThreshold;
-    const rows: {
-      key: string;
-      label: string;
-      remainingPercent: number | null;
-      low: boolean;
-      resetLabel: string | null;
-    }[] = [];
-    if (snapshot.service !== "grok") {
+    const rows: QuotaRow[] = [];
+    if (fiveHour) {
       rows.push({
         key: "five-hour",
-        label: snapshot.service === "ollama" ? "Session" : "5-hour session",
-        remainingPercent: fiveHour?.remainingPercent ?? null,
-        low: low(fiveHour?.remainingPercent ?? null),
-        resetLabel: formatReset(fiveHour?.resetAt ?? null),
+        label: "5-hour",
+        remainingPercent: fiveHour.remainingPercent,
+        low: low(fiveHour.remainingPercent),
+        resetLabel: formatReset(fiveHour.resetAt),
       });
     }
     if (week) {
@@ -167,18 +169,59 @@
         resetLabel: formatReset(week.resetAt),
       });
     }
+    if (snapshot.service === "claude") {
+      rows.push({
+        key: "fable",
+        label: "Fable",
+        remainingPercent: fable?.remainingPercent ?? null,
+        low: low(fable?.remainingPercent ?? null),
+        resetLabel: formatReset(fable?.resetAt ?? null),
+      });
+    }
     return rows;
   }
+
+  const focalWindowKey = $derived.by(() => {
+    let focal: { key: string; remaining: number } | null = null;
+
+    for (const snapshot of snapshots) {
+      for (const row of windowsFor(snapshot)) {
+        if (row.remainingPercent === null) continue;
+
+        if (focal === null) {
+          focal = {
+            key: `${snapshot.service}:${row.key}`,
+            remaining: row.remainingPercent,
+          };
+          continue;
+        }
+
+        if (row.remainingPercent < focal.remaining) {
+          focal = {
+            key: `${snapshot.service}:${row.key}`,
+            remaining: row.remainingPercent,
+          };
+        }
+      }
+    }
+
+    return focal?.key ?? null;
+  });
 
   function planOnly(snapshot: UsageSnapshot) {
     if (snapshot.remainingPercent !== null) {
       return null;
     }
-    const plan = detailString(snapshot, "plan");
-    if (plan) {
-      return plan;
-    }
-    return snapshot.service === "grok" ? "Plan unavailable" : null;
+    return detailString(snapshot, "plan");
+  }
+
+  function serviceStateMessage(snapshot: UsageSnapshot) {
+    return [
+      providerStatusMessage(snapshot) ?? localActivitySummary(snapshot),
+      snapshotIsStale(snapshot) ? "Stale data" : null,
+    ]
+      .filter((message): message is string => message !== null)
+      .join(" · ");
   }
 
   function billingPeriodEnd(snapshot: UsageSnapshot) {
@@ -186,31 +229,6 @@
     return typeof value === "string" && value.length > 0 ? formatTimestamp(value) : null;
   }
 
-  function planOnlyNote(snapshot: UsageSnapshot) {
-    if (snapshot.service === "grok" && !config.providers.webEnabled) {
-      return "Connect web session to see remaining quota";
-    }
-    return snapshot.details.via === "daemon"
-      ? "Usage limits unavailable from the local daemon"
-      : "Usage —";
-  }
-
-  function grokBuildUsage(snapshot: UsageSnapshot) {
-    const products = snapshot.details.products;
-    if (!Array.isArray(products)) {
-      return null;
-    }
-
-    const build = products.find(
-      (product) =>
-        product &&
-        typeof product === "object" &&
-        (product as Record<string, unknown>).product === "PRODUCT_GROK_BUILD",
-    ) as Record<string, unknown> | undefined;
-    const usage = build?.usagePercent;
-
-    return typeof usage === "number" && Number.isFinite(usage) ? usage : null;
-  }
 
   async function loadDaily() {
     if (!desktopApiAvailable()) {
@@ -325,7 +343,7 @@
       <p class="eyebrow ember pf-eyebrow-row"><span class="pf-eyebrow-tick"></span>§ 01 · Live gauges</p>
       <h2>Remaining usage</h2>
     </div>
-    <button class="btn btn-primary" type="button" disabled={refreshing} onclick={refreshNow}>
+    <button class="btn btn-sm" type="button" disabled={refreshing} onclick={refreshNow}>
       <span class="btn-icon" class:spinning={refreshing}>
         <ArrowsClockwise size={15} />
       </span>
@@ -343,92 +361,80 @@
       {#each snapshots as snapshot (snapshot.service)}
         <article class="card service-card usage-card">
           <header class="service-head">
-            <h3>{serviceLabels[snapshot.service]}</h3>
-            <span
-              class="pill"
-              class:ember={snapshot.confidence === "high" || snapshot.confidence === "medium"}
-            >
-              {confidenceLabels[snapshot.confidence]}
-            </span>
+            <div class="service-identity">
+              <span class={`status-dot ${providerStatusKind(snapshot)}`} aria-hidden="true"></span>
+              <h3>{serviceLabels[snapshot.service]}</h3>
+            </div>
+              <div class="header-actions">
+                <button
+                  class="icon-btn"
+                  type="button"
+                  title={`Refresh official ${serviceLabels[snapshot.service]} usage`}
+                  aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
+                  disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
+                  onclick={() => refreshOfficialUsage(snapshot.service)}
+                >
+                  <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
+                    <ArrowsClockwise size={13} />
+                  </span>
+                </button>
+                <button
+                  class="icon-btn"
+                  type="button"
+                  title={`Open ${serviceLabels[snapshot.service]} official usage page`}
+                  aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
+                  disabled={openingService === snapshot.service}
+                  onclick={() => openOfficialPage(snapshot.service)}
+                >
+                  <ArrowSquareOut size={13} />
+                </button>
+              </div>
           </header>
 
           {#if planOnly(snapshot)}
-            <div class="gauge-windows">
-              <div class="gauge-window plan-only">
-                <span class="window-label">Plan</span>
-                <strong>{planOnly(snapshot)}</strong>
-                <span class="window-reset">{planOnlyNote(snapshot)}</span>
-                {#if billingPeriodEnd(snapshot)}
-                  <span class="window-reset">Billing period ends {billingPeriodEnd(snapshot)}</span>
-                {/if}
-              </div>
+            <div class="plan-row">
+              <span class="window-label">Plan</span>
+              <strong>{planOnly(snapshot)}</strong>
+              <span class="plan-note">Usage —</span>
             </div>
+            {#if billingPeriodEnd(snapshot)}
+              <p class="note muted">Billing period ends {billingPeriodEnd(snapshot)}</p>
+            {/if}
           {:else}
-            <div class="gauge-windows">
+            <div class="quota-list">
               {#each windowsFor(snapshot) as win (win.key)}
-                <div class="gauge-window">
-                  <span class="window-label">{win.label}</span>
-                  <Gauge value={win.remainingPercent} low={win.low} />
-                  {#if win.resetLabel}
-                    <span class="window-reset">resets {win.resetLabel}</span>
-                  {/if}
-                </div>
+                <QuotaMeter
+                  label={win.label}
+                  value={win.remainingPercent}
+                  resetLabel={win.resetLabel}
+                  low={win.low}
+                  focal={focalWindowKey === `${snapshot.service}:${win.key}`}
+                  dimmed={providerStatusMessage(snapshot) !== null && win.remainingPercent === null}
+                />
               {/each}
             </div>
           {/if}
 
-          <div class="gauge-row">
-            <dl class="meta">
-              <div>
-                <dt>Source</dt>
-                <dd>{snapshotSourceLabel(snapshot)}</dd>
-              </div>
-              <div>
-                <dt>Updated</dt>
-                <dd>{formatTimestamp(snapshot.lastUpdated)}</dd>
-              </div>
-              {#if lastOfficialCheck(snapshot)}
-                <div>
-                  <dt>Official</dt>
-                  <dd>{lastOfficialCheck(snapshot)}</dd>
-                </div>
-              {/if}
-              {#if grokBuildUsage(snapshot) !== null}
-                <div>
-                  <dt>Grok Build</dt>
-                  <dd>{Math.round(grokBuildUsage(snapshot) ?? 0)}% used</dd>
-                </div>
-              {/if}
-            </dl>
+          <div class="service-meta" title={`Updated ${formatTimestamp(snapshot.lastUpdated)}`}>
+            <span>{snapshotSourceLabel(snapshot)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{confidenceLabels[snapshot.confidence]}</span>
+            <span aria-hidden="true">·</span>
+            <span class="truncate">{formatTimestamp(snapshot.lastUpdated)}</span>
           </div>
 
-          {#if snapshotIsStale(snapshot)}
-            <p class="note warn-note">Stale data</p>
-          {/if}
-          {#if providerStatusMessage(snapshot)}
-            <p class="note">{providerStatusMessage(snapshot)}</p>
-          {/if}
-          {#if localActivitySummary(snapshot)}
-            <p class="note muted">{localActivitySummary(snapshot)}</p>
-          {/if}
-
-          {#if snapshot.service !== "grok" || config.providers.webEnabled}
-            <footer class="service-actions">
-              <button
-                class="btn btn-sm"
-                type="button"
-                aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
-                disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
-                onclick={() => refreshOfficialUsage(snapshot.service)}
-              >
-                <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
-                  <ArrowsClockwise size={13} />
-                </span>
-                {refreshingOfficial === snapshot.service ? "Refreshing…" : "Refresh official"}
-              </button>
+          {#if snapshotIsStale(snapshot) || providerStatusMessage(snapshot) || localActivitySummary(snapshot)}
+            <div
+              class="service-state"
+              class:warn={snapshotIsStale(snapshot) || providerStatusKind(snapshot) === "warn"}
+              class:bad={providerStatusKind(snapshot) === "bad"}
+            >
+              <span>
+                {serviceStateMessage(snapshot)}
+              </span>
               {#if loginPromptVisible(snapshot)}
                 <button
-                  class="btn btn-sm"
+                  class="state-action"
                   type="button"
                   aria-label={`Start ${serviceLabels[snapshot.service]} login`}
                   disabled={webControls.startLoginDisabled || startingLogin === snapshot.service}
@@ -438,17 +444,7 @@
                   {startingLogin === snapshot.service ? "Starting…" : "Start login"}
                 </button>
               {/if}
-              <button
-                class="btn btn-sm btn-ghost"
-                type="button"
-                aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
-                disabled={openingService === snapshot.service}
-                onclick={() => openOfficialPage(snapshot.service)}
-              >
-                <ArrowSquareOut size={13} />
-                Official page
-              </button>
-            </footer>
+            </div>
           {/if}
         </article>
       {/each}
@@ -537,15 +533,40 @@
 
   .gauge-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr));
+    gap: 12px;
   }
 
   .service-card {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 18px;
+    gap: 9px;
+    min-height: 176px;
+    padding: 14px 16px;
+    animation: card-in 420ms var(--ease-forge) both;
+  }
+
+  .service-card:nth-child(2) {
+    animation-delay: 40ms;
+  }
+
+  .service-card:nth-child(3) {
+    animation-delay: 80ms;
+  }
+
+  .service-card:nth-child(4) {
+    animation-delay: 120ms;
+  }
+
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .service-head {
@@ -555,32 +576,112 @@
     gap: 12px;
   }
 
-  .service-head h3 {
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+  .service-identity,
+  .header-actions,
+  .service-meta,
+  .service-state {
+    display: flex;
+    align-items: center;
   }
 
-  .gauge-windows {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .service-identity {
+    min-width: 0;
     gap: 8px;
   }
 
-  .gauge-window {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 8px 4px 4px;
-    border-radius: var(--radius-card);
-    background: var(--wash);
-    border: 1px solid var(--hairline);
+  .service-head h3 {
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
   }
 
-  .plan-only strong {
-    font-size: 20px;
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text) 28%, transparent);
+  }
+
+  .status-dot.ok {
+    background: var(--ok);
+  }
+
+  .status-dot.warn {
+    background: var(--warn);
+  }
+
+  .status-dot.bad {
+    background: var(--bad);
+  }
+
+  .header-actions {
+    gap: 3px;
+  }
+
+  .icon-btn {
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 180ms var(--ease-forge), background 180ms var(--ease-forge), border-color 180ms var(--ease-forge);
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    border-color: var(--hairline);
+    background: var(--wash);
+    color: var(--text);
+  }
+
+  .icon-btn:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ember) 60%, transparent);
+    outline-offset: 1px;
+  }
+
+  .icon-btn:disabled,
+  .state-action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .quota-list,
+  .plan-row {
+    min-height: 81px;
+  }
+
+  .quota-list {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .plan-row {
+    display: grid;
+    grid-template-columns: 56px auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 0 2px;
+  }
+
+  .plan-row strong {
+    font-size: 17px;
     line-height: 1.2;
+  }
+
+  .plan-note {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .window-label {
@@ -591,60 +692,86 @@
     color: var(--muted);
   }
 
-  .window-reset {
-    font-size: 11px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .gauge-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 20px;
-  }
-
-  .meta {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin: 0;
+  .service-meta {
+    gap: 5px;
     min-width: 0;
-  }
-
-  .meta div {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  .meta dt {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
     color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
   }
 
-  .meta dd {
-    margin: 0;
-    font-size: 12.5px;
+  .truncate {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .note {
-    font-size: 12px;
-    color: var(--text);
+  .service-state {
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 22px;
+    padding: 4px 7px;
+    border-left: 2px solid var(--hairline-strong);
+    background: var(--wash);
+    color: var(--muted);
+    font-size: 11px;
+    animation: state-in 200ms var(--ease-forge) both;
   }
 
-  .warn-note {
+  .service-state.warn {
+    border-left-color: var(--warn);
     color: var(--warn);
   }
 
-  .service-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: auto;
+  .service-state.bad {
+    border-left-color: var(--bad);
+    color: var(--bad);
+  }
+
+  @keyframes state-in {
+    from {
+      opacity: 0;
+      transform: translateY(-3px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .state-action {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ember);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 16px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .state-action :global(svg) {
+    display: block;
+    flex: none;
+  }
+
+  .state-action:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ember) 60%, transparent);
+    outline-offset: 2px;
+  }
+
+  .note {
+    font-size: 11px;
+    color: var(--text);
   }
 
   .empty-card {
@@ -660,8 +787,8 @@
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
-    gap: 14px;
-    margin-bottom: 14px;
+    gap: 12px;
+    margin-bottom: 12px;
   }
 
   .stat {
@@ -689,7 +816,7 @@
   .chart-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
-    gap: 14px;
+    gap: 12px;
   }
 
   .chart-card {

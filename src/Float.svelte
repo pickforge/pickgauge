@@ -3,8 +3,13 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { api, desktopApiAvailable, EVENT_SETTINGS, EVENT_SNAPSHOTS } from "./lib/api";
-  import type { AppConfig, Service, UsageDisplayState, UsageSnapshot } from "./lib/usage";
-  import { defaultConfig, floatDisplaySnapshots } from "./lib/usage";
+  import type { AppConfig, UsageDisplayState, UsageSnapshot } from "./lib/usage";
+  import {
+    browserPreviewSnapshots,
+    browserPreviewStateFromSearch,
+    defaultConfig,
+    floatDisplaySnapshots,
+  } from "./lib/usage";
   import { serviceLabels } from "./lib/display";
 
   // Non-Linux has no input-shape equivalent for the glow margin, so the
@@ -24,12 +29,6 @@
   const RING_RADIUS = 13;
   const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
 
-  const ringColors: Record<Service, string> = {
-    codex: "var(--text)",
-    claude: "var(--ember)",
-    grok: "var(--muted)",
-    ollama: "var(--pf-info)",
-  };
 
   function ringColor(snapshot: UsageSnapshot) {
     if (
@@ -39,7 +38,7 @@
       return "var(--ember-deep)";
     }
 
-    return ringColors[snapshot.service];
+    return snapshot.service === "claude" ? "var(--ember)" : "var(--text)";
   }
 
   function ringOffset(snapshot: UsageSnapshot) {
@@ -110,6 +109,7 @@
 
   onMount(() => {
     if (!desktopApiAvailable()) {
+      snapshots = browserPreviewSnapshots(browserPreviewStateFromSearch(window.location.search));
       return;
     }
 
@@ -279,6 +279,7 @@
 
   .rings {
     display: flex;
+    flex: none;
     gap: 8px;
   }
 
@@ -286,6 +287,7 @@
     position: relative;
     width: 34px;
     height: 34px;
+    flex: none;
   }
 
   .ring svg {

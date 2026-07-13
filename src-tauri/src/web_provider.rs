@@ -18,19 +18,6 @@ const CLAUDE_VISIBLE_FIELDS: &[&str] = &[
     "quota_window",
     "plan_label",
 ];
-const OLLAMA_VISIBLE_FIELDS: &[&str] = &[
-    "remaining_percent",
-    "used_percent",
-    "reset_at",
-    "quota_window",
-    "plan_label",
-];
-const GROK_VISIBLE_FIELDS: &[&str] = &[
-    "remaining_percent",
-    "used_percent",
-    "reset_at",
-    "quota_window",
-];
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +30,8 @@ pub struct VisibleUsageInput {
     pub visible_fields: Vec<String>,
     #[serde(default)]
     pub second_window: Option<VisibleWindowInput>,
+    #[serde(default)]
+    pub fable_window: Option<VisibleWindowInput>,
     #[serde(default)]
     pub products: Vec<VisibleProductInput>,
 }
@@ -77,14 +66,17 @@ pub enum VisiblePageState {
     UnexpectedUi,
 }
 
-pub fn parse_visible_usage(input: VisibleUsageInput, observed_at: &str) -> UsageSnapshot {
+pub fn parse_visible_usage(
+    input: VisibleUsageInput,
+    observed_at: &str,
+) -> Result<UsageSnapshot, UsageProviderError> {
     let provider_id = UsageProviderId::for_service_source(input.service, UsageSource::Web)
-        .expect("web provider id exists for service");
+        .ok_or(UsageProviderError::Disabled)?;
 
     let visible_fields = match sanitized_visible_fields(input.service, &input.visible_fields) {
         Ok(fields) => fields,
         Err(rejected_field_count) => {
-            return unknown_web_snapshot(
+            return Ok(unknown_web_snapshot(
                 input.service,
                 provider_id,
                 UsageProviderError::ParseFailed,
@@ -93,11 +85,11 @@ pub fn parse_visible_usage(input: VisibleUsageInput, observed_at: &str) -> Usage
                     "reason": "unsupported_visible_field",
                     "rejectedFieldCount": rejected_field_count,
                 }),
-            );
+            ));
         }
     };
 
-    match input.page_state {
+    let snapshot = match input.page_state {
         VisiblePageState::Usage => {
             parse_usage_state(input, provider_id, observed_at, visible_fields)
         }
@@ -143,7 +135,9 @@ pub fn parse_visible_usage(input: VisibleUsageInput, observed_at: &str) -> Usage
             observed_at,
             serde_json::json!({ "reason": "unexpected_ui" }),
         ),
-    }
+    };
+
+    Ok(snapshot)
 }
 
 fn parse_usage_state(
@@ -168,9 +162,21 @@ fn parse_usage_state(
         );
     }
 
-    let Some((remaining_percent, used_percent)) =
-        visible_percentages(input.remaining_percent, input.used_percent)
-    else {
+    let primary = visible_percentages(input.remaining_percent, input.used_percent);
+    let weekly_headline = if input.service == Service::Claude {
+        input.second_window.as_ref().and_then(window_values)
+    } else {
+        None
+    };
+    let headline = primary
+        .map(|(remaining, used)| (remaining, used, input.reset_at.as_deref()))
+        .or(weekly_headline);
+    let has_fable_window = input
+        .fable_window
+        .as_ref()
+        .and_then(window_values)
+        .is_some();
+    if headline.is_none() && !(input.service == Service::Claude && has_fable_window) {
         return unknown_web_snapshot(
             input.service,
             provider_id,
@@ -181,7 +187,7 @@ fn parse_usage_state(
                 "visibleFields": visible_fields,
             }),
         );
-    };
+    }
 
     if let Some(reset_at) = &input.reset_at {
         if time::OffsetDateTime::parse(reset_at, &Rfc3339).is_err() {
@@ -198,18 +204,15 @@ fn parse_usage_state(
         }
     }
 
-    let windows = if input.service == Service::Grok {
-        Some(serde_json::json!({
-            "week": window_json(remaining_percent, used_percent, input.reset_at.as_deref()),
-        }))
-    } else {
-        build_windows(
-            remaining_percent,
-            used_percent,
-            input.reset_at.as_deref(),
-            input.second_window.as_ref(),
-        )
-    };
+    let windows = build_windows(
+        primary.map(|(remaining, used)| (remaining, used, input.reset_at.as_deref())),
+        input.second_window.as_ref(),
+        if input.service == Service::Claude {
+            input.fable_window.as_ref()
+        } else {
+            None
+        },
+    );
 
     let mut details = serde_json::json!({
         "status": "parsed",
@@ -221,29 +224,12 @@ fn parse_usage_state(
     if let (Some(windows), Some(object)) = (windows, details.as_object_mut()) {
         object.insert("windows".into(), windows);
     }
-    if input.service == Service::Grok {
-        let products = match sanitized_grok_products(&input.products) {
-            Some(products) => products,
-            None => {
-                return unknown_web_snapshot(
-                    input.service,
-                    provider_id,
-                    UsageProviderError::ParseFailed,
-                    observed_at,
-                    serde_json::json!({ "reason": "invalid_products" }),
-                );
-            }
-        };
-        if let Some(object) = details.as_object_mut() {
-            object.insert("products".into(), serde_json::Value::Array(products));
-        }
-    }
 
     UsageSnapshot {
         service: input.service,
-        remaining_percent: Some(remaining_percent),
-        used_percent: Some(used_percent),
-        reset_at: input.reset_at,
+        remaining_percent: headline.map(|(remaining, _, _)| remaining),
+        used_percent: headline.map(|(_, used, _)| used),
+        reset_at: headline.and_then(|(_, _, reset_at)| reset_at.map(str::to_owned)),
         source: UsageSource::Web,
         confidence: UsageConfidence::High,
         last_updated: observed_at.to_string(),
@@ -251,27 +237,43 @@ fn parse_usage_state(
     }
 }
 
-/// Build the dual-window detail block when a valid secondary window is present.
-/// The headline (primary) window is mirrored as `fiveHour` so the card renders
-/// it as the first bar, and the secondary becomes `week`. Returns `None` when
-/// there is no secondary window, leaving single-window providers byte-identical.
+/// Build the detail block from the valid windows supplied by the provider.
 fn build_windows(
-    primary_remaining: f32,
-    primary_used: f32,
-    primary_reset_at: Option<&str>,
+    primary: Option<(f32, f32, Option<&str>)>,
     second: Option<&VisibleWindowInput>,
+    fable: Option<&VisibleWindowInput>,
 ) -> Option<serde_json::Value> {
-    let second = second?;
-    let week = window_detail(
-        second.remaining_percent,
-        second.used_percent,
-        second.reset_at.as_deref(),
-    )?;
+    let week = second.and_then(|window| {
+        window_detail(
+            window.remaining_percent,
+            window.used_percent,
+            window.reset_at.as_deref(),
+        )
+    });
+    let fable = fable.and_then(|window| {
+        window_detail(
+            window.remaining_percent,
+            window.used_percent,
+            window.reset_at.as_deref(),
+        )
+    });
 
-    Some(serde_json::json!({
-        "fiveHour": window_json(primary_remaining, primary_used, primary_reset_at),
-        "week": week,
-    }))
+    if week.is_none() && fable.is_none() {
+        return None;
+    }
+
+    let mut windows = serde_json::json!({});
+    let object = windows.as_object_mut().expect("window details are an object");
+    if let Some((remaining, used, reset_at)) = primary {
+        object.insert("fiveHour".into(), window_json(remaining, used, reset_at));
+    }
+    if let Some(week) = week {
+        object.insert("week".into(), week);
+    }
+    if let Some(fable) = fable {
+        object.insert("fable".into(), fable);
+    }
+    Some(windows)
 }
 
 fn window_json(remaining: f32, used: f32, reset_at: Option<&str>) -> serde_json::Value {
@@ -291,6 +293,23 @@ fn window_detail(
     used_percent: Option<f32>,
     reset_at: Option<&str>,
 ) -> Option<serde_json::Value> {
+    window_values_from_parts(remaining_percent, used_percent, reset_at)
+        .map(|(remaining, used, reset)| window_json(remaining, used, reset))
+}
+
+fn window_values(window: &VisibleWindowInput) -> Option<(f32, f32, Option<&str>)> {
+    window_values_from_parts(
+        window.remaining_percent,
+        window.used_percent,
+        window.reset_at.as_deref(),
+    )
+}
+
+fn window_values_from_parts(
+    remaining_percent: Option<f32>,
+    used_percent: Option<f32>,
+    reset_at: Option<&str>,
+) -> Option<(f32, f32, Option<&str>)> {
     if has_invalid_percent(remaining_percent)
         || has_invalid_percent(used_percent)
         || has_inconsistent_percentages(remaining_percent, used_percent)
@@ -306,7 +325,7 @@ fn window_detail(
         }
     }
 
-    Some(window_json(remaining, used, reset_at))
+    Some((remaining, used, reset_at))
 }
 
 fn visible_percentages(
@@ -352,8 +371,9 @@ fn sanitized_visible_fields(
     let allowed = match service {
         Service::Codex => CODEX_VISIBLE_FIELDS,
         Service::Claude => CLAUDE_VISIBLE_FIELDS,
-        Service::Grok => GROK_VISIBLE_FIELDS,
-        Service::Ollama => OLLAMA_VISIBLE_FIELDS,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services cannot parse visible usage")
+        }
     };
     let rejected_field_count = visible_fields
         .iter()
@@ -367,36 +387,6 @@ fn sanitized_visible_fields(
     Ok(visible_fields.to_vec())
 }
 
-fn sanitized_grok_products(products: &[VisibleProductInput]) -> Option<Vec<serde_json::Value>> {
-    if products.len() > 6
-        || products.iter().any(|product| {
-            !matches!(
-                product.product.as_str(),
-                "PRODUCT_GROK_CHAT"
-                    | "PRODUCT_GROK_BUILD"
-                    | "PRODUCT_API"
-                    | "PRODUCT_GROK_IMAGINE"
-                    | "PRODUCT_GROK_VOICE"
-                    | "PRODUCT_GROK_PLUGINS"
-            ) || !product.usage_percent.is_finite()
-                || !(0.0..=100.0).contains(&product.usage_percent)
-        })
-    {
-        return None;
-    }
-
-    Some(
-        products
-            .iter()
-            .map(|product| {
-                serde_json::json!({
-                    "product": product.product,
-                    "usagePercent": product.usage_percent,
-                })
-            })
-            .collect(),
-    )
-}
 
 fn unknown_web_snapshot(
     service: Service,
@@ -467,7 +457,8 @@ mod tests {
 
     #[test]
     fn codex_visible_usage_fixture_parses_successfully() {
-        let snapshot = parse_visible_usage(fixture("codex-success"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("codex-success"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.service, Service::Codex);
         assert_eq!(snapshot.source, UsageSource::Web);
@@ -481,7 +472,8 @@ mod tests {
 
     #[test]
     fn claude_visible_usage_fixture_parses_successfully() {
-        let snapshot = parse_visible_usage(fixture("claude-success"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("claude-success"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.service, Service::Claude);
         assert_eq!(snapshot.source, UsageSource::Web);
@@ -493,26 +485,23 @@ mod tests {
     }
 
     #[test]
-    fn grok_visible_usage_fixture_is_weekly_only_with_sanitized_products() {
-        let snapshot = parse_visible_usage(fixture("grok-success"), OBSERVED_AT);
+    fn deferred_visible_usage_is_rejected_without_a_snapshot() {
+        let grok = fixture("grok-success");
+        let mut ollama = fixture("codex-success");
+        ollama.service = Service::Ollama;
 
-        assert_eq!(snapshot.service, Service::Grok);
-        assert_eq!(snapshot.source, UsageSource::Web);
-        assert_eq!(snapshot.confidence, UsageConfidence::High);
-        assert_eq!(snapshot.remaining_percent, Some(71.5));
-        assert_eq!(snapshot.used_percent, Some(28.5));
-        assert_eq!(snapshot.reset_at.as_deref(), Some("2026-07-16T00:00:00Z"));
-        assert_eq!(snapshot.details["providerId"], "grok.web");
-        assert!(snapshot.details["windows"].get("fiveHour").is_none());
-        assert_eq!(snapshot.details["windows"]["week"]["remainingPercent"], 71.5);
-        assert_eq!(snapshot.details["products"][0]["product"], "PRODUCT_GROK_BUILD");
-        assert_eq!(snapshot.details["products"][0]["usagePercent"], 42.0);
+        for input in [grok, ollama] {
+            assert_eq!(
+                parse_visible_usage(input, OBSERVED_AT),
+                Err(UsageProviderError::Disabled)
+            );
+        }
     }
 
     #[test]
     fn secondary_window_is_carried_as_dual_windows_with_session_headline() {
         let input = VisibleUsageInput {
-            service: Service::Ollama,
+            service: Service::Codex,
             page_state: VisiblePageState::Usage,
             remaining_percent: Some(83.0),
             used_percent: Some(17.0),
@@ -528,10 +517,12 @@ mod tests {
                 used_percent: Some(57.0),
                 reset_at: Some("2026-06-22T00:00:00Z".to_string()),
             }),
+            fable_window: None,
             products: Vec::new(),
         };
 
-        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+        let snapshot = parse_visible_usage(input, OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::High);
         // The headline stays on the session window so the float and tray are unchanged.
@@ -549,7 +540,7 @@ mod tests {
     #[test]
     fn invalid_secondary_window_degrades_to_single_window() {
         let input = VisibleUsageInput {
-            service: Service::Ollama,
+            service: Service::Codex,
             page_state: VisiblePageState::Usage,
             remaining_percent: Some(83.0),
             used_percent: Some(17.0),
@@ -560,10 +551,12 @@ mod tests {
                 used_percent: Some(80.0),
                 reset_at: None,
             }),
+            fable_window: None,
             products: Vec::new(),
         };
 
-        let snapshot = parse_visible_usage(input, OBSERVED_AT);
+        let snapshot = parse_visible_usage(input, OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         // The malformed weekly window is dropped rather than failing the snapshot.
         assert_eq!(snapshot.confidence, UsageConfidence::High);
@@ -572,8 +565,133 @@ mod tests {
     }
 
     #[test]
+    fn claude_fable_window_is_carried_without_replacing_the_weekly_window() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: Some(82.0),
+            used_percent: Some(18.0),
+            reset_at: None,
+            visible_fields: vec!["remaining_percent".to_string(), "used_percent".to_string()],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
+            }),
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT)
+            .expect("active provider snapshot parses");
+        let windows = &snapshot.details["windows"];
+
+        assert_eq!(windows["fiveHour"]["remainingPercent"], 82.0);
+        assert_eq!(windows["week"]["usedPercent"], 43.0);
+        assert_eq!(windows["fable"]["remainingPercent"], 88.0);
+    }
+
+    #[test]
+    fn invalid_claude_fable_window_is_dropped_without_losing_other_windows() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: Some(82.0),
+            used_percent: Some(18.0),
+            reset_at: None,
+            visible_fields: vec!["remaining_percent".to_string(), "used_percent".to_string()],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
+            }),
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(80.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT)
+            .expect("active provider snapshot parses");
+        let windows = &snapshot.details["windows"];
+
+        assert_eq!(windows["week"]["remainingPercent"], 57.0);
+        assert!(windows.get("fable").is_none());
+    }
+
+    #[test]
+    fn claude_secondary_windows_survive_when_session_is_unavailable() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            visible_fields: vec!["quota_window".to_string()],
+            second_window: Some(VisibleWindowInput {
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
+            }),
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT)
+            .expect("active provider snapshot parses");
+        let windows = &snapshot.details["windows"];
+
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.remaining_percent, Some(57.0));
+        assert_eq!(windows["week"]["remainingPercent"], 57.0);
+        assert_eq!(windows["fable"]["remainingPercent"], 88.0);
+        assert!(windows.get("fiveHour").is_none());
+    }
+
+    #[test]
+    fn claude_fable_only_window_does_not_become_the_headline() {
+        let input = VisibleUsageInput {
+            service: Service::Claude,
+            page_state: VisiblePageState::Usage,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            visible_fields: vec!["quota_window".to_string()],
+            second_window: None,
+            fable_window: Some(VisibleWindowInput {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            products: Vec::new(),
+        };
+
+        let snapshot = parse_visible_usage(input, OBSERVED_AT)
+            .expect("active provider snapshot parses");
+
+        assert_eq!(snapshot.confidence, UsageConfidence::High);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.used_percent, None);
+        assert_eq!(
+            snapshot.details["windows"]["fable"]["remainingPercent"],
+            88.0
+        );
+    }
+
+    #[test]
     fn partial_visible_data_returns_unknown_without_inventing_percentages() {
-        let snapshot = parse_visible_usage(fixture("partial-visible"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("partial-visible"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.remaining_percent, None);
@@ -584,7 +702,8 @@ mod tests {
 
     #[test]
     fn logged_out_page_returns_login_required_snapshot() {
-        let snapshot = parse_visible_usage(fixture("logged-out"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("logged-out"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "login_required");
@@ -593,7 +712,8 @@ mod tests {
 
     #[test]
     fn mfa_required_page_returns_mfa_required_snapshot() {
-        let snapshot = parse_visible_usage(fixture("mfa-required"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("mfa-required"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "mfa_required");
@@ -601,7 +721,8 @@ mod tests {
 
     #[test]
     fn captcha_page_returns_captcha_snapshot() {
-        let snapshot = parse_visible_usage(fixture("captcha"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("captcha"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "captcha_or_bot_check");
@@ -609,7 +730,8 @@ mod tests {
 
     #[test]
     fn network_unavailable_returns_network_unavailable_snapshot() {
-        let snapshot = parse_visible_usage(fixture("network-unavailable"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("network-unavailable"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "network_unavailable");
@@ -618,7 +740,8 @@ mod tests {
 
     #[test]
     fn timed_out_returns_timed_out_snapshot() {
-        let snapshot = parse_visible_usage(fixture("timed-out"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("timed-out"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "timed_out");
@@ -627,7 +750,8 @@ mod tests {
 
     #[test]
     fn unexpected_ui_returns_unexpected_ui_snapshot() {
-        let snapshot = parse_visible_usage(fixture("unexpected-ui"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("unexpected-ui"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "unexpected_ui");
@@ -635,7 +759,8 @@ mod tests {
 
     #[test]
     fn inconsistent_visible_percentages_return_parse_failed_snapshot() {
-        let snapshot = parse_visible_usage(fixture("parse-failure"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("parse-failure"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.remaining_percent, None);
@@ -645,7 +770,8 @@ mod tests {
 
     #[test]
     fn unsupported_visible_field_names_are_rejected_without_echoing_them() {
-        let snapshot = parse_visible_usage(fixture("unsanitized-field"), OBSERVED_AT);
+        let snapshot = parse_visible_usage(fixture("unsanitized-field"), OBSERVED_AT)
+            .expect("active provider snapshot parses");
 
         assert_eq!(snapshot.confidence, UsageConfidence::Unknown);
         assert_eq!(snapshot.details["status"], "parse_failed");

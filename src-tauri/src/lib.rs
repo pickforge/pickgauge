@@ -7,7 +7,6 @@ mod snapshot_store;
 mod usage_cli;
 pub mod history;
 pub mod local_provider;
-mod ollama_provider;
 pub mod sounds;
 pub mod usage;
 pub mod web_provider;
@@ -44,15 +43,10 @@ const LOGIN_REQUIRED_EVENT: &str = "login://required";
 const SESSION_RESET_EVENT: &str = "session://reset";
 const LOGIN_STATUS_REQUIRED: &str = "login_required";
 const LOGIN_STATUS_LAUNCHED: &str = "launched";
-const LOGIN_STATUS_ALREADY_AUTHENTICATED: &str = "already_authenticated";
-const LOGIN_STATUS_PREFLIGHT_UNAVAILABLE: &str = "preflight_unavailable";
 const LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE: &str = "managed_login_not_available";
 const LOGIN_REASON_SIDECAR_UNAVAILABLE: &str = "sidecar_unavailable";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
-const GROK_USAGE_URL: &str = "https://grok.com/";
-const GROK_CREDITS_URL: &str = "https://grok.com/rest/grok/credits";
-const OLLAMA_USAGE_URL: &str = "https://ollama.com/settings";
 const SENTRY_DSN: &str =
     "https://3a176d7b2fdccedfb2812e6a0b231f56@o4511699702317056.ingest.us.sentry.io/4511699813924864";
 const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
@@ -243,18 +237,6 @@ struct ProviderLoginStartPlan {
     sidecar_request: Option<browser_session::PlaywrightSidecarLaunchRequest>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LoginPreflightDecision {
-    AlreadyAuthenticated,
-    LaunchBrowser,
-    Unavailable,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LoginStartPreflightOutcome {
-    status: &'static str,
-    launch_headed_browser: bool,
-}
 
 type CommandResult<T> = Result<T, CommandError>;
 
@@ -404,8 +386,9 @@ fn official_usage_url(service: Service) -> &'static str {
     match service {
         Service::Codex => CODEX_USAGE_URL,
         Service::Claude => CLAUDE_USAGE_URL,
-        Service::Grok => GROK_USAGE_URL,
-        Service::Ollama => OLLAMA_USAGE_URL,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services have no official runtime URL")
+        }
     }
 }
 
@@ -413,9 +396,14 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
     match service {
         Service::Codex => browser_profile::BrowserProfileService::Codex,
         Service::Claude => browser_profile::BrowserProfileService::Claude,
-        Service::Grok => browser_profile::BrowserProfileService::Grok,
-        Service::Ollama => browser_profile::BrowserProfileService::Ollama,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services have no managed browser profile")
+        }
     }
+}
+
+fn managed_browser_service(service: Service) -> bool {
+    service.is_runtime()
 }
 
 fn prepare_log_dir(path: &Path) -> CommandResult<()> {
@@ -475,12 +463,28 @@ fn get_app_config(
 }
 
 #[tauri::command]
-fn update_app_config(
+async fn update_app_config(
     app: AppHandle,
-    engine: State<'_, UsageEngine>,
-    config_load: State<'_, ConfigLoadState>,
     config: config::AppConfig,
 ) -> CommandResult<config::AppConfig> {
+    let update_app = app.clone();
+    let config = tauri::async_runtime::spawn_blocking(move || {
+        update_app_config_blocking(&update_app, config)
+    })
+    .await
+    .map_err(|_| command_error("config_update_task_failed", "Settings update stopped unexpectedly"))??;
+
+    ensure_float_window(&app, config.ui.float_button);
+    schedule_config_refresh(app);
+    Ok(config)
+}
+
+fn update_app_config_blocking(
+    app: &AppHandle,
+    config: config::AppConfig,
+) -> CommandResult<config::AppConfig> {
+    let engine = app.state::<UsageEngine>();
+    let config_load = app.state::<ConfigLoadState>();
     let previous_config = engine.config().map_err(map_usage_state_error)?;
     let config = config.normalized();
 
@@ -495,14 +499,14 @@ fn update_app_config(
 
     let autostart_changed = previous_config.autostart.enabled != config.autostart.enabled;
     if autostart_changed {
-        sync_autostart(&app, config.autostart.enabled)?;
+        sync_autostart(app, config.autostart.enabled)?;
     }
 
     let config = match config::save(&config) {
         Ok(config) => config,
         Err(error) => {
             if autostart_changed {
-                let _ = sync_autostart(&app, previous_config.autostart.enabled);
+                let _ = sync_autostart(app, previous_config.autostart.enabled);
             }
             return Err(map_config_save_error(error));
         }
@@ -514,9 +518,23 @@ fn update_app_config(
         .map_err(map_usage_state_error)?;
     app.emit(SETTINGS_UPDATED_EVENT, &config)
         .map_err(map_event_emit_error)?;
-    ensure_float_window(&app, config.ui.float_button);
-    refresh_all_and_publish(&app, &engine).map_err(map_usage_refresh_error)?;
     Ok(config)
+}
+
+fn schedule_config_refresh(app: AppHandle) {
+    spawn_detached_blocking(move || {
+        let engine = app.state::<UsageEngine>();
+        if refresh_all_and_publish(&app, &engine).is_err() {
+            log_startup_warning(StartupWarning::InitialUsageRefresh);
+        }
+    });
+}
+
+fn spawn_detached_blocking<F>(task: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::mem::drop(tauri::async_runtime::spawn_blocking(task));
 }
 
 fn prepare_managed_browser_profiles(
@@ -533,8 +551,6 @@ fn prepare_managed_browser_profiles(
     let paths = browser_profile::prepare_browser_profiles(&config.browser_profiles, app_data_dir)?;
     browser_session::prepare_chromium_profile_preferences(&paths.codex)?;
     browser_session::prepare_chromium_profile_preferences(&paths.claude)?;
-    browser_session::prepare_chromium_profile_preferences(&paths.grok)?;
-    browser_session::prepare_chromium_profile_preferences(&paths.ollama)?;
 
     Ok(Some(paths))
 }
@@ -690,6 +706,12 @@ fn get_log_location(app: AppHandle) -> CommandResult<LogLocation> {
 
 #[tauri::command]
 fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<OfficialUsagePage> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_action_unsupported",
+            "Provider is deferred",
+        ));
+    }
     let url = official_usage_url(service);
 
     app.opener()
@@ -704,12 +726,28 @@ fn open_official_usage_page(app: AppHandle, service: Service) -> CommandResult<O
 }
 
 #[tauri::command]
-fn start_provider_login(
+async fn start_provider_login(
     app: AppHandle,
-    engine: State<'_, UsageEngine>,
-    sessions: State<'_, browser_session::BrowserSessionManager>,
     service: Service,
 ) -> CommandResult<ProviderLoginStart> {
+    tauri::async_runtime::spawn_blocking(move || start_provider_login_blocking(&app, service))
+        .await
+        .map_err(|_| command_error("login_task_failed", "Provider login task stopped unexpectedly"))?
+}
+
+fn start_provider_login_blocking(
+    app: &AppHandle,
+    service: Service,
+) -> CommandResult<ProviderLoginStart> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "managed_login_not_available",
+            "Managed login is not available for this provider",
+        ));
+    }
+
+    let engine = app.state::<UsageEngine>();
+    let sessions = app.state::<browser_session::BrowserSessionManager>();
     let config = engine.config().map_err(map_usage_state_error)?;
     let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
     let now = usage::now_rfc3339();
@@ -717,28 +755,12 @@ fn start_provider_login(
         .map_err(map_browser_profile_error)?;
     let mut login = plan.login;
     let login_required_reason = if let Some(request) = plan.sidecar_request {
-        let preflight_outcome = match headless_web_usage_response(&app, &engine, &sessions, service)
-        {
-            Ok(response) => {
-                let preflight_outcome = login_start_preflight_outcome_from_response(&response);
-                let _ = refresh_web_provider_preflight_response(&app, &engine, service, response);
-                preflight_outcome
+        match launch_playwright_sidecar_login(app, &sessions, &request) {
+            Ok(_) => {
+                login.status = LOGIN_STATUS_LAUNCHED.to_string();
+                None
             }
-            Err(_) => login_start_preflight_outcome(None),
-        };
-
-        login.status = preflight_outcome.status.to_string();
-
-        if preflight_outcome.launch_headed_browser {
-            match launch_playwright_sidecar_login(&app, &sessions, &request) {
-                Ok(_) => {
-                    login.status = LOGIN_STATUS_LAUNCHED.to_string();
-                    None
-                }
-                Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
-            }
-        } else {
-            None
+            Err(_) => Some(LOGIN_REASON_SIDECAR_UNAVAILABLE),
         }
     } else {
         Some(LOGIN_REASON_MANAGED_LOGIN_NOT_AVAILABLE)
@@ -775,13 +797,18 @@ fn provider_login_start_plan(
     service: Service,
     started_at: String,
 ) -> Result<ProviderLoginStartPlan, String> {
+    if !managed_browser_service(service) {
+        return Err("Managed login is not available for this provider".to_string());
+    }
+
     let paths = prepare_managed_browser_profiles(config, app_data_dir)?;
     let launch_request = paths.as_ref().map(|paths| {
         let profile_path = match service {
             Service::Codex => &paths.codex,
             Service::Claude => &paths.claude,
-            Service::Grok => &paths.grok,
-            Service::Ollama => &paths.ollama,
+            Service::Grok | Service::Ollama => {
+                unreachable!("unsupported managed browser service")
+            }
         };
         let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
         browser_session::playwright_launch_request(&launch_plan)
@@ -813,45 +840,6 @@ fn provider_login_start_plan(
     })
 }
 
-fn should_launch_login_after_preflight(page_state: &str) -> bool {
-    matches!(
-        page_state,
-        "logged_out" | "mfa_required" | "captcha_or_bot_check"
-    )
-}
-
-fn login_preflight_decision(page_state: Option<&str>) -> LoginPreflightDecision {
-    match page_state {
-        Some("usage") => LoginPreflightDecision::AlreadyAuthenticated,
-        Some(page_state) if should_launch_login_after_preflight(page_state) => {
-            LoginPreflightDecision::LaunchBrowser
-        }
-        _ => LoginPreflightDecision::Unavailable,
-    }
-}
-
-fn login_start_preflight_outcome(page_state: Option<&str>) -> LoginStartPreflightOutcome {
-    match login_preflight_decision(page_state) {
-        LoginPreflightDecision::AlreadyAuthenticated => LoginStartPreflightOutcome {
-            status: LOGIN_STATUS_ALREADY_AUTHENTICATED,
-            launch_headed_browser: false,
-        },
-        LoginPreflightDecision::LaunchBrowser => LoginStartPreflightOutcome {
-            status: LOGIN_STATUS_REQUIRED,
-            launch_headed_browser: true,
-        },
-        LoginPreflightDecision::Unavailable => LoginStartPreflightOutcome {
-            status: LOGIN_STATUS_PREFLIGHT_UNAVAILABLE,
-            launch_headed_browser: false,
-        },
-    }
-}
-
-fn login_start_preflight_outcome_from_response(
-    response: &browser_session::PlaywrightSidecarUsageResponse,
-) -> LoginStartPreflightOutcome {
-    login_start_preflight_outcome(Some(response.page_state.as_str()))
-}
 
 fn launch_playwright_sidecar_login(
     app: &AppHandle,
@@ -992,6 +980,9 @@ fn inspect_provider_profile_for_service(
     service: Service,
     inspected_at: String,
 ) -> Result<ProviderProfileInspection, String> {
+    if !managed_browser_service(service) {
+        return Err("Managed profile inspection is not available for this provider".to_string());
+    }
     let Some(paths) = prepare_managed_browser_profiles(config, app_data_dir)? else {
         return Ok(provider_profile_inspection_report(
             service,
@@ -1004,8 +995,9 @@ fn inspect_provider_profile_for_service(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
-        Service::Grok => &paths.grok,
-        Service::Ollama => &paths.ollama,
+        Service::Grok | Service::Ollama => {
+            unreachable!("deferred services have no managed browser profile")
+        }
     };
     let inspection = browser_session::inspect_chromium_profile_storage(profile_path)?;
 
@@ -1067,6 +1059,12 @@ fn clear_provider_profile_for_service(
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<ClearedProviderProfile> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_action_unsupported",
+            "Provider is deferred",
+        ));
+    }
     sessions
         .stop_service(service, browser_session::PROFILE_STOP_TIMEOUT)
         .map_err(map_browser_session_error)?;
@@ -1206,6 +1204,13 @@ fn refresh_web_provider_headless(
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<UsageDisplayState> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_refresh_unsupported",
+            "Managed web refresh is not available for this provider",
+        ));
+    }
+
     engine
         .refresh_provider_source_with_snapshot(service, UsageSource::Web, |observed_at| {
             let response = headless_web_usage_response(app, engine, sessions, service)
@@ -1222,6 +1227,13 @@ fn refresh_due_web_provider_headless(
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
 ) -> CommandResult<UsageDisplayState> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_refresh_unsupported",
+            "Managed web refresh is not available for this provider",
+        ));
+    }
+
     engine
         .refresh_due_provider_source_with_snapshot(service, UsageSource::Web, |observed_at| {
             let response = headless_web_usage_response(app, engine, sessions, service)
@@ -1232,28 +1244,6 @@ fn refresh_due_web_provider_headless(
         .map_err(map_provider_refresh_error)
 }
 
-fn refresh_web_provider_preflight_response(
-    app: &AppHandle,
-    engine: &UsageEngine,
-    service: Service,
-    response: browser_session::PlaywrightSidecarUsageResponse,
-) -> CommandResult<UsageDisplayState> {
-    let mut response = Some(response);
-    let display_state = engine
-        .refresh_preflight_provider_source_with_snapshot(service, UsageSource::Web, |observed_at| {
-            let response = response.take().ok_or(UsageProviderError::Internal)?;
-
-            usage_snapshot_from_sidecar_usage_response(response, observed_at)
-        })
-        .map_err(map_provider_refresh_error)?;
-
-    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-        .map_err(map_event_emit_error)?;
-    after_snapshots_updated(app, &display_state);
-    emit_provider_error_events(app, &display_state);
-
-    Ok(display_state)
-}
 
 fn headless_web_usage_response(
     app: &AppHandle,
@@ -1269,39 +1259,23 @@ fn headless_web_usage_response(
         .app_data_dir()
         .map_err(|_| "Could not resolve app data directory".to_string())?;
 
-    // Grok and Ollama can replay a harvested profile session through the
-    // lightweight HTTP sidecar. Any non-`usage` outcome falls back to the
-    // browser refresh, which re-harvests the cookie.
-    if matches!(service, Service::Grok | Service::Ollama) {
-        if let Ok(http_request) =
-            web_usage_refresh_sidecar_request(&config, &app_data_dir, service, true)
-        {
-            if let Ok(response) = run_playwright_sidecar_usage_refresh(app, sessions, &http_request)
-            {
-                if response.page_state == "usage" {
-                    return Ok(response);
-                }
-            }
-        }
+    if !managed_browser_service(service) {
+        return Err("Managed web refresh is not available for this provider".to_string());
     }
 
-    let sidecar_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service, false)?;
-    let response = run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)?;
-
-    if service == Service::Grok && response.page_state == "usage" {
-        let http_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service, true)?;
-        return run_playwright_sidecar_usage_refresh(app, sessions, &http_request);
-    }
-
-    Ok(response)
+    let sidecar_request = web_usage_refresh_sidecar_request(&config, &app_data_dir, service)?;
+    run_playwright_sidecar_usage_refresh(app, sessions, &sidecar_request)
 }
 
 fn web_usage_refresh_sidecar_request(
     config: &config::AppConfig,
     app_data_dir: &Path,
     service: Service,
-    http: bool,
 ) -> Result<browser_session::PlaywrightSidecarLaunchRequest, String> {
+    if !managed_browser_service(service) {
+        return Err("Managed web refresh is not available for this provider".to_string());
+    }
+
     let paths = prepare_managed_browser_profiles(config, app_data_dir)?;
     let Some(paths) = paths else {
         return Err("Managed browser profile is not prepared".to_string());
@@ -1309,22 +1283,14 @@ fn web_usage_refresh_sidecar_request(
     let profile_path = match service {
         Service::Codex => &paths.codex,
         Service::Claude => &paths.claude,
-        Service::Grok => &paths.grok,
-        Service::Ollama => &paths.ollama,
+        Service::Grok | Service::Ollama => unreachable!("unsupported managed browser service"),
     };
     let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
     let launch_request = browser_session::playwright_launch_request(&launch_plan);
-    let url = if http && service == Service::Grok {
-        GROK_CREDITS_URL
-    } else {
-        official_usage_url(service)
-    };
-
-    if http {
-        browser_session::playwright_sidecar_http_refresh_request(&launch_request, url)
-    } else {
-        browser_session::playwright_sidecar_refresh_request(&launch_request, url)
-    }
+    browser_session::playwright_sidecar_refresh_request(
+        &launch_request,
+        official_usage_url(service),
+    )
 }
 
 fn run_playwright_sidecar_usage_refresh(
@@ -1373,9 +1339,12 @@ fn usage_snapshot_from_sidecar_usage_response(
     response: browser_session::PlaywrightSidecarUsageResponse,
     observed_at: &str,
 ) -> Result<UsageSnapshot, UsageProviderError> {
+    if !response.service.is_runtime() {
+        return Err(UsageProviderError::Disabled);
+    }
     let page_state = visible_page_state_from_sidecar(response.page_state.as_str())?;
 
-    Ok(web_provider::parse_visible_usage(
+    web_provider::parse_visible_usage(
         VisibleUsageInput {
             service: response.service,
             page_state,
@@ -1384,6 +1353,11 @@ fn usage_snapshot_from_sidecar_usage_response(
             reset_at: response.reset_at,
             visible_fields: response.visible_fields,
             second_window: response.weekly.map(|window| VisibleWindowInput {
+                remaining_percent: window.remaining_percent,
+                used_percent: window.used_percent,
+                reset_at: window.reset_at,
+            }),
+            fable_window: response.fable.map(|window| VisibleWindowInput {
                 remaining_percent: window.remaining_percent,
                 used_percent: window.used_percent,
                 reset_at: window.reset_at,
@@ -1398,7 +1372,7 @@ fn usage_snapshot_from_sidecar_usage_response(
                 .collect(),
         },
         observed_at,
-    ))
+    )
 }
 
 fn visible_page_state_from_sidecar(value: &str) -> Result<VisiblePageState, UsageProviderError> {
@@ -1468,36 +1442,21 @@ fn refresh_all_with_headless_web(
     let mut display_state = engine.refresh_all().map_err(map_usage_refresh_error)?;
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    // Codex and Claude CLI readings remain authoritative. Grok's CLI provides
-    // plan metadata only, so its browser-backed percentage refresh always runs
-    // when web readings are enabled.
-    if config.providers.web_enabled {
-        for service in [Service::Codex, Service::Claude, Service::Grok] {
-            let service_enabled = match service {
-                Service::Codex => config.enabled_services.codex,
-                Service::Claude => config.enabled_services.claude,
-                Service::Grok => config.enabled_services.grok,
-                Service::Ollama => false,
-            };
-
-            if !service_enabled
-                || (config.providers.cli_enabled
-                    && matches!(service, Service::Codex | Service::Claude))
-            {
-                continue;
+    // CLI readings stay authoritative for Codex and Claude. Managed browser
+    // refresh is limited to those same services and only runs when CLI
+    // readings are disabled.
+    if config.providers.web_enabled && !config.providers.cli_enabled {
+        for (service, enabled) in [
+            (Service::Codex, config.enabled_services.codex),
+            (Service::Claude, config.enabled_services.claude),
+        ] {
+            if enabled {
+                if let Ok(updated) =
+                    refresh_web_provider_headless(app, engine, sessions, service)
+                {
+                    display_state = updated;
+                }
             }
-
-            if let Ok(updated) = refresh_web_provider_headless(app, engine, sessions, service) {
-                display_state = updated;
-            }
-        }
-    }
-
-    // Ollama Cloud is web-only, so it refreshes whenever it is enabled and web
-    // readings are on, independent of the Codex/Claude CLI toggle.
-    if config.providers.web_enabled && config.enabled_services.ollama {
-        if let Ok(updated) = refresh_web_provider_headless(app, engine, sessions, Service::Ollama) {
-            display_state = updated;
         }
     }
 
@@ -1515,26 +1474,15 @@ fn refresh_due_with_headless_web(
 ) -> CommandResult<UsageDisplayState> {
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    if config.providers.web_enabled {
-        for service in [Service::Codex, Service::Claude, Service::Grok] {
-            let service_enabled = match service {
-                Service::Codex => config.enabled_services.codex,
-                Service::Claude => config.enabled_services.claude,
-                Service::Grok => config.enabled_services.grok,
-                Service::Ollama => false,
-            };
-
-            if service_enabled
-                && !(config.providers.cli_enabled
-                    && matches!(service, Service::Codex | Service::Claude))
-            {
+    if config.providers.web_enabled && !config.providers.cli_enabled {
+        for (service, enabled) in [
+            (Service::Codex, config.enabled_services.codex),
+            (Service::Claude, config.enabled_services.claude),
+        ] {
+            if enabled {
                 refresh_due_web_provider_headless(app, engine, sessions, service)?;
             }
         }
-    }
-
-    if config.providers.web_enabled && config.enabled_services.ollama {
-        let _ = refresh_due_web_provider_headless(app, engine, sessions, Service::Ollama);
     }
 
     let display_state = engine.refresh_due().map_err(map_usage_refresh_error)?;
@@ -1563,6 +1511,12 @@ fn refresh_provider_blocking(
     service: Service,
     source: UsageSource,
 ) -> CommandResult<UsageDisplayState> {
+    if !managed_browser_service(service) {
+        return Err(command_error(
+            "provider_refresh_unsupported",
+            "Provider is deferred",
+        ));
+    }
     let engine = app.state::<UsageEngine>();
     let sessions = app.state::<browser_session::BrowserSessionManager>();
 
@@ -1832,7 +1786,9 @@ fn ensure_float_window(app: &AppHandle, visible: bool) {
 // ring click-through. Other platforms have no input-shape equivalent, so
 // they keep a snug window (and Float.svelte drops the outer glow there).
 // Float.svelte's capsule margin must match FLOAT_GLOW_MARGIN per platform.
-const FLOAT_CAPSULE_WIDTH: i32 = 204;
+// Border-box width: 2px border + 10px left padding + 26px mark + 10px gap
+// + 89px two-ring slot + 10px gap + 7px status dot + 14px right padding.
+const FLOAT_CAPSULE_WIDTH: i32 = 168;
 const FLOAT_CAPSULE_HEIGHT: i32 = 56;
 #[cfg(target_os = "linux")]
 const FLOAT_GLOW_MARGIN: i32 = 24;
@@ -2565,12 +2521,8 @@ mod tests {
                 .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
                 .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
         );
-        let grok_preferences = read_preferences(
-            paths
-                .grok
-                .join(browser_session::CHROMIUM_DEFAULT_PROFILE_DIR)
-                .join(browser_session::CHROMIUM_PREFERENCES_FILE_NAME),
-        );
+        assert!(!paths.root.join("grok").exists());
+        assert!(!paths.root.join("ollama").exists());
 
         assert_preference_false(&codex_preferences, &["credentials_enable_service"]);
         assert_preference_false(&codex_preferences, &["credentials_enable_autosignin"]);
@@ -2580,8 +2532,6 @@ mod tests {
         assert_preference_false(&codex_preferences, &["autofill", "credit_card_enabled"]);
         assert_preference_false(&claude_preferences, &["credentials_enable_service"]);
         assert_preference_false(&claude_preferences, &["autofill", "enabled"]);
-        assert_preference_false(&grok_preferences, &["credentials_enable_service"]);
-        assert_preference_false(&grok_preferences, &["autofill", "enabled"]);
     }
 
     #[test]
@@ -2612,6 +2562,27 @@ mod tests {
         assert!(value.get("path").is_none());
         assert!(value.get("profilePath").is_none());
         assert!(!format!("{value:?}").contains(dir.path.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn deferred_profile_inspection_does_not_prepare_legacy_paths() {
+        let dir = TestDir::new();
+        let mut config = config::AppConfig::default();
+        config.providers.web_enabled = true;
+        config.browser_profiles.grok_path = Some("relative-grok-profile".to_string());
+        config.browser_profiles.ollama_path = Some("relative-ollama-profile".to_string());
+
+        for service in [Service::Grok, Service::Ollama] {
+            assert!(inspect_provider_profile_for_service(
+                &config,
+                &dir.path,
+                service,
+                "2026-07-12T12:00:00Z".to_string(),
+            )
+            .is_err());
+        }
+
+        assert!(!dir.path.join("browser-profiles").exists());
     }
 
     #[test]
@@ -2771,62 +2742,49 @@ mod tests {
     }
 
     #[test]
-    fn ollama_sidecar_usage_response_carries_both_windows() {
+    fn deferred_sidecar_responses_are_rejected_without_snapshots() {
+        for service in [Service::Grok, Service::Ollama] {
+            let response = sidecar_usage_response(service, "usage");
+            assert_eq!(
+                usage_snapshot_from_sidecar_usage_response(
+                    response,
+                    "2026-07-12T12:00:00Z",
+                ),
+                Err(UsageProviderError::Disabled)
+            );
+        }
+    }
+
+    #[test]
+    fn claude_sidecar_usage_response_carries_fable_window() {
         let response = browser_session::PlaywrightSidecarUsageResponse {
-            remaining_percent: Some(83.0),
-            used_percent: Some(17.0),
-            reset_at: Some("2026-06-20T19:00:00Z".to_string()),
+            remaining_percent: Some(82.0),
+            used_percent: Some(18.0),
             visible_fields: vec![
                 "remaining_percent".to_string(),
                 "used_percent".to_string(),
-                "reset_at".to_string(),
                 "quota_window".to_string(),
             ],
             weekly: Some(browser_session::PlaywrightSidecarUsageWindow {
-                remaining_percent: Some(43.0),
-                used_percent: Some(57.0),
-                reset_at: Some("2026-06-22T00:00:00Z".to_string()),
+                remaining_percent: Some(57.0),
+                used_percent: Some(43.0),
+                reset_at: None,
             }),
-            ..sidecar_usage_response(Service::Ollama, "usage")
+            fable: Some(browser_session::PlaywrightSidecarUsageWindow {
+                remaining_percent: Some(88.0),
+                used_percent: Some(12.0),
+                reset_at: None,
+            }),
+            ..sidecar_usage_response(Service::Claude, "usage")
         };
 
         let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
             .expect("snapshot is built");
-
-        assert_eq!(snapshot.service, Service::Ollama);
-        assert_eq!(snapshot.remaining_percent, Some(83.0));
         let windows = &snapshot.details["windows"];
-        assert_eq!(windows["fiveHour"]["remainingPercent"], 83.0);
-        assert_eq!(windows["week"]["remainingPercent"], 43.0);
-        assert_eq!(windows["week"]["resetAt"], "2026-06-22T00:00:00Z");
-    }
 
-    #[test]
-    fn grok_sidecar_usage_response_maps_weekly_usage_and_products() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
-            remaining_percent: Some(71.5),
-            used_percent: Some(28.5),
-            reset_at: Some("2026-07-16T00:00:00Z".to_string()),
-            visible_fields: vec![
-                "used_percent".to_string(),
-                "remaining_percent".to_string(),
-                "quota_window".to_string(),
-                "reset_at".to_string(),
-            ],
-            products: vec![browser_session::PlaywrightSidecarUsageProduct {
-                product: "PRODUCT_GROK_BUILD".to_string(),
-                usage_percent: 42.0,
-            }],
-            ..sidecar_usage_response(Service::Grok, "usage")
-        };
-
-        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-07-09T12:00:00Z")
-            .expect("snapshot is built");
-
-        assert_eq!(snapshot.details["providerId"], "grok.web");
-        assert!(snapshot.details["windows"].get("fiveHour").is_none());
-        assert_eq!(snapshot.details["windows"]["week"]["usedPercent"], 28.5);
-        assert_eq!(snapshot.details["products"][0]["product"], "PRODUCT_GROK_BUILD");
+        assert_eq!(windows["fiveHour"]["usedPercent"], 18.0);
+        assert_eq!(windows["week"]["remainingPercent"], 57.0);
+        assert_eq!(windows["fable"]["usedPercent"], 12.0);
     }
 
     #[test]
@@ -2917,6 +2875,7 @@ mod tests {
             reset_at: None,
             visible_fields: Vec::new(),
             weekly: None,
+            fable: None,
             products: Vec::new(),
         }
     }
@@ -3035,7 +2994,6 @@ mod tests {
             official_usage_url(Service::Claude),
             "https://claude.ai/new#settings/usage"
         );
-        assert_eq!(official_usage_url(Service::Grok), "https://grok.com/");
     }
 
     #[test]
@@ -3065,160 +3023,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn provider_login_start_serializes_already_authenticated_status() {
-        let login = ProviderLoginStart {
-            service: Service::Claude,
-            url: official_usage_url(Service::Claude).to_string(),
-            status: LOGIN_STATUS_ALREADY_AUTHENTICATED.to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
-            profile_label: "claude-profile".to_string(),
-            profile_prepared: true,
-            started_at: "2026-06-04T12:20:00Z".to_string(),
-        };
-        let value = serde_json::to_value(login).expect("provider login start serializes");
-
-        assert_eq!(value["status"], "already_authenticated");
-        assert_eq!(value["service"], "claude");
-        assert!(value.get("profilePath").is_none());
-        assert!(value.get("userDataDir").is_none());
-    }
-
-    #[test]
-    fn provider_login_start_serializes_preflight_unavailable_status() {
-        let login = ProviderLoginStart {
-            service: Service::Codex,
-            url: official_usage_url(Service::Codex).to_string(),
-            status: LOGIN_STATUS_PREFLIGHT_UNAVAILABLE.to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
-            profile_label: "codex-profile".to_string(),
-            profile_prepared: true,
-            started_at: "2026-06-04T12:25:00Z".to_string(),
-        };
-        let value = serde_json::to_value(login).expect("provider login start serializes");
-
-        assert_eq!(value["status"], "preflight_unavailable");
-        assert_eq!(value["service"], "codex");
-        assert!(value.get("profilePath").is_none());
-        assert!(value.get("userDataDir").is_none());
-    }
-
-    #[test]
-    fn login_preflight_launches_headed_browser_only_for_user_action_states() {
-        assert!(!should_launch_login_after_preflight("usage"));
-
-        for page_state in ["logged_out", "mfa_required", "captcha_or_bot_check"] {
-            assert!(should_launch_login_after_preflight(page_state));
-        }
-
-        for page_state in ["network_unavailable", "timed_out", "unexpected_ui"] {
-            assert!(!should_launch_login_after_preflight(page_state));
-        }
-    }
-
-    #[test]
-    fn login_preflight_decision_skips_headed_browser_for_authenticated_or_unavailable_states() {
-        assert_eq!(
-            login_preflight_decision(Some("usage")),
-            LoginPreflightDecision::AlreadyAuthenticated
-        );
-
-        for page_state in [
-            "network_unavailable",
-            "timed_out",
-            "unexpected_ui",
-            "parse_failed",
-            "unsupported_state",
-        ] {
-            assert_eq!(
-                login_preflight_decision(Some(page_state)),
-                LoginPreflightDecision::Unavailable
-            );
-        }
-
-        assert_eq!(
-            login_preflight_decision(None),
-            LoginPreflightDecision::Unavailable
-        );
-    }
-
-    #[test]
-    fn login_preflight_decision_launches_headed_browser_only_for_user_action_states() {
-        for page_state in ["logged_out", "mfa_required", "captcha_or_bot_check"] {
-            assert_eq!(
-                login_preflight_decision(Some(page_state)),
-                LoginPreflightDecision::LaunchBrowser
-            );
-        }
-    }
-
-    #[test]
-    fn login_start_preflight_outcome_skips_headed_browser_when_already_authenticated() {
-        assert_eq!(
-            login_start_preflight_outcome(Some("usage")),
-            LoginStartPreflightOutcome {
-                status: LOGIN_STATUS_ALREADY_AUTHENTICATED,
-                launch_headed_browser: false,
-            }
-        );
-    }
-
-    #[test]
-    fn login_start_preflight_outcome_launches_headed_browser_only_for_user_action_states() {
-        for page_state in ["logged_out", "mfa_required", "captcha_or_bot_check"] {
-            assert_eq!(
-                login_start_preflight_outcome(Some(page_state)),
-                LoginStartPreflightOutcome {
-                    status: LOGIN_STATUS_REQUIRED,
-                    launch_headed_browser: true,
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn login_start_preflight_outcome_skips_headed_browser_for_unavailable_states() {
-        for page_state in [
-            None,
-            Some("network_unavailable"),
-            Some("timed_out"),
-            Some("unexpected_ui"),
-            Some("parse_failed"),
-            Some("unsupported_state"),
-        ] {
-            assert_eq!(
-                login_start_preflight_outcome(page_state),
-                LoginStartPreflightOutcome {
-                    status: LOGIN_STATUS_PREFLIGHT_UNAVAILABLE,
-                    launch_headed_browser: false,
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn login_start_preflight_outcome_from_response_uses_page_state_before_snapshot_parse_result() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
-            remaining_percent: Some(80.0),
-            used_percent: Some(80.0),
-            visible_fields: vec!["remaining_percent".to_string(), "used_percent".to_string()],
-            ..sidecar_usage_response(Service::Codex, "usage")
-        };
-
-        assert_eq!(
-            login_start_preflight_outcome_from_response(&response),
-            LoginStartPreflightOutcome {
-                status: LOGIN_STATUS_ALREADY_AUTHENTICATED,
-                launch_headed_browser: false,
-            }
-        );
-
-        let snapshot = usage_snapshot_from_sidecar_usage_response(response, "2026-06-04T12:00:00Z")
-            .expect("snapshot is sanitized");
-
-        assert_eq!(snapshot.details["status"], "parse_failed");
-        assert_eq!(snapshot.details["reason"], "invalid_visible_percentage");
-    }
 
     #[test]
     fn provider_login_start_report_includes_sanitized_playwright_profile_metadata() {
@@ -3303,7 +3107,7 @@ mod tests {
         let mut config = config::AppConfig::default();
         config.providers.web_enabled = true;
 
-        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Claude, false)
+        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Claude)
             .expect("refresh request is built");
         let debug = format!("{request:?}");
 
@@ -3327,42 +3131,37 @@ mod tests {
     }
 
     #[test]
-    fn grok_http_refresh_sidecar_request_uses_the_credits_endpoint() {
+    fn managed_login_and_web_refresh_allow_only_codex_and_claude() {
         let dir = TestDir::new();
         let mut config = config::AppConfig::default();
         config.providers.web_enabled = true;
 
-        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Grok, true)
-            .expect("refresh request is built");
+        for service in [Service::Codex, Service::Claude] {
+            assert!(managed_browser_service(service));
+            assert!(provider_login_start_plan(
+                &config,
+                &dir.path,
+                service,
+                "2026-07-12T12:00:00Z".to_string(),
+            )
+            .is_ok());
+            assert!(web_usage_refresh_sidecar_request(&config, &dir.path, service).is_ok());
+        }
 
-        assert_eq!(
-            request.action,
-            browser_session::PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE
-        );
-        assert_eq!(request.service, Service::Grok);
-        assert_eq!(request.url, "https://grok.com/rest/grok/credits");
-        assert_eq!(request.profile_label, "grok-profile");
-        assert!(request.user_data_dir.contains("browser-profiles/grok"));
-    }
+        for service in [Service::Grok, Service::Ollama] {
+            assert!(!managed_browser_service(service));
+            assert!(provider_login_start_plan(
+                &config,
+                &dir.path,
+                service,
+                "2026-07-12T12:00:00Z".to_string(),
+            )
+            .is_err());
+            assert!(web_usage_refresh_sidecar_request(&config, &dir.path, service).is_err());
+        }
 
-    #[test]
-    fn web_usage_http_refresh_sidecar_request_targets_ollama_http_action() {
-        let dir = TestDir::new();
-        let mut config = config::AppConfig::default();
-        config.providers.web_enabled = true;
-        config.enabled_services.ollama = true;
-
-        let request = web_usage_refresh_sidecar_request(&config, &dir.path, Service::Ollama, true)
-            .expect("http refresh request is built");
-
-        assert_eq!(
-            request.action,
-            browser_session::PLAYWRIGHT_SIDECAR_ACTION_HTTP_REFRESH_USAGE
-        );
-        assert_eq!(request.service, Service::Ollama);
-        assert_eq!(request.url, official_usage_url(Service::Ollama));
-        assert!(request.headless);
-        assert!(request.user_data_dir.contains("browser-profiles/ollama"));
+        assert!(!dir.path.join("browser-profiles/grok").exists());
+        assert!(!dir.path.join("browser-profiles/ollama").exists());
     }
 
     #[test]
@@ -3572,6 +3371,46 @@ mod tests {
     fn unknown_tray_state_does_not_generate_dynamic_icon() {
         assert!(tray_icon_rgba_for(tray_state(Service::Codex, None), 20.0).is_none());
         assert!(tray_icon_rgba_for(tray_state(Service::Grok, None), 20.0).is_none());
+    }
+
+    #[test]
+    fn config_refresh_scheduler_returns_before_refresh_finishes() {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+
+        spawn_detached_blocking(move || {
+            started_tx.send(()).expect("start signal sends");
+            release_rx.recv().expect("refresh release arrives");
+        });
+
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("detached refresh starts");
+        release_tx
+            .send(())
+            .expect("caller remains responsive while refresh is running");
+    }
+
+    #[test]
+    fn floating_window_geometry_fits_two_rings_in_the_168px_capsule() {
+        const RING_DIAMETER: i32 = 34;
+        const RING_GAP: i32 = 8;
+        const RING_SLOT_WIDTH: i32 = 89;
+        const FIXED_CONTENT_WIDTH: i32 = 2 + 10 + 26 + 10 + RING_SLOT_WIDTH + 10 + 7 + 14;
+
+        assert_eq!(2 * RING_DIAMETER + RING_GAP, 76);
+        assert_eq!(RING_SLOT_WIDTH - (2 * RING_DIAMETER + RING_GAP), 13);
+        assert_eq!(FIXED_CONTENT_WIDTH, 168);
+        assert_eq!(FLOAT_CAPSULE_WIDTH, FIXED_CONTENT_WIDTH);
+        assert_eq!(FLOAT_CAPSULE_HEIGHT, 56);
+        assert_eq!(
+            FLOAT_WINDOW_WIDTH,
+            FLOAT_CAPSULE_WIDTH + 2 * FLOAT_GLOW_MARGIN
+        );
+        assert_eq!(
+            FLOAT_WINDOW_HEIGHT,
+            FLOAT_CAPSULE_HEIGHT + 2 * FLOAT_GLOW_MARGIN
+        );
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use crate::{
     config::{AppConfig, LocalQuotaLimitKind, LocalQuotaUsageUnit, LocalServiceQuotaSettings},
     local_provider::{ClaudeLocalProvider, CodexLocalProvider, LocalQuotaCalibration},
-    ollama_provider::OllamaLocalProvider,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -19,6 +18,7 @@ pub const REFRESH_FINISHED_EVENT: &str = "usage://refresh-finished";
 pub const PROVIDER_ERROR_EVENT: &str = "usage://provider-error";
 const PROVIDER_BACKOFF_BASE_SECONDS: u64 = 30;
 const PROVIDER_BACKOFF_MAX_SECONDS: u64 = 15 * 60;
+const RUNTIME_SERVICES: [Service; 2] = [Service::Codex, Service::Claude];
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -126,10 +126,6 @@ pub enum UsageProviderId {
     ClaudeLocal,
     ClaudeWeb,
     ClaudeCli,
-    GrokCli,
-    GrokWeb,
-    OllamaLocal,
-    OllamaWeb,
     Fake,
 }
 
@@ -192,6 +188,7 @@ struct FailClosedWebProvider {
     service: Service,
 }
 
+
 #[derive(Clone, Copy)]
 struct CliUsageProvider {
     service: Service,
@@ -208,7 +205,6 @@ struct LocalProviderRoots {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RefreshPolicy {
     Manual,
-    Preflight,
     Scheduled,
 }
 
@@ -229,6 +225,10 @@ impl Service {
             Self::Grok => "Grok",
             Self::Ollama => "Ollama",
         }
+    }
+
+    pub(crate) fn is_runtime(self) -> bool {
+        matches!(self, Self::Codex | Self::Claude)
     }
 }
 
@@ -270,11 +270,8 @@ impl UsageProviderId {
             (Service::Codex, UsageSource::Web) => Some(Self::CodexWeb),
             (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
             (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
-            (Service::Grok, UsageSource::Local) => None,
-            (Service::Grok, UsageSource::Web) => Some(Self::GrokWeb),
-            (Service::Ollama, UsageSource::Local) => Some(Self::OllamaLocal),
-            (Service::Ollama, UsageSource::Web) => Some(Self::OllamaWeb),
-            (_, UsageSource::Fake) => Some(Self::Fake),
+            (Service::Grok | Service::Ollama, _) => None,
+            (Service::Codex | Service::Claude, UsageSource::Fake) => Some(Self::Fake),
             (_, UsageSource::Merged) => None,
         }
     }
@@ -287,10 +284,6 @@ impl UsageProviderId {
             Self::ClaudeLocal => "claude.local",
             Self::ClaudeWeb => "claude.web",
             Self::ClaudeCli => "claude.cli",
-            Self::GrokCli => "grok.cli",
-            Self::GrokWeb => "grok.web",
-            Self::OllamaLocal => "ollama.local",
-            Self::OllamaWeb => "ollama.web",
             Self::Fake => "fake",
         }
     }
@@ -314,6 +307,7 @@ impl UsageDisplayState {
         let mut states: Vec<_> = self
             .snapshots
             .iter()
+            .filter(|snapshot| snapshot.service.is_runtime())
             .filter(|snapshot| {
                 snapshot.remaining_percent.is_some()
                     || snapshot
@@ -339,6 +333,7 @@ impl UsageDisplayState {
             let service = self
                 .snapshots
                 .iter()
+                .filter(|snapshot| snapshot.service.is_runtime())
                 .map(|snapshot| snapshot.service)
                 .min_by_key(|service| match service {
                     Service::Codex => 0,
@@ -549,21 +544,16 @@ impl UsageEngine {
     }
 
     fn refresh_all_with_policy(&self, policy: RefreshPolicy) -> Result<UsageDisplayState, String> {
-        let (providers, provider_keys, config, scheduled_provider_refreshes) = {
+        let (providers, config, scheduled_provider_refreshes) = {
             let state = self.lock()?;
             let providers = state
                 .providers
                 .iter()
                 .map(|provider| provider_descriptor(provider.as_ref()))
                 .collect::<Vec<_>>();
-            let provider_keys = providers
-                .iter()
-                .map(|provider| provider.provider_key.clone())
-                .collect::<HashSet<_>>();
 
             (
                 providers,
-                provider_keys,
                 state.config.clone(),
                 state.scheduled_provider_refreshes.clone(),
             )
@@ -616,15 +606,7 @@ impl UsageEngine {
         }
 
         let mut state = self.lock()?;
-        state
-            .snapshots
-            .retain(|provider_key, _| provider_keys.contains(provider_key));
-
-        let refreshed_any = !refreshed.is_empty();
-
-        for (provider_key, snapshot) in refreshed {
-            state.snapshots.insert(provider_key, snapshot);
-        }
+        let refreshed_any = apply_current_provider_snapshots(&mut state, refreshed);
 
         if policy == RefreshPolicy::Manual || refreshed_any {
             state.last_updated = now.clone();
@@ -701,23 +683,6 @@ impl UsageEngine {
         )
     }
 
-    pub fn refresh_preflight_provider_source_with_snapshot<F>(
-        &self,
-        service: Service,
-        source: UsageSource,
-        refresh: F,
-    ) -> Result<UsageDisplayState, String>
-    where
-        F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
-    {
-        self.refresh_provider_source_with_snapshot_policy(
-            service,
-            source,
-            RefreshPolicy::Preflight,
-            true,
-            refresh,
-        )
-    }
 
     fn refresh_provider_source_with_snapshot_policy<F>(
         &self,
@@ -811,8 +776,13 @@ impl UsageEngine {
         self.finish_refresh(&provider.provider_key)?;
 
         let mut state = self.lock()?;
-        state.snapshots.insert(provider.provider_key, snapshot);
-        state.last_updated = now.clone();
+        let refreshed = apply_current_provider_snapshots(
+            &mut state,
+            vec![(provider.provider_key, snapshot)],
+        );
+        if refreshed {
+            state.last_updated = now.clone();
+        }
         Ok(state.display_state(&now))
     }
 
@@ -869,13 +839,8 @@ impl UsageEngine {
                 })
                 .ok_or(UsageProviderError::Internal)?
                 .refresh(now),
-            (UsageProviderId::OllamaLocal, Service::Ollama) => {
-                OllamaLocalProvider::new().refresh(now)
-            }
             (UsageProviderId::CodexWeb, Service::Codex)
-            | (UsageProviderId::ClaudeWeb, Service::Claude)
-            | (UsageProviderId::GrokWeb, Service::Grok)
-            | (UsageProviderId::OllamaWeb, Service::Ollama) => {
+            | (UsageProviderId::ClaudeWeb, Service::Claude) => {
                 Err(UsageProviderError::LoginRequired)
             }
             (UsageProviderId::CodexCli, Service::Codex) => {
@@ -883,9 +848,6 @@ impl UsageEngine {
             }
             (UsageProviderId::ClaudeCli, Service::Claude) => {
                 crate::cli_provider::refresh(Service::Claude, now)
-            }
-            (UsageProviderId::GrokCli, Service::Grok) => {
-                crate::cli_provider::refresh(Service::Grok, now)
             }
             _ => Err(UsageProviderError::Internal),
         }
@@ -1023,6 +985,29 @@ impl UsageEngine {
     }
 }
 
+fn apply_current_provider_snapshots(
+    state: &mut UsageEngineState,
+    refreshed: Vec<(String, UsageSnapshot)>,
+) -> bool {
+    let current_provider_keys = state
+        .providers
+        .iter()
+        .map(|provider| provider.provider_key())
+        .collect::<HashSet<_>>();
+    state
+        .snapshots
+        .retain(|provider_key, _| current_provider_keys.contains(provider_key));
+
+    let mut refreshed_any = false;
+    for (provider_key, snapshot) in refreshed {
+        if current_provider_keys.contains(&provider_key) {
+            state.snapshots.insert(provider_key, snapshot);
+            refreshed_any = true;
+        }
+    }
+    refreshed_any
+}
+
 impl UsageEngineState {
     fn display_state(&self, now: &str) -> UsageDisplayState {
         let mut snapshots = merged_display_snapshots(&self.snapshots, &self.config, now);
@@ -1032,8 +1017,7 @@ impl UsageEngineState {
         snapshots.sort_by_key(|snapshot| match snapshot.service {
             Service::Codex => 0,
             Service::Claude => 1,
-            Service::Grok => 2,
-            Service::Ollama => 3,
+            Service::Grok | Service::Ollama => 2,
         });
 
         UsageDisplayState {
@@ -1048,7 +1032,7 @@ fn merged_display_snapshots(
     config: &AppConfig,
     now: &str,
 ) -> Vec<UsageSnapshot> {
-    [Service::Codex, Service::Claude, Service::Grok, Service::Ollama]
+    RUNTIME_SERVICES
         .into_iter()
         .filter(|service| config.service_enabled(*service))
         .filter_map(|service| {
@@ -1069,7 +1053,7 @@ fn headless_display_state(state: &UsageEngineState, now: &str) -> UsageDisplaySt
         .map(|snapshot| snapshot.service)
         .collect::<HashSet<_>>();
 
-    for service in [Service::Codex, Service::Claude, Service::Grok, Service::Ollama] {
+    for service in RUNTIME_SERVICES {
         if state.config.service_enabled(service) && !present_services.contains(&service) {
             display_state
                 .snapshots
@@ -1080,8 +1064,7 @@ fn headless_display_state(state: &UsageEngineState, now: &str) -> UsageDisplaySt
     display_state.snapshots.sort_by_key(|snapshot| match snapshot.service {
         Service::Codex => 0,
         Service::Claude => 1,
-        Service::Grok => 2,
-        Service::Ollama => 3,
+        Service::Grok | Service::Ollama => 2,
     });
     display_state
 }
@@ -1114,6 +1097,22 @@ fn merge_service_snapshots(
     let fake = latest_snapshot_with_source(&snapshots, UsageSource::Fake);
 
     if let Some(web) = web.as_ref() {
+        if !web_has_usage_percent(web) && web_has_usage_window(web) {
+            let mut snapshot = web.clone();
+            if web_baseline_stale(web, config, now) {
+                snapshot.confidence = lower_confidence(snapshot.confidence);
+                set_detail(&mut snapshot, "mergeStatus", "stale_web_windows");
+            } else {
+                set_detail(&mut snapshot, "mergeStatus", "web_windows_only");
+            }
+            set_detail(
+                &mut snapshot,
+                "lastOfficialCheckAt",
+                web.last_updated.clone(),
+            );
+            return Some(snapshot);
+        }
+
         if !web_has_usage_percent(web) {
             if let Some(local) = local.filter(|snapshot| is_plan_only_local_snapshot(snapshot)) {
                 return Some(local.clone());
@@ -1179,6 +1178,27 @@ fn merge_service_snapshots(
 
 fn web_has_usage_percent(snapshot: &UsageSnapshot) -> bool {
     snapshot.remaining_percent.is_some() || snapshot.used_percent.is_some()
+}
+
+fn web_has_usage_window(snapshot: &UsageSnapshot) -> bool {
+    snapshot
+        .details
+        .get("windows")
+        .and_then(|windows| windows.as_object())
+        .is_some_and(|windows| {
+            windows.values().any(|window| {
+                window.as_object().is_some_and(|window| {
+                    ["remainingPercent", "usedPercent"].iter().any(|field| {
+                        window
+                            .get(*field)
+                            .and_then(|value| value.as_f64())
+                            .is_some_and(|value| {
+                                value.is_finite() && (0.0..=100.0).contains(&value)
+                            })
+                    })
+                })
+            })
+        })
 }
 
 fn is_plan_only_local_snapshot(snapshot: &UsageSnapshot) -> bool {
@@ -1412,8 +1432,7 @@ impl AppConfig {
         match service {
             Service::Codex => self.enabled_services.codex,
             Service::Claude => self.enabled_services.claude,
-            Service::Grok => self.enabled_services.grok,
-            Service::Ollama => self.enabled_services.ollama,
+            Service::Grok | Service::Ollama => false,
         }
     }
 }
@@ -1473,13 +1492,15 @@ impl UsageProvider for FailClosedWebProvider {
     }
 }
 
+
 impl UsageProvider for CliUsageProvider {
     fn provider_id(&self) -> UsageProviderId {
         match self.service {
             Service::Codex => UsageProviderId::CodexCli,
             Service::Claude => UsageProviderId::ClaudeCli,
-            Service::Grok => UsageProviderId::GrokCli,
-            Service::Ollama => unreachable!("Ollama has no CLI provider"),
+            Service::Grok | Service::Ollama => {
+                unreachable!("deferred services have no CLI provider")
+            }
         }
     }
 
@@ -1641,29 +1662,6 @@ fn providers_for_config(
         }
     }
 
-    if config.enabled_services.grok {
-        if config.providers.cli_enabled {
-            providers.push(Box::new(CliUsageProvider {
-                service: Service::Grok,
-            }));
-        }
-        if config.providers.web_enabled {
-            providers.push(Box::new(FailClosedWebProvider {
-                service: Service::Grok,
-            }));
-        }
-    }
-
-    if config.enabled_services.ollama {
-        if config.providers.local_enabled {
-            providers.push(Box::new(OllamaLocalProvider::new()));
-        }
-        if config.providers.web_enabled {
-            providers.push(Box::new(FailClosedWebProvider {
-                service: Service::Ollama,
-            }));
-        }
-    }
 
     providers
 }
@@ -2112,77 +2110,6 @@ mod tests {
         }
     }
 
-    fn ollama_plan_snapshot(last_updated: &str) -> UsageSnapshot {
-        UsageSnapshot {
-            service: Service::Ollama,
-            remaining_percent: None,
-            used_percent: None,
-            reset_at: None,
-            source: UsageSource::Local,
-            confidence: UsageConfidence::Medium,
-            last_updated: last_updated.to_string(),
-            details: serde_json::json!({
-                "status": "parsed",
-                "providerId": "ollama.local",
-                "source": "local",
-                "via": "daemon",
-                "plan": "pro",
-            }),
-        }
-    }
-
-    fn grok_cli_plan_snapshot(last_updated: &str) -> UsageSnapshot {
-        UsageSnapshot {
-            service: Service::Grok,
-            remaining_percent: None,
-            used_percent: None,
-            reset_at: None,
-            source: UsageSource::Web,
-            confidence: UsageConfidence::Medium,
-            last_updated: last_updated.to_string(),
-            details: serde_json::json!({
-                "status": "parsed",
-                "providerId": "grok.cli",
-                "source": "web",
-                "plan": "Grok Pro",
-                "billingPeriodEnd": "2026-07-16T00:00:00Z",
-            }),
-        }
-    }
-
-    fn grok_web_config() -> AppConfig {
-        AppConfig {
-            enabled_services: crate::config::ServiceToggles {
-                codex: false,
-                claude: false,
-                grok: true,
-                ollama: false,
-            },
-            providers: crate::config::ProviderSettings {
-                local_enabled: false,
-                web_enabled: true,
-                cli_enabled: true,
-            },
-            ..AppConfig::default()
-        }
-    }
-
-    fn ollama_web_config() -> AppConfig {
-        AppConfig {
-            enabled_services: crate::config::ServiceToggles {
-                codex: false,
-                claude: false,
-                grok: false,
-                ollama: true,
-            },
-            providers: crate::config::ProviderSettings {
-                local_enabled: true,
-                web_enabled: true,
-                cli_enabled: false,
-            },
-            ..AppConfig::default()
-        }
-    }
 
     fn assert_sanitized_details(label: &str, details: &serde_json::Value) {
         let forbidden_keys = [
@@ -2272,13 +2199,13 @@ mod tests {
     }
 
     #[test]
-    fn headless_display_includes_enabled_service_without_registered_provider() {
-        let config = AppConfig {
+    fn legacy_deferred_toggles_produce_only_codex_and_claude_state() {
+        let legacy_config = AppConfig {
             enabled_services: crate::config::ServiceToggles {
-                codex: false,
-                claude: false,
+                codex: true,
+                claude: true,
                 grok: true,
-                ollama: false,
+                ollama: true,
             },
             providers: crate::config::ProviderSettings {
                 local_enabled: false,
@@ -2287,22 +2214,67 @@ mod tests {
             },
             ..AppConfig::default()
         };
-        let engine = UsageEngine::with_clock(
-            config,
-            Box::new(FixedClock {
-                now: "2026-07-09T12:00:00Z".to_string(),
-            }),
+        let engine = UsageEngine::new(legacy_config.clone());
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+        assert_eq!(
+            display_state
+                .snapshots
+                .iter()
+                .map(|snapshot| snapshot.service)
+                .collect::<Vec<_>>(),
+            vec![Service::Codex, Service::Claude]
         );
+        let normalized = engine.config().expect("config loads");
+        assert!(!normalized.enabled_services.grok);
+        assert!(!normalized.enabled_services.ollama);
+        assert!(engine
+            .lock()
+            .expect("state locks")
+            .providers
+            .iter()
+            .all(|provider| provider.service().is_runtime()));
 
-        let display_state = engine
-            .overlay_persisted_snapshots(HashMap::new())
+        let headless = UsageEngine::new_headless(legacy_config);
+        headless.refresh_all().expect("headless refresh succeeds");
+        let legacy_snapshot = |service| UsageSnapshot {
+            service,
+            remaining_percent: Some(50.0),
+            used_percent: Some(50.0),
+            reset_at: None,
+            source: UsageSource::Web,
+            confidence: UsageConfidence::High,
+            last_updated: "2026-07-12T12:00:00Z".to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": "legacy",
+            }),
+        };
+        let persisted = HashMap::from([
+            (
+                "grok.web".to_string(),
+                legacy_snapshot(Service::Grok),
+            ),
+            (
+                "ollama.local".to_string(),
+                legacy_snapshot(Service::Ollama),
+            ),
+        ]);
+        let headless_state = headless
+            .overlay_persisted_snapshots(persisted)
             .expect("headless display state loads");
-
-        assert_eq!(display_state.snapshots.len(), 1);
-        assert_eq!(display_state.snapshots[0].service, Service::Grok);
-        assert_eq!(display_state.snapshots[0].source, UsageSource::Merged);
-        assert_eq!(display_state.snapshots[0].confidence, UsageConfidence::Unknown);
-        assert_eq!(display_state.snapshots[0].details["status"], "not_configured");
+        assert_eq!(
+            headless_state
+                .snapshots
+                .iter()
+                .map(|snapshot| snapshot.service)
+                .collect::<Vec<_>>(),
+            vec![Service::Codex, Service::Claude]
+        );
+        assert!(headless_state
+            .snapshots
+            .iter()
+            .all(|snapshot| snapshot.details["status"] == "not_configured"));
     }
 
     #[test]
@@ -2509,6 +2481,64 @@ mod tests {
     }
 
     #[test]
+    fn stale_refresh_results_cannot_restore_removed_provider_snapshots() {
+        let engine = UsageEngine::new(config_with_services(true, false));
+        engine.refresh_all().expect("initial refresh succeeds");
+        let (stale_key, stale_snapshot) = {
+            let state = engine.lock().expect("state lock succeeds");
+            let (key, snapshot) = state.snapshots.iter().next().expect("snapshot exists");
+            (key.clone(), snapshot.clone())
+        };
+
+        engine
+            .update_config(config_with_services(false, true))
+            .expect("config update succeeds");
+        let mut state = engine.lock().expect("state lock succeeds");
+        let applied = apply_current_provider_snapshots(
+            &mut state,
+            vec![(stale_key.clone(), stale_snapshot)],
+        );
+
+        assert!(!applied);
+        assert!(!state.snapshots.contains_key(&stale_key));
+        assert!(state
+            .providers
+            .iter()
+            .all(|provider| provider.service() == Service::Claude));
+    }
+
+    #[test]
+    fn deferred_provider_refresh_is_rejected_before_callback() {
+        let engine = UsageEngine::new(AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: true,
+                ollama: true,
+            },
+            ..AppConfig::default()
+        });
+        let refresh_calls = AtomicUsize::new(0);
+
+        for (service, source) in [
+            (Service::Grok, UsageSource::Web),
+            (Service::Ollama, UsageSource::Local),
+        ] {
+            let error = engine
+                .refresh_provider_source_with_snapshot(service, source, |_| {
+                    refresh_calls.fetch_add(1, Ordering::Relaxed);
+                    Err(UsageProviderError::Internal)
+                })
+                .expect_err("deferred provider is rejected");
+
+            assert_eq!(error, "Provider source cannot be refreshed directly");
+        }
+
+        assert_eq!(refresh_calls.load(Ordering::Relaxed), 0);
+        assert!(engine.snapshots().expect("snapshots load").is_empty());
+    }
+
+    #[test]
     fn tray_states_are_sorted_and_reflect_snapshot_percentages() {
         let engine = UsageEngine::new(config_with_services(true, true));
         let display_state = engine.refresh_all().expect("refresh succeeds");
@@ -2529,24 +2559,24 @@ mod tests {
     }
 
     #[test]
-    fn tray_states_exclude_successful_plan_only_grok_snapshots() {
+    fn tray_states_ignore_legacy_deferred_snapshots() {
+        let legacy_snapshot = |service, remaining_percent| UsageSnapshot {
+            service,
+            remaining_percent: Some(remaining_percent),
+            used_percent: Some(100.0 - remaining_percent),
+            reset_at: None,
+            source: UsageSource::Web,
+            confidence: UsageConfidence::High,
+            last_updated: "2026-07-09T20:00:00Z".to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": "legacy",
+            }),
+        };
         let display_state = UsageDisplayState {
             snapshots: vec![
-                UsageSnapshot {
-                    service: Service::Grok,
-                    remaining_percent: None,
-                    used_percent: None,
-                    reset_at: None,
-                    source: UsageSource::Web,
-                    confidence: UsageConfidence::Medium,
-                    last_updated: "2026-07-09T20:00:00Z".to_string(),
-                    details: serde_json::json!({
-                        "status": "parsed",
-                        "providerId": "grok.cli",
-                        "plan": "Grok Pro",
-                    }),
-                },
-                web_snapshot(Service::Codex, 72.0, "2026-07-09T20:00:00Z"),
+                legacy_snapshot(Service::Grok, 72.0),
+                legacy_snapshot(Service::Ollama, 41.0),
             ],
             updated_at: "2026-07-09T20:00:00Z".to_string(),
         };
@@ -2555,63 +2585,6 @@ mod tests {
             display_state.tray_states(),
             vec![TrayGaugeState {
                 service: Service::Codex,
-                remaining_percent: Some(72.0),
-            }]
-        );
-    }
-
-    #[test]
-    fn tray_states_keep_grok_errors_without_a_plan() {
-        let display_state = UsageDisplayState {
-            snapshots: vec![UsageSnapshot {
-                service: Service::Grok,
-                remaining_percent: None,
-                used_percent: None,
-                reset_at: None,
-                source: UsageSource::Web,
-                confidence: UsageConfidence::Unknown,
-                last_updated: "2026-07-09T20:00:00Z".to_string(),
-                details: serde_json::json!({
-                    "status": "login_required",
-                    "providerId": "grok.cli",
-                }),
-            }],
-            updated_at: "2026-07-09T20:00:00Z".to_string(),
-        };
-
-        assert_eq!(
-            display_state.tray_states(),
-            vec![TrayGaugeState {
-                service: Service::Grok,
-                remaining_percent: None,
-            }]
-        );
-    }
-
-    #[test]
-    fn tray_states_use_grok_placeholder_for_a_grok_only_plan_snapshot() {
-        let display_state = UsageDisplayState {
-            snapshots: vec![UsageSnapshot {
-                service: Service::Grok,
-                remaining_percent: None,
-                used_percent: None,
-                reset_at: None,
-                source: UsageSource::Web,
-                confidence: UsageConfidence::Medium,
-                last_updated: "2026-07-09T20:00:00Z".to_string(),
-                details: serde_json::json!({
-                    "status": "parsed",
-                    "providerId": "grok.cli",
-                    "plan": "Grok Pro",
-                }),
-            }],
-            updated_at: "2026-07-09T20:00:00Z".to_string(),
-        };
-
-        assert_eq!(
-            display_state.tray_states(),
-            vec![TrayGaugeState {
-                service: Service::Grok,
                 remaining_percent: None,
             }]
         );
@@ -2749,43 +2722,6 @@ mod tests {
     }
 
     #[test]
-    fn local_provider_failures_do_not_back_off_later_refreshes() {
-        let config = AppConfig {
-            enabled_services: crate::config::ServiceToggles {
-                codex: false,
-                claude: false,
-                grok: false,
-                ollama: true,
-            },
-            providers: crate::config::ProviderSettings {
-                local_enabled: true,
-                web_enabled: false,
-                cli_enabled: false,
-            },
-            ..AppConfig::default()
-        };
-        let engine = UsageEngine::new(config);
-        let refresh_calls = AtomicUsize::new(0);
-
-        for _ in 0..2 {
-            engine
-                .refresh_provider_source_with_snapshot(Service::Ollama, UsageSource::Local, |_| {
-                    refresh_calls.fetch_add(1, Ordering::Relaxed);
-                    Err(UsageProviderError::NotConfigured)
-                })
-                .expect("local refresh records an unavailable snapshot");
-        }
-
-        assert_eq!(refresh_calls.load(Ordering::Relaxed), 2);
-        assert_eq!(
-            engine
-                .provider_failure_state("ollama.local")
-                .expect("failure state reads"),
-            None
-        );
-    }
-
-    #[test]
     fn provider_success_resets_failure_backoff_state() {
         let engine = UsageEngine::new(config_with_services(true, true));
 
@@ -2870,33 +2806,23 @@ mod tests {
     }
 
     #[test]
-    fn ollama_local_provider_registers_with_local_readings() {
+    fn providers_for_config_ignores_legacy_deferred_toggles() {
         let config = AppConfig {
             enabled_services: crate::config::ServiceToggles {
                 codex: false,
                 claude: false,
-                grok: false,
+                grok: true,
                 ollama: true,
             },
             providers: crate::config::ProviderSettings {
                 local_enabled: true,
                 web_enabled: true,
-                cli_enabled: false,
+                cli_enabled: true,
             },
             ..AppConfig::default()
         };
-        let providers = providers_for_config(&config, &LocalProviderRoots::default());
 
-        assert!(providers.iter().any(|provider| {
-            provider.provider_id() == UsageProviderId::OllamaLocal
-                && provider.service() == Service::Ollama
-                && provider.source() == UsageSource::Local
-        }));
-        assert!(providers.iter().any(|provider| {
-            provider.provider_id() == UsageProviderId::OllamaWeb
-                && provider.service() == Service::Ollama
-                && provider.source() == UsageSource::Web
-        }));
+        assert!(providers_for_config(&config, &LocalProviderRoots::default()).is_empty());
     }
 
     #[test]
@@ -2919,91 +2845,6 @@ mod tests {
         assert_eq!(snapshot.details["mergeStatus"], "web_unavailable");
     }
 
-    #[test]
-    fn grok_placeholder_failure_does_not_block_the_following_headless_refresh() {
-        let now = "2026-07-09T12:00:00Z";
-        let engine = UsageEngine::with_clock(
-            grok_web_config(),
-            Box::new(FixedClock {
-                now: now.to_string(),
-            }),
-        );
-        let refresh_calls = AtomicUsize::new(0);
-
-        engine.refresh_all().expect("placeholder refresh succeeds");
-
-        assert_eq!(
-            engine
-                .provider_failure_state("grok.web")
-                .expect("failure state reads"),
-            None
-        );
-        engine
-            .refresh_provider_source_with_snapshot(Service::Grok, UsageSource::Web, |_| {
-                refresh_calls.fetch_add(1, Ordering::Relaxed);
-                Ok(web_snapshot(Service::Grok, 71.5, now))
-            })
-            .expect("headless refresh is not blocked");
-
-        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn ollama_placeholder_failure_does_not_block_the_following_headless_refresh() {
-        let now = "2026-07-09T12:00:00Z";
-        let mut config = ollama_web_config();
-        config.providers.local_enabled = false;
-        let engine = UsageEngine::with_clock(
-            config,
-            Box::new(FixedClock {
-                now: now.to_string(),
-            }),
-        );
-        let refresh_calls = AtomicUsize::new(0);
-
-        engine.refresh_all().expect("placeholder refresh succeeds");
-
-        assert_eq!(
-            engine
-                .provider_failure_state("ollama.web")
-                .expect("failure state reads"),
-            None
-        );
-        engine
-            .refresh_provider_source_with_snapshot(Service::Ollama, UsageSource::Web, |_| {
-                refresh_calls.fetch_add(1, Ordering::Relaxed);
-                Ok(web_snapshot(Service::Ollama, 82.0, now))
-            })
-            .expect("headless refresh is not blocked");
-
-        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn headless_web_failure_still_records_backoff_for_a_placeholder_provider_key() {
-        let now = "2026-07-09T12:00:00Z";
-        let engine = UsageEngine::with_clock(
-            grok_web_config(),
-            Box::new(FixedClock {
-                now: now.to_string(),
-            }),
-        );
-
-        engine.refresh_all().expect("placeholder refresh succeeds");
-        engine
-            .refresh_provider_source_with_snapshot(Service::Grok, UsageSource::Web, |_| {
-                Err(UsageProviderError::NetworkUnavailable)
-            })
-            .expect("headless failure records a snapshot");
-
-        assert!(engine
-            .provider_failure_state("grok.web")
-            .expect("failure state reads")
-            .is_some());
-        assert!(!engine
-            .try_begin_refresh("grok.web".to_string(), UsageSource::Web, now)
-            .expect("real web failure remains backoff gated"));
-    }
 
     #[test]
     fn manual_web_refresh_accepts_external_headless_snapshot() {
@@ -3051,70 +2892,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn preflight_web_refresh_accepts_external_headless_snapshot_without_manual_cooldown() {
-        let engine = UsageEngine::with_clock(
-            web_enabled_config(),
-            Box::new(FixedClock {
-                now: "2026-06-04T12:00:00Z".to_string(),
-            }),
-        );
-        let refresh_calls = AtomicUsize::new(0);
-
-        engine
-            .record_manual_web_refresh(Service::Claude, "2026-06-04T11:59:30Z")
-            .expect("manual cooldown is recorded");
-        assert_eq!(
-            engine
-                .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:00Z")
-                .expect_err("manual cooldown starts active"),
-            "Manual web refresh is cooling down"
-        );
-
-        let display_state = engine
-            .refresh_preflight_provider_source_with_snapshot(
-                Service::Claude,
-                UsageSource::Web,
-                |now| {
-                    refresh_calls.fetch_add(1, Ordering::Relaxed);
-                    Ok(UsageSnapshot {
-                        service: Service::Claude,
-                        remaining_percent: Some(63.0),
-                        used_percent: Some(37.0),
-                        reset_at: Some("2026-06-04T17:00:00Z".to_string()),
-                        source: UsageSource::Web,
-                        confidence: UsageConfidence::High,
-                        last_updated: now.to_string(),
-                        details: serde_json::json!({
-                            "status": "parsed",
-                            "providerId": "claude.web",
-                            "source": "web",
-                            "lastOfficialCheckAt": now
-                        }),
-                    })
-                },
-            )
-            .expect("preflight web snapshot refresh succeeds");
-        let snapshot = display_state
-            .snapshots
-            .iter()
-            .find(|snapshot| snapshot.service == Service::Claude)
-            .expect("claude snapshot exists");
-
-        assert_eq!(refresh_calls.load(Ordering::Relaxed), 1);
-        assert_eq!(snapshot.source, UsageSource::Web);
-        assert_eq!(snapshot.remaining_percent, Some(63.0));
-        assert_eq!(snapshot.details["status"], "parsed");
-        assert_eq!(
-            engine
-                .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:29Z")
-                .expect_err("preflight refresh does not replace manual cooldown"),
-            "Manual web refresh is cooling down"
-        );
-        engine
-            .ensure_manual_web_refresh_allowed(Service::Claude, "2026-06-04T12:00:30Z")
-            .expect("preflight refresh does not extend manual cooldown");
-    }
 
     #[test]
     fn scheduled_web_refresh_accepts_external_headless_snapshot_without_manual_cooldown() {
@@ -3368,74 +3145,40 @@ mod tests {
     }
 
     #[test]
-    fn plan_only_ollama_snapshot_does_not_downgrade_web_usage() {
+    fn display_state_preserves_fable_only_web_window_with_local_fallback() {
+        let mut web = web_snapshot(Service::Claude, 88.0, "2026-06-03T23:00:00Z");
+        web.remaining_percent = None;
+        web.used_percent = None;
+        web.reset_at = None;
+        web.details["windows"] = serde_json::json!({
+            "fable": {
+                "remainingPercent": 88.0,
+                "usedPercent": 12.0,
+                "resetAt": null,
+            }
+        });
         let display_state = display_state_from_provider_snapshots(
-            ollama_web_config(),
+            web_enabled_config(),
             vec![
+                ("claude.web", web),
                 (
-                    "ollama.web",
-                    web_snapshot(Service::Ollama, 82.0, "2026-07-09T12:00:00Z"),
-                ),
-                (
-                    "ollama.local",
-                    ollama_plan_snapshot("2026-07-09T12:00:01Z"),
+                    "claude.local",
+                    uncalibrated_local_snapshot(Service::Claude, "2026-06-03T23:01:00Z"),
                 ),
             ],
-            "2026-07-09T12:00:01Z",
+            "2026-06-03T23:01:00Z",
         );
         let snapshot = &display_state.snapshots[0];
 
         assert_eq!(snapshot.source, UsageSource::Web);
-        assert_eq!(snapshot.remaining_percent, Some(82.0));
-        assert_eq!(snapshot.confidence, UsageConfidence::High);
-        assert_eq!(snapshot.details["mergeStatus"], "web_only");
-        assert_eq!(snapshot.details["plan"], "pro");
-    }
-
-    #[test]
-    fn grok_web_usage_beats_cli_plan_and_carries_its_plan_details() {
-        let display_state = display_state_from_provider_snapshots(
-            grok_web_config(),
-            vec![
-                (
-                    "grok.web",
-                    web_snapshot(Service::Grok, 71.5, "2026-07-09T12:00:00Z"),
-                ),
-                ("grok.cli", grok_cli_plan_snapshot("2026-07-09T12:10:00Z")),
-            ],
-            "2026-07-09T12:10:00Z",
-        );
-        let snapshot = &display_state.snapshots[0];
-
-        assert_eq!(snapshot.remaining_percent, Some(71.5));
-        assert_eq!(snapshot.details["providerId"], "grok.web");
-        assert_eq!(snapshot.details["plan"], "Grok Pro");
-        assert_eq!(snapshot.details["billingPeriodEnd"], "2026-07-16T00:00:00Z");
-    }
-
-    #[test]
-    fn grok_cli_plan_beats_a_grok_web_login_failure() {
-        let display_state = display_state_from_provider_snapshots(
-            grok_web_config(),
-            vec![
-                (
-                    "grok.web",
-                    web_error_snapshot(
-                        Service::Grok,
-                        UsageProviderError::LoginRequired,
-                        "2026-07-09T12:10:00Z",
-                    ),
-                ),
-                ("grok.cli", grok_cli_plan_snapshot("2026-07-09T12:00:00Z")),
-            ],
-            "2026-07-09T12:10:00Z",
-        );
-        let snapshot = &display_state.snapshots[0];
-
-        assert_eq!(snapshot.details["providerId"], "grok.cli");
-        assert_eq!(snapshot.details["plan"], "Grok Pro");
         assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(
+            snapshot.details["windows"]["fable"]["remainingPercent"],
+            88.0
+        );
+        assert_eq!(snapshot.details["mergeStatus"], "web_windows_only");
     }
+
 
     #[test]
     fn single_web_snapshots_keep_existing_codex_and_claude_behavior() {
@@ -3463,34 +3206,6 @@ mod tests {
             .all(|snapshot| snapshot.details["mergeStatus"] == "web_only"));
     }
 
-    #[test]
-    fn plan_only_ollama_snapshot_stays_clean_when_web_login_fails() {
-        let display_state = display_state_from_provider_snapshots(
-            ollama_web_config(),
-            vec![
-                (
-                    "ollama.web",
-                    web_error_snapshot(
-                        Service::Ollama,
-                        UsageProviderError::LoginRequired,
-                        "2026-07-09T12:00:00Z",
-                    ),
-                ),
-                (
-                    "ollama.local",
-                    ollama_plan_snapshot("2026-07-09T12:00:01Z"),
-                ),
-            ],
-            "2026-07-09T12:00:01Z",
-        );
-        let snapshot = &display_state.snapshots[0];
-
-        assert_eq!(snapshot.source, UsageSource::Local);
-        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
-        assert_eq!(snapshot.details["plan"], "pro");
-        assert!(snapshot.details.get("webStatus").is_none());
-        assert!(snapshot.details.get("mergeStatus").is_none());
-    }
 
     #[test]
     fn display_state_uses_local_only_snapshot_without_web_baseline() {
@@ -3706,12 +3421,12 @@ mod tests {
         assert_eq!(
             successful_snapshot.details.get("webStatus"),
             None,
-            "Successful web preflight must clear stale login-required fallback status",
+            "Successful web refresh must clear stale login-required fallback status",
         );
         assert_eq!(
             successful_snapshot.details.get("webReason"),
             None,
-            "Successful web preflight must clear stale fallback reason",
+            "Successful web refresh must clear stale fallback reason",
         );
         assert_eq!(
             successful_snapshot.details["mergeStatus"],
@@ -4051,19 +3766,11 @@ mod tests {
                 .code(),
             "claude.web"
         );
-        assert_eq!(UsageProviderId::GrokCli.code(), "grok.cli");
-        assert_eq!(
-            UsageProviderId::for_service_source(Service::Grok, UsageSource::Web)
-                .expect("grok web id")
-                .code(),
-            "grok.web"
-        );
-        assert_eq!(
-            UsageProviderId::for_service_source(Service::Ollama, UsageSource::Local)
-                .expect("ollama local id")
-                .code(),
-            "ollama.local"
-        );
+        for service in [Service::Grok, Service::Ollama] {
+            for source in [UsageSource::Local, UsageSource::Web, UsageSource::Fake] {
+                assert_eq!(UsageProviderId::for_service_source(service, source), None);
+            }
+        }
         assert_eq!(
             UsageProviderId::for_service_source(Service::Codex, UsageSource::Fake)
                 .expect("fake id")
@@ -4072,46 +3779,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn grok_cli_provider_is_registered_when_enabled() {
-        let config = AppConfig {
-            enabled_services: crate::config::ServiceToggles {
-                codex: false,
-                claude: false,
-                grok: true,
-                ollama: false,
-            },
-            providers: crate::config::ProviderSettings {
-                local_enabled: false,
-                web_enabled: false,
-                cli_enabled: true,
-            },
-            ..AppConfig::default()
-        };
-
-        let providers = providers_for_config(&config, &LocalProviderRoots::default());
-
-        assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].provider_id(), UsageProviderId::GrokCli);
-        assert_eq!(providers[0].service(), Service::Grok);
-        assert_eq!(providers[0].source(), UsageSource::Web);
-    }
-
-    #[test]
-    fn grok_cli_and_web_providers_register_together_when_enabled() {
-        let providers = providers_for_config(&grok_web_config(), &LocalProviderRoots::default());
-
-        assert!(providers.iter().any(|provider| {
-            provider.provider_id() == UsageProviderId::GrokCli
-                && provider.service() == Service::Grok
-                && provider.source() == UsageSource::Web
-        }));
-        assert!(providers.iter().any(|provider| {
-            provider.provider_id() == UsageProviderId::GrokWeb
-                && provider.service() == Service::Grok
-                && provider.source() == UsageSource::Web
-        }));
-    }
 
     #[test]
     fn fake_provider_refresh_keys_remain_per_service() {

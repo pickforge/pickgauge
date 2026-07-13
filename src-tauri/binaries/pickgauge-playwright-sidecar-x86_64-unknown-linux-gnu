@@ -1,25 +1,15 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const BACKEND_ID = "playwright-headed-chromium-sidecar";
 export const PROTOCOL_VERSION = 1;
 
-const allowedServices = new Set(["codex", "claude", "grok", "ollama"]);
-const allowedActions = new Set(["launchLogin", "refreshUsage", "httpRefreshUsage"]);
+const allowedServices = new Set(["codex", "claude"]);
+const allowedActions = new Set(["launchLogin", "refreshUsage"]);
 const navigationTimeoutMs = 30_000;
-const ollamaHttpUserAgent =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-const grokProducts = new Set([
-  "PRODUCT_GROK_CHAT",
-  "PRODUCT_GROK_BUILD",
-  "PRODUCT_API",
-  "PRODUCT_GROK_IMAGINE",
-  "PRODUCT_GROK_VOICE",
-  "PRODUCT_GROK_PLUGINS",
-]);
 
 export function validateLaunchRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -54,24 +44,12 @@ export function validateLaunchRequest(input) {
     return rejected("invalid_url");
   }
 
-  if (
-    input.service === "grok" &&
-    input.url !==
-      (input.action === "httpRefreshUsage"
-        ? "https://grok.com/rest/grok/credits"
-        : "https://grok.com/")
-  ) {
-    return rejected("invalid_url");
-  }
 
   if (input.action === "launchLogin" && input.headless !== false) {
     return rejected("headed_mode_required");
   }
 
-  if (
-    (input.action === "refreshUsage" || input.action === "httpRefreshUsage") &&
-    input.headless !== true
-  ) {
+  if (input.action === "refreshUsage" && input.headless !== true) {
     return rejected("headless_mode_required");
   }
 
@@ -137,9 +115,6 @@ export async function runLaunchRequest(input, { dryRun = false } = {}) {
   let context;
 
   try {
-    if (request.action === "httpRefreshUsage") {
-      return await runHttpRefreshUsageRequest(request);
-    }
 
     if (request.action === "refreshUsage") {
       return await runRefreshUsageRequest(request);
@@ -189,16 +164,7 @@ async function runRefreshUsageRequest(request) {
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
 
     const visibleUsage = await extractVisibleUsage(page, request.service);
-    const pageState =
-      request.service === "grok"
-        ? await detectGrokPageState(page, existingCookieCount)
-        : await detectPageState(page, visibleUsage, existingCookieCount);
-
-    if ((request.service === "grok" || request.service === "ollama") && pageState === "usage") {
-      // Harvest the authenticated session so later refreshes can skip Chromium
-      // and fetch the page over plain HTTP. The cookie never leaves the sidecar.
-      await persistSession(context, request);
-    }
+    const pageState = await detectPageState(page, visibleUsage, existingCookieCount);
 
     return {
       ...sanitizedAcceptedResponse(request),
@@ -209,6 +175,7 @@ async function runRefreshUsageRequest(request) {
       usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
       visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
       weekly: pageState === "usage" ? visibleUsage.weekly : null,
+      fable: pageState === "usage" ? visibleUsage.fable : null,
       products: pageState === "usage" ? (visibleUsage.products ?? []) : [],
     };
   } catch (error) {
@@ -234,6 +201,7 @@ function sanitizedCheckedResponse(request, pageState, visibleUsage = emptyVisibl
     usedPercent: pageState === "usage" ? visibleUsage.usedPercent : null,
     visibleFields: pageState === "usage" ? visibleUsage.visibleFields : [],
     weekly: pageState === "usage" ? visibleUsage.weekly : null,
+    fable: pageState === "usage" ? visibleUsage.fable : null,
     products: pageState === "usage" ? (visibleUsage.products ?? []) : [],
   };
 }
@@ -245,118 +213,11 @@ function emptyVisibleUsage() {
     usedPercent: null,
     visibleFields: [],
     weekly: null,
+    fable: null,
     products: [],
   };
 }
 
-// Lightweight refresh: replay the harvested session cookie over plain HTTP,
-// with no Chromium launched. A missing or expired session reports `logged_out`
-// so the caller falls back to the browser.
-async function runHttpRefreshUsageRequest(request) {
-  if (request.service !== "grok" && request.service !== "ollama") {
-    return sanitizedCheckedResponse(request, "unexpected_ui");
-  }
-
-  const cookies = readSession(request);
-
-  if (cookies === null) {
-    return sanitizedCheckedResponse(request, "logged_out");
-  }
-
-  let response;
-
-  try {
-    response = await fetch(request.url, {
-      headers:
-        request.service === "grok"
-          ? {
-              accept: "application/json",
-              cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
-            }
-          : {
-              accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              "accept-language": "en-US,en;q=0.9",
-              cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
-              "user-agent": ollamaHttpUserAgent,
-            },
-      redirect: "manual",
-    });
-  } catch (error) {
-    return sanitizedCheckedResponse(request, refreshFailurePageState(error));
-  }
-
-  if (response.status >= 300 && response.status < 400) {
-    // Redirected to sign-in: the harvested session expired.
-    return sanitizedCheckedResponse(request, "logged_out");
-  }
-
-  if (request.service === "grok" && (response.status === 401 || response.status === 403)) {
-    return sanitizedCheckedResponse(request, "logged_out");
-  }
-
-  if (!response.ok) {
-    return sanitizedCheckedResponse(request, "unexpected_ui");
-  }
-
-  const body = await response.text().catch(() => "");
-
-  if (request.service === "grok") {
-    const parsed = parseGrokCreditsBody(body);
-    return sanitizedCheckedResponse(request, parsed.pageState, parsed.usage);
-  }
-
-  const usage = extractOllamaUsageFromHtml(body);
-  const pageState = usage.visibleFields.length > 0 ? "usage" : "unexpected_ui";
-
-  return sanitizedCheckedResponse(request, pageState, usage);
-}
-
-function sessionStorePath(request) {
-  return `${request.userDataDir}.session.json`;
-}
-
-async function persistSession(context, request) {
-  try {
-    const cookies = await context.cookies(request.url);
-    const pairs = cookies
-      .filter((cookie) => typeof cookie.name === "string" && typeof cookie.value === "string")
-      .map((cookie) => ({ name: cookie.name, value: cookie.value }));
-
-    if (pairs.length === 0) {
-      return;
-    }
-
-    const path = sessionStorePath(request);
-    writeFileSync(path, JSON.stringify(pairs), { mode: 0o600 });
-    chmodSync(path, 0o600);
-  } catch {
-    // A failed harvest just means the next refresh falls back to the browser.
-  }
-}
-
-function readSession(request) {
-  try {
-    const path = sessionStorePath(request);
-
-    if (!existsSync(path)) {
-      return null;
-    }
-
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
-
-    if (!Array.isArray(parsed)) {
-      return null;
-    }
-
-    const pairs = parsed.filter(
-      (entry) => entry && typeof entry.name === "string" && typeof entry.value === "string",
-    );
-
-    return pairs.length > 0 ? pairs : null;
-  } catch {
-    return null;
-  }
-}
 
 function refreshFailurePageState(error) {
   const message = typeof error?.message === "string" ? error.message : "";
@@ -396,35 +257,6 @@ export async function detectPageState(page, visibleUsage, cookieCount) {
   return "unexpected_ui";
 }
 
-async function detectGrokPageState(page, cookieCount) {
-  if (await urlLooksLoggedOut(page)) {
-    return "logged_out";
-  }
-
-  if (await hasAnyVisibleLocator(captchaLocators(page))) {
-    return "captcha_or_bot_check";
-  }
-
-  if (await hasAnyVisibleLocator(mfaLocators(page))) {
-    return "mfa_required";
-  }
-
-  if (await hasAnyVisibleLocator(authGateLocators(page))) {
-    return "logged_out";
-  }
-
-  try {
-    const host = new URL(page.url()).hostname.toLowerCase();
-
-    if (host === "grok.com" || host.endsWith(".grok.com")) {
-      return "usage";
-    }
-  } catch {
-    return "unexpected_ui";
-  }
-
-  return cookieCount === 0 ? "logged_out" : "unexpected_ui";
-}
 
 async function serviceCookieCount(context, url) {
   return (await context.cookies(url).catch(() => [])).length;
@@ -489,12 +321,12 @@ async function hasAnyVisibleLocator(locators) {
 }
 
 export async function extractVisibleUsage(page, service) {
-  if (service === "ollama") {
-    const html = await page.content().catch(() => "");
-    return { ...extractOllamaUsageFromHtml(html), service };
-  }
 
   const text = await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
+  if (service === "claude") {
+    return extractClaudeUsage(text);
+  }
+
   const percentages = visiblePercentages(text);
   const resetAt = visibleResetAt(text);
   const visibleFields = [];
@@ -526,78 +358,117 @@ export async function extractVisibleUsage(page, service) {
     usedPercent: percentages.usedPercent,
     visibleFields: [...new Set(visibleFields)],
     weekly: null,
+    fable: null,
   };
 }
 
-export function parseGrokCreditsBody(body) {
-  if (typeof body !== "string" || /^\s*</u.test(body)) {
-    return { pageState: "logged_out", usage: emptyVisibleUsage() };
+function extractClaudeUsage(text) {
+  const sessionLabel = /\bcurrent\s+session\b/iu;
+  const sessionUsed = usedPercentFollowingLabel(text, sessionLabel);
+  const weeklyUsed = usedPercentFollowingLabel(text, /\ball\s+models\b/iu);
+  const fableUsed = usedPercentFollowingLabel(text, /\bfable(?:\s+5)?(?:\s+only)?\b/iu);
+  const fallback = claudeFallbackPercentages(text);
+  const hasSessionLabel = labelIsPresent(text, sessionLabel);
+  const hasSecondaryLabel =
+    labelIsPresent(text, /\ball\s+models\b/iu) ||
+    labelIsPresent(text, /\bfable(?:\s+5)?(?:\s+only)?\b/iu);
+  const usedPercent = hasSessionLabel
+    ? sessionUsed
+    : hasSecondaryLabel
+      ? null
+      : fallback.usedPercent;
+  const remainingPercent = hasSessionLabel
+    ? sessionUsed === null
+      ? null
+      : 100 - sessionUsed
+    : hasSecondaryLabel
+      ? null
+      : fallback.remainingPercent;
+  const resetAt = visibleResetAt(text);
+  const visibleFields = [];
+
+  if (remainingPercent !== null) {
+    visibleFields.push("remaining_percent");
   }
-
-  let value;
-  try {
-    value = JSON.parse(body);
-  } catch {
-    return { pageState: "unexpected_ui", usage: emptyVisibleUsage() };
+  if (usedPercent !== null) {
+    visibleFields.push("used_percent");
   }
-
-  const usage = extractGrokCreditsUsage(value);
-  return usage === null
-    ? { pageState: "unexpected_ui", usage: emptyVisibleUsage() }
-    : { pageState: "usage", usage };
-}
-
-export function extractGrokCreditsUsage(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const config = value.config;
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return null;
-  }
-
-  const hasUsage = Object.prototype.hasOwnProperty.call(config, "creditUsagePercent");
-  const usedPercent = hasUsage ? config.creditUsagePercent : 0;
-  if (typeof usedPercent !== "number" || !validPercent(usedPercent)) {
-    return null;
-  }
-
-  const period = config.currentPeriod;
-  const resetAt =
-    period && typeof period === "object" && !Array.isArray(period)
-      ? normalizeRfc3339(period.billingPeriodEnd)
-      : null;
-  const products = Array.isArray(config.productUsage)
-    ? config.productUsage.flatMap((entry) => {
-        if (
-          !entry ||
-          typeof entry !== "object" ||
-          Array.isArray(entry) ||
-          !grokProducts.has(entry.product) ||
-          !validPercent(entry.usagePercent)
-        ) {
-          return [];
-        }
-
-        return [{ product: entry.product, usagePercent: entry.usagePercent }];
-      })
-    : [];
-
-  const visibleFields = ["used_percent", "remaining_percent", "quota_window"];
   if (resetAt !== null) {
     visibleFields.push("reset_at");
   }
 
+  const weekly = usageWindowFromUsedPercent(weeklyUsed);
+  const fable = usageWindowFromUsedPercent(fableUsed);
+  if (weekly !== null || fable !== null) {
+    visibleFields.push("quota_window");
+  }
+  if (/\b(plan|pro|team|max|plus)\b/iu.test(text)) {
+    visibleFields.push("plan_label");
+  }
+
   return {
-    remainingPercent: 100 - usedPercent,
+    remainingPercent,
     resetAt,
+    service: "claude",
     usedPercent,
     visibleFields,
-    weekly: null,
-    products,
+    weekly,
+    fable,
   };
 }
+
+function claudeFallbackPercentages(text) {
+  const remaining = percentNearLabel(text, /\b(remaining|left|available)\b/iu);
+  const used =
+    percentNearLabel(text, /\b(used|consumed)\b/iu) ??
+    percentImmediatelyBeforeLabel(text, /\busage\b/iu);
+
+  return {
+    remainingPercent: remaining ?? (used === null ? firstPercentValue(text) : null),
+    usedPercent: used,
+  };
+}
+
+function percentImmediatelyBeforeLabel(text, labelPattern) {
+  const normalized = text.replace(/\s+/gu, " ");
+  const flags = labelPattern.flags.replace("g", "");
+  const match = new RegExp(
+    `\\b([0-9]{1,3}(?:\\.[0-9]{1,2})?)\\s*%\\s*${labelPattern.source}`,
+    flags,
+  ).exec(normalized);
+  const value = match === null ? null : Number.parseFloat(match[1]);
+  return value !== null && validPercent(value) ? value : null;
+}
+
+function labelIsPresent(text, labelPattern) {
+  return new RegExp(labelPattern.source, labelPattern.flags).test(text.replace(/\s+/gu, " "));
+}
+
+function usedPercentFollowingLabel(text, labelPattern) {
+  const normalized = text.replace(/\s+/gu, " ");
+  const label = new RegExp(labelPattern.source, labelPattern.flags).exec(normalized);
+  if (label === null) {
+    return null;
+  }
+
+  const afterLabel = normalized.slice(label.index + label[0].length);
+  const nextLabel = /\b(?:current\s+session|all\s+models|fable(?:\s+5)?(?:\s+only)?)\b/iu.exec(
+    afterLabel,
+  );
+  const section = nextLabel === null ? afterLabel : afterLabel.slice(0, nextLabel.index);
+  const match = /\b([0-9]{1,3}(?:\.[0-9]{1,2})?)\s*%\s*used\b/iu.exec(section);
+  const value = match === null ? null : Number.parseFloat(match[1]);
+  return value !== null && validPercent(value) ? value : null;
+}
+
+function usageWindowFromUsedPercent(usedPercent) {
+  if (usedPercent === null || !validPercent(usedPercent)) {
+    return null;
+  }
+
+  return { remainingPercent: 100 - usedPercent, resetAt: null, usedPercent };
+}
+
 
 function visiblePercentages(text) {
   const remaining = percentNearLabel(text, /\b(remaining|left|available)\b/iu);
@@ -675,144 +546,6 @@ function visibleResetAt(text) {
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
-// Parse the two Ollama usage meters straight from the server-rendered HTML.
-// Both the browser refresh (via page.content()) and the lightweight HTTP refresh
-// feed this single parser, so there is one extraction code path to maintain.
-export function parseOllamaUsageHtml(html) {
-  if (typeof html !== "string" || html.length === 0) {
-    return null;
-  }
-
-  return {
-    session: readOllamaMeter(html, "Session usage"),
-    weekly: readOllamaMeter(html, "Weekly usage"),
-  };
-}
-
-function readOllamaMeter(html, prefix) {
-  const label = new RegExp(
-    `aria-label="${prefix}\\s+([0-9]{1,3}(?:\\.[0-9]+)?)\\s*%\\s*used"`,
-    "i",
-  ).exec(html);
-
-  if (label === null) {
-    return null;
-  }
-
-  // The reset timestamp is the first data-time attribute after this meter's
-  // label; the next window's block (and its own data-time) appears later.
-  const reset = /data-time="([^"]+)"/i.exec(html.slice(label.index + label[0].length));
-
-  return {
-    usedPercent: Number.parseFloat(label[1]),
-    resetAt: reset === null ? null : reset[1],
-  };
-}
-
-export function extractOllamaUsageFromHtml(html) {
-  const { primary, secondary } = pickOllamaWindows(parseOllamaUsageHtml(html));
-
-  if (primary === null) {
-    return emptyVisibleUsage();
-  }
-
-  const usedPercent = validPercent(primary.usedPercent) ? primary.usedPercent : null;
-  const resetAt = normalizeIsoReset(primary.resetAt);
-  const weekly = ollamaWindow(secondary);
-  const visibleFields = [];
-
-  if (usedPercent !== null) {
-    visibleFields.push("used_percent", "remaining_percent");
-  }
-
-  if (resetAt !== null) {
-    visibleFields.push("reset_at");
-  }
-
-  if (weekly !== null) {
-    visibleFields.push("quota_window");
-  }
-
-  return {
-    remainingPercent: usedPercent === null ? null : 100 - usedPercent,
-    resetAt,
-    usedPercent,
-    visibleFields,
-    weekly,
-  };
-}
-
-// The session window is the headline gauge (it resets in hours, like the other
-// services' 5-hour window) and the weekly window is the secondary bar. When the
-// session meter is absent the weekly window becomes the headline with no
-// secondary, mirroring the previous single-window fallback.
-function pickOllamaWindows(meters) {
-  if (!meters) {
-    return { primary: null, secondary: null };
-  }
-
-  const session = validOllamaMeter(meters.session) ? meters.session : null;
-  const weekly = validOllamaMeter(meters.weekly) ? meters.weekly : null;
-
-  if (session !== null) {
-    return { primary: session, secondary: weekly };
-  }
-
-  return { primary: weekly, secondary: null };
-}
-
-function validOllamaMeter(window) {
-  return (
-    Boolean(window) && typeof window.usedPercent === "number" && validPercent(window.usedPercent)
-  );
-}
-
-// Shape a secondary meter into the window payload the web provider expects,
-// dropping it when the percentage is missing or out of range.
-function ollamaWindow(window) {
-  if (window === null) {
-    return null;
-  }
-
-  const usedPercent = validPercent(window.usedPercent) ? window.usedPercent : null;
-
-  if (usedPercent === null) {
-    return null;
-  }
-
-  return {
-    remainingPercent: 100 - usedPercent,
-    resetAt: normalizeIsoReset(window.resetAt),
-    usedPercent,
-  };
-}
-
-function normalizeIsoReset(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const match = value.match(/\b20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]/u);
-
-  if (!match) {
-    return null;
-  }
-
-  const iso = match[0].endsWith("Z") ? match[0] : `${match[0]}:00Z`;
-  return Number.isNaN(Date.parse(iso)) ? null : iso;
-}
-
-function normalizeRfc3339(value) {
-  if (
-    typeof value !== "string" ||
-    value.length > 64 ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)
-  ) {
-    return null;
-  }
-
-  return Number.isNaN(Date.parse(value)) ? null : value;
-}
 
 function rejected(code) {
   return { ok: false, code };

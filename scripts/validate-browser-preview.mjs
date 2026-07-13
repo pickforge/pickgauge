@@ -10,8 +10,10 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.PICKGAUGE_BROWSER_PREVIEW_PORT ?? 1420);
 const baseUrl = `http://127.0.0.1:${port}/`;
 const viewports = [
-  { label: "desktop", width: 1280, height: 900 },
-  { label: "mobile", width: 390, height: 900 },
+  { label: "desktop", width: 1000, height: 700 },
+  { label: "minimum", width: 820, height: 600 },
+  { label: "compact", width: 680, height: 600 },
+  { label: "narrow", width: 390, height: 900 },
 ];
 const previewStates = [
   { state: "default", notes: [] },
@@ -45,11 +47,13 @@ try {
     }
 
     await validateDesktopOnlyControlFallbacks(browser);
+    await validateSettingsLayout(browser);
+    await validateFloatCapsule(browser);
   } finally {
     await browser.close();
   }
 
-  console.log("Browser preview validation passed for desktop and mobile Playwright checks");
+  console.log("Browser preview validation passed for two-provider responsive checks");
 } finally {
   await stopServer(server);
 }
@@ -111,6 +115,8 @@ async function validatePreviewState(browser, viewport, previewState) {
     viewport: { width: viewport.width, height: viewport.height },
   });
   const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const url =
     previewState.state === "default"
       ? baseUrl
@@ -118,7 +124,15 @@ async function validatePreviewState(browser, viewport, previewState) {
 
   try {
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.locator("article.usage-card").first().waitFor();
+    await page
+      .locator("article.usage-card")
+      .first()
+      .waitFor({ timeout: 10_000 })
+      .catch((error) => {
+        throw new Error(
+          `${viewport.label} ${previewState.state} did not render a usage card: ${error.message}; page errors: ${pageErrors.join(" | ") || "none"}`,
+        );
+      });
 
     assert.equal(await page.title(), "PickGauge");
     assert.equal(
@@ -129,17 +143,23 @@ async function validatePreviewState(browser, viewport, previewState) {
     await assertVisibleText(page, "Codex");
     await assertVisibleText(page, "Claude Code");
     await assertVisibleText(page, "Remaining usage");
+    assert.equal(await page.getByText("Grok", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("Ollama", { exact: true }).count(), 0);
 
     for (const note of previewState.notes) {
       assert.equal(
         await page.getByText(note, { exact: true }).count(),
         2,
-        `${viewport.label} ${previewState.state} should render ${note} for both services`,
+        `${viewport.label} ${previewState.state} should render ${note} for Codex and Claude`,
       );
     }
 
     if (previewState.startLoginVisibleAfterOptIn === false) {
-      await assertStartLoginHiddenAfterOptIn(page, viewport, previewState.state);
+      assert.equal(
+        await page.getByRole("button", { name: "Start Codex login" }).count(),
+        0,
+        `${viewport.label} ${previewState.state} should not show Start login`,
+      );
     }
 
     await assertNoHorizontalOverflow(page, viewport, previewState.state);
@@ -172,21 +192,10 @@ async function validateDesktopOnlyControlFallbacks(browser) {
     await openSettingsView(page);
     assert.equal(await codexProfile.isDisabled(), true);
 
-    await setWebProvidersOptIn(page, true);
-    assert.equal(await codexProfile.isDisabled(), false);
-
-    await openDashboardView(page);
-    assert.equal(await officialRefresh.isDisabled(), false);
-    assert.equal(await defaultStartLogin.count(), 0);
-
-    await officialRefresh.click();
-    await assertVisibleText(page, "Official Codex usage refreshes in the desktop app");
-
     const expiredLoginStart = await validateStartLoginPrompt(page, "expired-login", {
       expectedVisible: true,
     });
-    await expiredLoginStart?.click();
-    await assertVisibleText(page, "Codex login starts from the desktop app");
+    assert.equal(await expiredLoginStart?.isDisabled(), true);
 
     await validateStartLoginPrompt(page, "mfa-required", { expectedVisible: true });
     await validateStartLoginPrompt(page, "captcha-or-bot-check", { expectedVisible: true });
@@ -201,42 +210,7 @@ async function validateDesktopOnlyControlFallbacks(browser) {
 
 async function openSettingsView(page) {
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByLabel("Official web readings").waitFor({ state: "attached" });
-}
-
-async function openDashboardView(page) {
-  await page.getByRole("button", { name: "Dashboard" }).click();
-  await page.locator("article.usage-card").first().waitFor();
-}
-
-async function setWebProvidersOptIn(page, enabled) {
-  const toggle = page.getByLabel("Official web readings");
-
-  if ((await toggle.isChecked()) !== enabled) {
-    await page.locator("label.switch", { hasText: "Official web readings" }).click();
-  }
-
-  assert.equal(await toggle.isChecked(), enabled, "web provider opt-in should toggle");
-}
-
-async function optInWebProviders(page) {
-  await openSettingsView(page);
-  await setWebProvidersOptIn(page, true);
-  await openDashboardView(page);
-}
-
-async function assertStartLoginHiddenAfterOptIn(page, viewport, state) {
-  const startLogin = page.getByRole("button", {
-    name: "Start Codex login",
-  });
-
-  assert.equal(await startLogin.count(), 0, `${viewport.label} ${state} should not show Start login`);
-  await optInWebProviders(page);
-  assert.equal(
-    await startLogin.count(),
-    0,
-    `${viewport.label} ${state} should keep Start login hidden after opt-in`,
-  );
+  await page.getByLabel("Official Codex/Claude web readings").waitFor({ state: "attached" });
 }
 
 async function validateStartLoginPrompt(page, state, { expectedVisible }) {
@@ -249,14 +223,10 @@ async function validateStartLoginPrompt(page, state, { expectedVisible }) {
 
   if (!expectedVisible) {
     assert.equal(await startLogin.count(), 0, `${state} should not show Start login`);
-    await optInWebProviders(page);
-    assert.equal(await startLogin.count(), 0, `${state} should keep Start login hidden`);
     return null;
   }
 
   assert.equal(await startLogin.isDisabled(), true, `${state} login prompt should start disabled`);
-  await optInWebProviders(page);
-  assert.equal(await startLogin.isDisabled(), false, `${state} login prompt should be enabled`);
   return startLogin;
 }
 
@@ -307,6 +277,58 @@ async function assertNoHorizontalOverflow(page, viewport, state) {
     [],
     `${viewport.label} ${state} has horizontally overflowing elements`,
   );
+}
+
+async function validateSettingsLayout(browser) {
+  for (const { width, expectedColumns } of [
+    { width: 1000, expectedColumns: 2 },
+    { width: 820, expectedColumns: 1 },
+    { width: 680, expectedColumns: 1 },
+  ]) {
+    const context = await browser.newContext({ viewport: { width, height: 700 } });
+    const page = await context.newPage();
+    try {
+      await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+      await openSettingsView(page);
+      const columnCount = await page.locator(".settings-grid").evaluate((element) =>
+        getComputedStyle(element).gridTemplateColumns.split(" ").length,
+      );
+      assert.equal(columnCount, expectedColumns, `${width}px settings column count`);
+      await assertNoHorizontalOverflow(page, { label: `${width}px`, width }, "settings");
+    } finally {
+      await context.close();
+    }
+  }
+}
+
+async function validateFloatCapsule(browser) {
+  const context = await browser.newContext({
+    viewport: { width: 172, height: 60 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}?window=float&previewState=official-usage`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.locator(".ring").first().waitFor();
+    const geometry = await page.evaluate(() => {
+      const capsule = document.querySelector(".capsule").getBoundingClientRect();
+      const rings = Array.from(document.querySelectorAll(".ring"), (ring) =>
+        ring.getBoundingClientRect(),
+      );
+      return {
+        capsule: { width: capsule.width, height: capsule.height },
+        rings: rings.map(({ width, height }) => ({ width, height })),
+      };
+    });
+    assert.deepEqual(geometry.capsule, { width: 168, height: 56 });
+    assert.equal(geometry.rings.length, 2);
+    assert.deepEqual(geometry.rings, Array(2).fill({ width: 34, height: 34 }));
+    await assertNoHorizontalOverflow(page, { label: "float", width: 172 }, "official-usage");
+  } finally {
+    await context.close();
+  }
 }
 
 async function stopServer(server) {

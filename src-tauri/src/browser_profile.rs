@@ -16,8 +16,6 @@ pub struct BrowserProfilePaths {
     pub root: PathBuf,
     pub codex: PathBuf,
     pub claude: PathBuf,
-    pub grok: PathBuf,
-    pub ollama: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -25,8 +23,6 @@ pub struct BrowserProfilePaths {
 pub enum BrowserProfileService {
     Codex,
     Claude,
-    Grok,
-    Ollama,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -46,8 +42,6 @@ pub fn should_prepare_browser_profiles(
         || configured_path(&settings.root_path).is_some()
         || configured_path(&settings.codex_path).is_some()
         || configured_path(&settings.claude_path).is_some()
-        || configured_path(&settings.grok_path).is_some()
-        || configured_path(&settings.ollama_path).is_some()
 }
 
 pub fn prepare_browser_profiles(
@@ -60,8 +54,6 @@ pub fn prepare_browser_profiles(
     ensure_profile_root_directory(&paths.root)?;
     ensure_profile_directory(&paths.codex, BrowserProfileService::Codex)?;
     ensure_profile_directory(&paths.claude, BrowserProfileService::Claude)?;
-    ensure_profile_directory(&paths.grok, BrowserProfileService::Grok)?;
-    ensure_profile_directory(&paths.ollama, BrowserProfileService::Ollama)?;
 
     Ok(paths)
 }
@@ -131,8 +123,6 @@ impl BrowserProfilePaths {
         match service {
             BrowserProfileService::Codex => &self.codex,
             BrowserProfileService::Claude => &self.claude,
-            BrowserProfileService::Grok => &self.grok,
-            BrowserProfileService::Ollama => &self.ollama,
         }
     }
 }
@@ -164,21 +154,11 @@ fn resolve_browser_profile_paths(
         Some(path) => resolve_configured_path(path)?,
         None => root.join("claude"),
     };
-    let grok = match configured_path(&settings.grok_path) {
-        Some(path) => resolve_configured_path(path)?,
-        None => root.join("grok"),
-    };
-    let ollama = match configured_path(&settings.ollama_path) {
-        Some(path) => resolve_configured_path(path)?,
-        None => root.join("ollama"),
-    };
 
     let paths = BrowserProfilePaths {
         root,
         codex: canonicalize_browser_profile_path(&codex)?,
         claude: canonicalize_browser_profile_path(&claude)?,
-        grok: canonicalize_browser_profile_path(&grok)?,
-        ollama: canonicalize_browser_profile_path(&ollama)?,
     };
     reject_overlapping_profile_paths(&paths)?;
 
@@ -261,7 +241,7 @@ fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn reject_overlapping_profile_paths(paths: &BrowserProfilePaths) -> Result<(), String> {
-    let service_paths = [&paths.codex, &paths.claude, &paths.grok, &paths.ollama];
+    let service_paths = [&paths.codex, &paths.claude];
 
     if service_paths.iter().any(|path| &paths.root == *path) {
         return Err("Browser profile root must not be a service profile path".to_string());
@@ -505,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn web_enabled_profiles_use_default_app_owned_paths() {
+    fn web_enabled_profiles_create_only_supported_managed_services() {
         let dir = TestDir::new();
         let paths =
             prepare_browser_profiles(&empty_settings(), &dir.path).expect("profiles prepare");
@@ -513,12 +493,31 @@ mod tests {
         assert_eq!(paths.root, dir.path.join("browser-profiles"));
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.ollama.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.root.join("grok").exists());
+        assert!(!paths.root.join("ollama").exists());
     }
 
     #[test]
-    fn missing_app_data_dir_is_created_before_default_profiles() {
+    fn legacy_deferred_profile_paths_do_not_trigger_or_affect_preparation() {
+        let dir = TestDir::new();
+        let settings = BrowserProfileSettings {
+            grok_path: Some("relative-grok-profile".to_string()),
+            ollama_path: Some("relative-ollama-profile".to_string()),
+            ..empty_settings()
+        };
+
+        assert!(!should_prepare_browser_profiles(&settings, false));
+
+        let paths =
+            prepare_browser_profiles(&settings, &dir.path).expect("legacy paths are ignored");
+        assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.root.join("grok").exists());
+        assert!(!paths.root.join("ollama").exists());
+    }
+
+    #[test]
+    fn missing_app_data_dir_is_created_before_supported_profiles() {
         let dir = TestDir::new();
         let app_data_dir = dir.path.join("nested").join("app-data");
 
@@ -528,7 +527,8 @@ mod tests {
         assert!(app_data_dir.exists());
         assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
         assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.root.join("grok").exists());
+        assert!(!paths.root.join("ollama").exists());
     }
 
     #[test]
@@ -547,10 +547,8 @@ mod tests {
         assert_eq!(paths.root, dir.path.join("root"));
         assert_eq!(paths.codex, dir.path.join("codex-custom"));
         assert_eq!(paths.claude, dir.path.join("claude-custom"));
-        assert_eq!(paths.grok, dir.path.join("root").join("grok"));
-        assert!(paths.codex.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.claude.join(PROFILE_MARKER_FILE_NAME).exists());
-        assert!(paths.grok.join(PROFILE_MARKER_FILE_NAME).exists());
+        assert!(!paths.root.join("grok").exists());
+        assert!(!paths.root.join("ollama").exists());
     }
 
     #[test]

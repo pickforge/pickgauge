@@ -147,7 +147,10 @@ async function validatePreviewState(browser, viewport, previewState) {
     await assertVisibleText(page, "Remaining usage");
     await assertVisibleText(page, "Consumer quota unsupported");
     await assertVisibleText(page, "No supported consumer quota API");
-    await assertVisibleText(page, "Local daemon connected");
+    await assertVisibleText(
+      page,
+      previewState.state === "provider-disabled" ? "Local estimates disabled" : "Local daemon connected",
+    );
     await assertVisibleText(page, "Cloud quota unavailable");
     assert.equal(await page.getByRole("button", { name: "Start Grok login" }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "Start Ollama login" }).count(), 0);

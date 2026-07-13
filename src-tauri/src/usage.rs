@@ -129,6 +129,7 @@ pub enum UsageProviderId {
     GrokCli,
     GrokWeb,
     OllamaLocal,
+    OllamaDisabled,
     OllamaWeb,
     Fake,
 }
@@ -194,6 +195,11 @@ struct FailClosedWebProvider {
 
 #[derive(Clone, Copy)]
 struct UnsupportedUsageProvider {
+    service: Service,
+}
+
+#[derive(Clone, Copy)]
+struct DisabledLocalUsageProvider {
     service: Service,
 }
 
@@ -294,6 +300,7 @@ impl UsageProviderId {
             Self::GrokCli => "grok.cli",
             Self::GrokWeb => "grok.web",
             Self::OllamaLocal => "ollama.local",
+            Self::OllamaDisabled => "ollama.local-disabled",
             Self::OllamaWeb => "ollama.web",
             Self::Fake => "fake",
         }
@@ -553,21 +560,16 @@ impl UsageEngine {
     }
 
     fn refresh_all_with_policy(&self, policy: RefreshPolicy) -> Result<UsageDisplayState, String> {
-        let (providers, provider_keys, config, scheduled_provider_refreshes) = {
+        let (providers, config, scheduled_provider_refreshes) = {
             let state = self.lock()?;
             let providers = state
                 .providers
                 .iter()
                 .map(|provider| provider_descriptor(provider.as_ref()))
                 .collect::<Vec<_>>();
-            let provider_keys = providers
-                .iter()
-                .map(|provider| provider.provider_key.clone())
-                .collect::<HashSet<_>>();
 
             (
                 providers,
-                provider_keys,
                 state.config.clone(),
                 state.scheduled_provider_refreshes.clone(),
             )
@@ -620,15 +622,7 @@ impl UsageEngine {
         }
 
         let mut state = self.lock()?;
-        state
-            .snapshots
-            .retain(|provider_key, _| provider_keys.contains(provider_key));
-
-        let refreshed_any = !refreshed.is_empty();
-
-        for (provider_key, snapshot) in refreshed {
-            state.snapshots.insert(provider_key, snapshot);
-        }
+        let refreshed_any = apply_current_provider_snapshots(&mut state, refreshed);
 
         if policy == RefreshPolicy::Manual || refreshed_any {
             state.last_updated = now.clone();
@@ -798,8 +792,13 @@ impl UsageEngine {
         self.finish_refresh(&provider.provider_key)?;
 
         let mut state = self.lock()?;
-        state.snapshots.insert(provider.provider_key, snapshot);
-        state.last_updated = now.clone();
+        let refreshed = apply_current_provider_snapshots(
+            &mut state,
+            vec![(provider.provider_key, snapshot)],
+        );
+        if refreshed {
+            state.last_updated = now.clone();
+        }
         Ok(state.display_state(&now))
     }
 
@@ -859,6 +858,10 @@ impl UsageEngine {
             (UsageProviderId::OllamaLocal, Service::Ollama) => {
                 OllamaLocalProvider::new().refresh(now)
             }
+            (UsageProviderId::OllamaDisabled, Service::Ollama) => DisabledLocalUsageProvider {
+                service: Service::Ollama,
+            }
+            .refresh(now),
             (UsageProviderId::CodexWeb, Service::Codex)
             | (UsageProviderId::ClaudeWeb, Service::Claude)
             | (UsageProviderId::GrokWeb, Service::Grok)
@@ -1008,6 +1011,29 @@ impl UsageEngine {
             .lock()
             .map_err(|_| "Usage engine state lock was poisoned".to_string())
     }
+}
+
+fn apply_current_provider_snapshots(
+    state: &mut UsageEngineState,
+    refreshed: Vec<(String, UsageSnapshot)>,
+) -> bool {
+    let current_provider_keys = state
+        .providers
+        .iter()
+        .map(|provider| provider.provider_key())
+        .collect::<HashSet<_>>();
+    state
+        .snapshots
+        .retain(|provider_key, _| current_provider_keys.contains(provider_key));
+
+    let mut refreshed_any = false;
+    for (provider_key, snapshot) in refreshed {
+        if current_provider_keys.contains(&provider_key) {
+            state.snapshots.insert(provider_key, snapshot);
+            refreshed_any = true;
+        }
+    }
+    refreshed_any
 }
 
 impl UsageEngineState {
@@ -1534,6 +1560,42 @@ impl UsageProvider for UnsupportedUsageProvider {
     }
 }
 
+impl UsageProvider for DisabledLocalUsageProvider {
+    fn provider_id(&self) -> UsageProviderId {
+        UsageProviderId::OllamaDisabled
+    }
+
+    fn service(&self) -> Service {
+        self.service
+    }
+
+    fn source(&self) -> UsageSource {
+        UsageSource::Local
+    }
+
+    fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+        Ok(UsageSnapshot {
+            service: self.service,
+            remaining_percent: None,
+            used_percent: None,
+            reset_at: None,
+            source: self.source(),
+            confidence: UsageConfidence::Unknown,
+            last_updated: now.to_string(),
+            details: serde_json::json!({
+                "status": "disabled",
+                "providerId": self.provider_id().code(),
+                "source": self.source().code(),
+                "reason": "local_estimates_disabled",
+            }),
+        })
+    }
+
+    fn is_placeholder(&self) -> bool {
+        true
+    }
+}
+
 impl UsageProvider for CliUsageProvider {
     fn provider_id(&self) -> UsageProviderId {
         match self.service {
@@ -1708,8 +1770,14 @@ fn providers_for_config(
         }));
     }
 
-    if config.enabled_services.ollama && config.providers.local_enabled {
-        providers.push(Box::new(OllamaLocalProvider::new()));
+    if config.enabled_services.ollama {
+        if config.providers.local_enabled {
+            providers.push(Box::new(OllamaLocalProvider::new()));
+        } else {
+            providers.push(Box::new(DisabledLocalUsageProvider {
+                service: Service::Ollama,
+            }));
+        }
     }
 
     providers
@@ -2482,6 +2550,61 @@ mod tests {
         assert_eq!(display_state.snapshots.len(), 1);
         assert_eq!(display_state.snapshots[0].service, Service::Claude);
         assert_eq!(display_state.snapshots[0].remaining_percent, Some(41.0));
+    }
+
+    #[test]
+    fn stale_refresh_results_cannot_restore_removed_provider_snapshots() {
+        let engine = UsageEngine::new(config_with_services(true, false));
+        engine.refresh_all().expect("initial refresh succeeds");
+        let (stale_key, stale_snapshot) = {
+            let state = engine.lock().expect("state lock succeeds");
+            let (key, snapshot) = state.snapshots.iter().next().expect("snapshot exists");
+            (key.clone(), snapshot.clone())
+        };
+
+        engine
+            .update_config(config_with_services(false, true))
+            .expect("config update succeeds");
+        let mut state = engine.lock().expect("state lock succeeds");
+        let applied = apply_current_provider_snapshots(
+            &mut state,
+            vec![(stale_key.clone(), stale_snapshot)],
+        );
+
+        assert!(!applied);
+        assert!(!state.snapshots.contains_key(&stale_key));
+        assert!(state
+            .providers
+            .iter()
+            .all(|provider| provider.service() == Service::Claude));
+    }
+
+    #[test]
+    fn enabled_ollama_reports_local_reads_disabled_without_pinging_daemon() {
+        let mut config = AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: false,
+                ollama: true,
+            },
+            ..AppConfig::default()
+        };
+        config.providers.local_enabled = false;
+        config.providers.web_enabled = false;
+        config.providers.cli_enabled = false;
+
+        let display_state = UsageEngine::new(config)
+            .refresh_all()
+            .expect("disabled local provider refresh succeeds");
+
+        assert_eq!(display_state.snapshots.len(), 1);
+        assert_eq!(display_state.snapshots[0].service, Service::Ollama);
+        assert_eq!(display_state.snapshots[0].details["status"], "disabled");
+        assert_eq!(
+            display_state.snapshots[0].details["reason"],
+            "local_estimates_disabled"
+        );
     }
 
     #[test]

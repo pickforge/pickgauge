@@ -216,6 +216,9 @@
       return "Consumer quota unsupported";
     }
     if (snapshot.service === "ollama") {
+      if (snapshot.details.status === "disabled") {
+        return "Local estimates disabled";
+      }
       return snapshot.details.status === "not_configured"
         ? "Local daemon not running"
         : "Local daemon connected";

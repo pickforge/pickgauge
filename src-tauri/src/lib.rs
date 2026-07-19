@@ -663,7 +663,9 @@ async fn get_usage_history(
     })
 }
 
-const LOCAL_OBSERVATION_REUSE_TTL: Duration = Duration::from_secs(60);
+// Coalesce adjacent live/daily reads without masking the minimum 30-second
+// local refresh cadence.
+const LOCAL_OBSERVATION_REUSE_TTL: Duration = Duration::from_secs(5);
 
 #[tauri::command]
 async fn get_local_daily_usage(

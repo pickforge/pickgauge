@@ -24,16 +24,16 @@ reset this file.
   remains emit-only, and shutdown rejects later publication.
 - Refactored Claude JSONL and Codex SQLite local usage into one bounded source
   observation per provider. Live calibration and daily buckets now project
-  from the same normalized records, while a desktop-owned 60-second reuse
-  policy provides single-flight loading and expiry. Existing snapshot and
+  from the same normalized records, while a desktop-owned brief reuse policy
+  provides single-flight loading and expiry. Existing snapshot and
   headless-v1 payloads remain unchanged.
 
 ## Validation
 
 ### Tested
 
-- `cargo test --locked --all-targets` (296 Rust tests).
-- Filtered local-provider tests (25), observation-reuse tests (2), and
+- `cargo test --locked --all-targets` (298 Rust tests).
+- Filtered local-provider tests (26), observation-reuse tests (3), and
   refresh-publication policy tests (10).
 - `cargo clippy --all-targets --locked` with strict warnings (only the four
   documented pre-existing lint classes allowed).

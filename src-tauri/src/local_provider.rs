@@ -529,7 +529,10 @@ impl CodexLocalProvider {
 
         let connection = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| "codex_state_db_unreadable".to_string())?;
-        let total_threads = connection
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+        let total_threads = transaction
             .query_row("SELECT COUNT(*) FROM threads", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -540,37 +543,42 @@ impl CodexLocalProvider {
             ..CodexUsageSummary::default()
         };
         let mut activity = Vec::new();
-        let mut statement = connection
-            .prepare(
-                "SELECT tokens_used, updated_at_ms, updated_at, model
-                 FROM threads
-                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
-                 LIMIT ?1",
-            )
-            .map_err(|_| "codex_threads_query_failed".to_string())?;
-        let rows = statement
-            .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
-                let tokens_used = optional_i64_column(row, 0);
-                let updated_at_ms = optional_i64_column(row, 1);
-                let updated_at = optional_i64_column(row, 2);
-                let model = optional_string_column(row, 3);
+        {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT tokens_used, updated_at_ms, updated_at, model
+                     FROM threads
+                     ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
+                     LIMIT ?1",
+                )
+                .map_err(|_| "codex_threads_query_failed".to_string())?;
+            let rows = statement
+                .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
+                    let tokens_used = optional_i64_column(row, 0);
+                    let updated_at_ms = optional_i64_column(row, 1);
+                    let updated_at = optional_i64_column(row, 2);
+                    let model = optional_string_column(row, 3);
 
-                Ok(CodexThreadRecord {
-                    tokens_used,
-                    updated_at_ms: updated_at_ms
-                        .or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
-                    model,
+                    Ok(CodexThreadRecord {
+                        tokens_used,
+                        updated_at_ms: updated_at_ms
+                            .or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
+                        model,
+                    })
                 })
-            })
-            .map_err(|_| "codex_threads_query_failed".to_string())?;
+                .map_err(|_| "codex_threads_query_failed".to_string())?;
 
-        for row in rows {
-            let record = row.map_err(|_| "codex_threads_query_failed".to_string())?;
-            if let Some(observed) = ObservedActivity::from_codex(&record) {
-                activity.push(observed);
+            for row in rows {
+                let record = row.map_err(|_| "codex_threads_query_failed".to_string())?;
+                if let Some(observed) = ObservedActivity::from_codex(&record) {
+                    activity.push(observed);
+                }
+                summary.record(record);
             }
-            summary.record(record);
         }
+        transaction
+            .commit()
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
 
         Ok(CodexLocalObservation { summary, activity })
     }
@@ -1028,13 +1036,13 @@ fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), Stri
     for entry in entries {
         let entry = entry.map_err(|_| "claude_project_entry_unreadable".to_string())?;
         let path = entry.path();
-        let metadata = entry
-            .metadata()
+        let file_type = entry
+            .file_type()
             .map_err(|_| "claude_project_metadata_unreadable".to_string())?;
 
-        if metadata.is_dir() {
+        if file_type.is_dir() {
             collect_jsonl_files(&path, files)?;
-        } else if metadata.is_file()
+        } else if file_type.is_file()
             && path.extension().and_then(|extension| extension.to_str()) == Some(JSONL_EXTENSION)
         {
             files.push(path);
@@ -1399,6 +1407,26 @@ mod tests {
         assert_eq!(snapshot.details["status"], "missing_data");
         assert_eq!(snapshot.details["reason"], "claude_projects_missing");
         assert_eq!(snapshot.details["usageRecords"], 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn claude_local_provider_does_not_follow_project_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(projects_dir.join("session.jsonl"), claude_usage_record(12))
+            .expect("fixture file is written");
+        symlink(&projects_dir, projects_dir.join("loop"))
+            .expect("directory loop symlink is created");
+        let provider = ClaudeLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.details["filesScanned"], 1);
+        assert_eq!(snapshot.details["usageRecords"], 1);
     }
 
     #[test]

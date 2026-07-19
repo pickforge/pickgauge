@@ -18,6 +18,26 @@ enum ReuseState<T> {
     },
 }
 
+struct ObservationGuard<'a, T> {
+    reuse: &'a ObservationReuse<T>,
+    armed: bool,
+}
+
+impl<T> ObservationGuard<'_, T> {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl<T> Drop for ObservationGuard<'_, T> {
+    fn drop(&mut self) {
+        if self.armed {
+            *self.reuse.lock() = ReuseState::Empty;
+            self.reuse.ready.notify_all();
+        }
+    }
+}
+
 impl<T> ObservationReuse<T> {
     pub(crate) fn new(ttl: Duration) -> Self {
         Self {
@@ -46,6 +66,10 @@ impl<T> ObservationReuse<T> {
                 ReuseState::Empty | ReuseState::Ready { .. } => {
                     *state = ReuseState::Observing;
                     drop(state);
+                    let mut guard = ObservationGuard {
+                        reuse: self,
+                        armed: true,
+                    };
 
                     let observation =
                         observe.take().expect("observation loader is consumed once")()
@@ -55,6 +79,7 @@ impl<T> ObservationReuse<T> {
                         observed_at: Instant::now(),
                         observation: observation.clone(),
                     };
+                    guard.disarm();
                     self.ready.notify_all();
                     return observation;
                 }
@@ -111,6 +136,27 @@ mod tests {
             assert_eq!(*thread.join().expect("thread joins"), 42);
         }
         assert_eq!(observations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn panicking_observer_does_not_block_later_observations() {
+        let reuse = Arc::new(ObservationReuse::new(Duration::from_secs(60)));
+        let panicking_reuse = reuse.clone();
+
+        assert!(thread::spawn(move || {
+            let _ = panicking_reuse.get_or_observe(|| -> Result<usize, String> {
+                panic!("synthetic observation panic")
+            });
+        })
+        .join()
+        .is_err());
+
+        assert_eq!(
+            *reuse
+                .get_or_observe(|| Ok(42))
+                .expect("later observation succeeds"),
+            42
+        );
     }
 
     #[test]

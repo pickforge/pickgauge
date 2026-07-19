@@ -132,54 +132,52 @@ impl HistoryStore {
         let offset = i64::from(utc_offset_seconds.clamp(-64_800, 64_800));
         let mut statement = conn
             .prepare(
-                "SELECT date(recorded_at + ?1, 'unixepoch'), remaining_percent
-                 FROM usage_samples
-                 WHERE service = ?2 AND recorded_at >= ?3
-                 ORDER BY recorded_at ASC, id ASC",
+                "WITH filtered AS (
+                    SELECT id,
+                           recorded_at,
+                           date(recorded_at + ?1, 'unixepoch') AS day,
+                           remaining_percent
+                    FROM usage_samples
+                    WHERE service = ?2 AND recorded_at >= ?3
+                 ), daily AS (
+                    SELECT day,
+                           AVG(remaining_percent) AS avg_remaining_percent,
+                           MIN(remaining_percent) AS min_remaining_percent,
+                           COUNT(*) AS samples
+                    FROM filtered
+                    GROUP BY day
+                 )
+                 SELECT daily.day,
+                        daily.avg_remaining_percent,
+                        daily.min_remaining_percent,
+                        (
+                            SELECT recent.remaining_percent
+                            FROM filtered AS recent
+                            WHERE recent.day = daily.day
+                              AND recent.remaining_percent IS NOT NULL
+                            ORDER BY recent.recorded_at DESC, recent.id DESC
+                            LIMIT 1
+                        ) AS last_remaining_percent,
+                        daily.samples
+                 FROM daily
+                 ORDER BY daily.day ASC",
             )
             .map_err(|error| format!("Could not prepare history query: {error}"))?;
 
         let rows = statement
             .query_map(rusqlite::params![offset, service.code(), since], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Option<f64>>(1)?))
+                Ok(DailyGaugeStat {
+                    day: row.get(0)?,
+                    avg_remaining_percent: row.get(1)?,
+                    min_remaining_percent: row.get(2)?,
+                    last_remaining_percent: row.get(3)?,
+                    samples: row.get(4)?,
+                })
             })
             .map_err(|error| format!("Could not query usage history: {error}"))?;
 
-        let mut days: Vec<DailyGaugeStat> = Vec::new();
-        let mut sums: Vec<(f64, i64)> = Vec::new();
-
-        for row in rows {
-            let (day, remaining) =
-                row.map_err(|error| format!("Could not read usage history: {error}"))?;
-
-            if days.last().map(|stat| stat.day.as_str()) != Some(day.as_str()) {
-                days.push(DailyGaugeStat {
-                    day,
-                    avg_remaining_percent: None,
-                    min_remaining_percent: None,
-                    last_remaining_percent: None,
-                    samples: 0,
-                });
-                sums.push((0.0, 0));
-            }
-
-            let stat = days.last_mut().expect("day bucket exists");
-            let sum = sums.last_mut().expect("day sums exist");
-            stat.samples += 1;
-
-            if let Some(remaining) = remaining {
-                sum.0 += remaining;
-                sum.1 += 1;
-                stat.avg_remaining_percent = Some(sum.0 / sum.1 as f64);
-                stat.min_remaining_percent = Some(
-                    stat.min_remaining_percent
-                        .map_or(remaining, |current| current.min(remaining)),
-                );
-                stat.last_remaining_percent = Some(remaining);
-            }
-        }
-
-        Ok(days)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("Could not read usage history: {error}"))
     }
 
     fn prune(&self, now: i64) -> Result<(), String> {
@@ -303,6 +301,36 @@ mod tests {
         let last_day = stats.last().expect("at least one day");
         assert_eq!(last_day.min_remaining_percent, Some(60.0));
         assert_eq!(last_day.last_remaining_percent, Some(60.0));
+    }
+
+    #[test]
+    fn sql_aggregation_preserves_null_sample_and_last_value_semantics() {
+        let dir = TestDir::new();
+        let store = HistoryStore::open_in(&dir.path).expect("store opens");
+        let day = now_unix() / 86_400 * 86_400;
+        let conn = store.lock().expect("history lock succeeds");
+
+        for (offset, remaining) in [(1, Some(80.0)), (2, None), (3, Some(60.0)), (4, None)] {
+            conn.execute(
+                "INSERT INTO usage_samples
+                    (recorded_at, service, remaining_percent, used_percent,
+                     source, confidence, window_tokens, total_tokens)
+                 VALUES (?1, ?2, ?3, NULL, 'local', 'low', NULL, NULL)",
+                rusqlite::params![day + offset, Service::Codex.code(), remaining],
+            )
+            .expect("sample inserts");
+        }
+        drop(conn);
+
+        let stats = store
+            .daily_gauge(Service::Codex, 2, 0)
+            .expect("daily stats load");
+        let stat = stats.last().expect("daily stat exists");
+
+        assert_eq!(stat.avg_remaining_percent, Some(70.0));
+        assert_eq!(stat.min_remaining_percent, Some(60.0));
+        assert_eq!(stat.last_remaining_percent, Some(60.0));
+        assert_eq!(stat.samples, 4);
     }
 
     #[test]

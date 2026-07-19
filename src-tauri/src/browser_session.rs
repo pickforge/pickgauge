@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     fmt, fs,
     path::{Path, PathBuf},
-    process::Child,
+    process::{Child, ChildStdin, ChildStdout, Command},
     sync::Mutex,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -45,6 +45,24 @@ struct ManagedBrowserProcess {
     process_marker: String,
     started_at: String,
     child: Child,
+    #[cfg(windows)]
+    job: WindowsJob,
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsJob(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+unsafe impl Send for WindowsJob {}
+
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -372,36 +390,46 @@ impl BrowserSessionManager {
     pub fn track_process(
         &self,
         service: Service,
-        mut child: Child,
+        child: Child,
         marker: BrowserSessionMarker,
     ) -> Result<u32, String> {
-        if marker.service != service {
-            let _ = child.kill();
-            let _ = child.wait();
+        let process_id = child.id();
+        let marker_service = marker.service;
+        #[cfg(windows)]
+        let (child, job) = own_windows_process(child)?;
+        let mut process = ManagedBrowserProcess {
+            process_id,
+            process_marker: marker.process_marker,
+            started_at: marker.started_at,
+            #[cfg(windows)]
+            job,
+            child,
+        };
+
+        if marker_service != service {
+            terminate_managed_process_tree(&mut process);
             return Err("Managed browser marker service does not match".to_string());
         }
 
-        if self.has_managed_process(service)? {
-            let _ = child.kill();
-            let _ = child.wait();
+        let mut processes = match self.processes.lock() {
+            Ok(processes) => processes,
+            Err(_) => {
+                terminate_managed_process_tree(&mut process);
+                return Err("Browser session state is unavailable".to_string());
+            }
+        };
+        let orphan_exists = match self.orphans.lock() {
+            Ok(orphans) => orphans.contains_key(&service),
+            Err(_) => {
+                terminate_managed_process_tree(&mut process);
+                return Err("Browser session state is unavailable".to_string());
+            }
+        };
+        if processes.contains_key(&service) || orphan_exists {
+            terminate_managed_process_tree(&mut process);
             return Err("Managed browser process already exists".to_string());
         }
-
-        let mut processes = self
-            .processes
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())?;
-
-        let process_id = child.id();
-        processes.insert(
-            service,
-            ManagedBrowserProcess {
-                process_id,
-                process_marker: marker.process_marker,
-                started_at: marker.started_at,
-                child,
-            },
-        );
+        processes.insert(service, process);
         drop(processes);
 
         if let Err(error) = self.write_registry_snapshot() {
@@ -441,6 +469,63 @@ impl BrowserSessionManager {
         Ok(BrowserSessionStopResult { service, status })
     }
 
+    pub fn take_process_stdio(
+        &self,
+        service: Service,
+    ) -> Result<(ChildStdin, ChildStdout), String> {
+        let mut processes = self
+            .processes
+            .lock()
+            .map_err(|_| "Browser session state is unavailable".to_string())?;
+        let process = processes
+            .get_mut(&service)
+            .ok_or_else(|| "Managed browser process is unavailable".to_string())?;
+        let stdin = process
+            .child
+            .stdin
+            .take()
+            .ok_or_else(|| "Managed browser process input is unavailable".to_string())?;
+        let stdout = process
+            .child
+            .stdout
+            .take()
+            .ok_or_else(|| "Managed browser process output is unavailable".to_string())?;
+        Ok((stdin, stdout))
+    }
+
+    pub fn stop_all(&self, timeout: Duration) -> Result<(), String> {
+        let mut services = self
+            .processes
+            .lock()
+            .map_err(|_| "Browser session state is unavailable".to_string())?
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for service in self
+            .orphans
+            .lock()
+            .map_err(|_| "Browser session state is unavailable".to_string())?
+            .keys()
+            .copied()
+        {
+            if !services.contains(&service) {
+                services.push(service);
+            }
+        }
+
+        let mut first_error = None;
+        for service in services {
+            if let Err(error) = self.stop_service(service, timeout) {
+                first_error.get_or_insert(error);
+            }
+        }
+
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
     pub fn detect_orphans_on_startup(&self) -> Result<BrowserSessionStartupRecovery, String> {
         let records = self.read_registry_records()?;
         let mut orphans = self
@@ -470,23 +555,6 @@ impl BrowserSessionManager {
 
         self.write_registry_snapshot()?;
         Ok(BrowserSessionStartupRecovery { orphaned_processes })
-    }
-
-    fn has_managed_process(&self, service: Service) -> Result<bool, String> {
-        let tracked = self
-            .processes
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())?
-            .contains_key(&service);
-
-        if tracked {
-            return Ok(true);
-        }
-
-        self.orphans
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())
-            .map(|orphans| orphans.contains_key(&service))
     }
 
     fn stop_orphaned_service(
@@ -674,7 +742,6 @@ pub fn playwright_sidecar_refresh_request(
         "Managed browser refresh URL must use HTTPS",
     )
 }
-
 
 fn playwright_sidecar_request(
     request: &PlaywrightLaunchRequest,
@@ -1165,6 +1232,61 @@ fn reject_symlink_path(path: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(unix)]
+fn stop_process(
+    process: &mut ManagedBrowserProcess,
+    timeout: Duration,
+) -> Result<BrowserSessionStopStatus, String> {
+    let leader_exited = process
+        .child
+        .try_wait()
+        .map_err(|_| "Could not inspect managed browser process".to_string())?
+        .is_some();
+    if leader_exited && !process_group_exists(process.process_id) {
+        return Ok(BrowserSessionStopStatus::AlreadyExited);
+    }
+
+    signal_process_group(process.process_id, libc::SIGTERM)?;
+    if wait_for_managed_process_tree_exit(process, timeout)? {
+        return Ok(BrowserSessionStopStatus::Stopped);
+    }
+
+    signal_process_group(process.process_id, libc::SIGKILL)?;
+    if !wait_for_managed_process_tree_exit(process, Duration::from_secs(1))? {
+        return Err("Could not stop managed browser process group".to_string());
+    }
+    Ok(BrowserSessionStopStatus::Killed)
+}
+
+#[cfg(windows)]
+fn stop_process(
+    process: &mut ManagedBrowserProcess,
+    timeout: Duration,
+) -> Result<BrowserSessionStopStatus, String> {
+    if process
+        .child
+        .try_wait()
+        .map_err(|_| "Could not inspect managed browser process".to_string())?
+        .is_some()
+    {
+        terminate_windows_job(&process.job)?;
+        return Ok(BrowserSessionStopStatus::AlreadyExited);
+    }
+
+    if wait_for_exit(&mut process.child, timeout)? {
+        terminate_windows_job(&process.job)?;
+        return Ok(BrowserSessionStopStatus::Stopped);
+    }
+
+    terminate_windows_job(&process.job)?;
+    process
+        .child
+        .wait()
+        .map_err(|_| "Could not reap managed browser process".to_string())?;
+    Ok(BrowserSessionStopStatus::Killed)
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn stop_process(
     process: &mut ManagedBrowserProcess,
     timeout: Duration,
@@ -1194,6 +1316,29 @@ fn stop_process(
     Ok(BrowserSessionStopStatus::Killed)
 }
 
+#[cfg(unix)]
+fn stop_orphan_process(
+    process: &OrphanedBrowserProcess,
+    timeout: Duration,
+) -> Result<BrowserSessionStopStatus, String> {
+    if !process_matches_marker(process.process_id, &process.process_marker) {
+        return Ok(BrowserSessionStopStatus::AlreadyExited);
+    }
+
+    signal_process_group(process.process_id, libc::SIGTERM)?;
+    if wait_for_process_group_exit(process.process_id, timeout) {
+        return Ok(BrowserSessionStopStatus::Stopped);
+    }
+
+    signal_process_group(process.process_id, libc::SIGKILL)?;
+    if wait_for_process_group_exit(process.process_id, Duration::from_secs(1)) {
+        return Ok(BrowserSessionStopStatus::Killed);
+    }
+
+    Err("Could not stop orphaned managed browser process group".to_string())
+}
+
+#[cfg(not(unix))]
 fn stop_orphan_process(
     process: &OrphanedBrowserProcess,
     timeout: Duration,
@@ -1219,6 +1364,7 @@ fn stop_orphan_process(
     Err("Could not stop orphaned managed browser process".to_string())
 }
 
+#[cfg(not(unix))]
 fn wait_for_exit(child: &mut Child, timeout: Duration) -> Result<bool, String> {
     let deadline = Instant::now() + timeout;
 
@@ -1239,6 +1385,7 @@ fn wait_for_exit(child: &mut Child, timeout: Duration) -> Result<bool, String> {
     }
 }
 
+#[cfg(not(unix))]
 fn wait_for_pid_exit(process_id: u32, process_marker: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
 
@@ -1256,14 +1403,86 @@ fn wait_for_pid_exit(process_id: u32, process_marker: &str, timeout: Duration) -
 }
 
 #[cfg(unix)]
-fn request_graceful_shutdown(process: &ManagedBrowserProcess) -> Result<(), String> {
-    request_graceful_shutdown_pid(process.process_id)
+pub fn configure_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+pub fn configure_process_group(_command: &mut Command) {}
+
+fn terminate_managed_process_tree(process: &mut ManagedBrowserProcess) {
+    #[cfg(unix)]
+    {
+        let _ = signal_process_group(process.process_id, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        let _ = terminate_windows_job(&process.job);
+    }
+    #[cfg(all(not(unix), not(windows)))]
+    {
+        let _ = process.child.kill();
+    }
+    let _ = process.child.wait();
 }
 
 #[cfg(unix)]
-fn request_graceful_shutdown_pid(process_id: u32) -> Result<(), String> {
-    let result = unsafe { libc::kill(process_id as libc::pid_t, libc::SIGTERM) };
+fn wait_for_managed_process_tree_exit(
+    process: &mut ManagedBrowserProcess,
+    timeout: Duration,
+) -> Result<bool, String> {
+    let deadline = Instant::now() + timeout;
 
+    loop {
+        let _ = process
+            .child
+            .try_wait()
+            .map_err(|_| "Could not inspect managed browser process".to_string())?;
+        if !process_group_exists(process.process_id) {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_process_group_exit(process_group_id: u32, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if !process_group_exists(process_group_id) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_group_id: u32) -> bool {
+    let Ok(process_group_id) = i32::try_from(process_group_id) else {
+        return false;
+    };
+    let result = unsafe { libc::kill(-process_group_id, 0) };
+    if result == 0 {
+        return true;
+    }
+
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(unix)]
+fn signal_process_group(process_group_id: u32, signal: libc::c_int) -> Result<(), String> {
+    let process_group_id = i32::try_from(process_group_id)
+        .map_err(|_| "Managed browser process group is invalid".to_string())?;
+    let result = unsafe { libc::kill(-process_group_id, signal) };
     if result == 0 {
         return Ok(());
     }
@@ -1272,13 +1491,12 @@ fn request_graceful_shutdown_pid(process_id: u32) -> Result<(), String> {
     if error.raw_os_error() == Some(libc::ESRCH) {
         return Ok(());
     }
-
-    Err("Could not request managed browser shutdown".to_string())
+    Err("Could not signal managed browser process group".to_string())
 }
 
-#[cfg(not(unix))]
-fn request_graceful_shutdown(_process: &ManagedBrowserProcess) -> Result<(), String> {
-    Ok(())
+#[cfg(all(not(unix), not(windows)))]
+fn request_graceful_shutdown(process: &ManagedBrowserProcess) -> Result<(), String> {
+    request_graceful_shutdown_pid(process.process_id)
 }
 
 #[cfg(not(unix))]
@@ -1286,20 +1504,65 @@ fn request_graceful_shutdown_pid(_process_id: u32) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn kill_process_pid(process_id: u32) -> Result<(), String> {
-    let result = unsafe { libc::kill(process_id as libc::pid_t, libc::SIGKILL) };
+#[cfg(windows)]
+fn own_windows_process(mut child: Child) -> Result<(Child, WindowsJob), String> {
+    match assign_process_to_kill_on_close_job(&child) {
+        Ok(job) => Ok((child, job)),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(error)
+        }
+    }
+}
 
-    if result == 0 {
-        return Ok(());
+#[cfg(windows)]
+fn assign_process_to_kill_on_close_job(child: &Child) -> Result<WindowsJob, String> {
+    use std::{mem::size_of, os::windows::io::AsRawHandle, ptr};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        },
+    };
+
+    let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+    if job.is_null() {
+        return Err("Could not create managed browser job".to_string());
     }
 
-    let error = std::io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        return Ok(());
+    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    let configured = unsafe {
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            (&raw const limits).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    };
+    let process_handle = child.as_raw_handle() as HANDLE;
+    let assigned = configured != 0 && unsafe { AssignProcessToJobObject(job, process_handle) } != 0;
+    if !assigned {
+        unsafe {
+            CloseHandle(job);
+        }
+        return Err("Could not own managed browser process tree".to_string());
     }
 
-    Err("Could not stop managed browser process".to_string())
+    Ok(WindowsJob(job))
+}
+
+#[cfg(windows)]
+fn terminate_windows_job(job: &WindowsJob) -> Result<(), String> {
+    let terminated =
+        unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(job.0, 1) };
+    if terminated == 0 {
+        return Err("Could not stop managed browser job".to_string());
+    }
+    Ok(())
 }
 
 #[cfg(not(unix))]
@@ -1379,8 +1642,11 @@ fn set_restrictive_directory_permissions(_path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::{
-        process::Command,
-        sync::atomic::{AtomicU64, Ordering},
+        process::{Command, Stdio},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc, Barrier,
+        },
         thread,
     };
 
@@ -1453,6 +1719,85 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_tracking_keeps_one_owner_without_leaking_the_duplicate() {
+        let manager = Arc::new(BrowserSessionManager::default());
+        let barrier = Arc::new(Barrier::new(3));
+        let mut workers = Vec::new();
+
+        for _ in 0..2 {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+            workers.push(thread::spawn(move || {
+                let marker = BrowserSessionMarker::new(Service::Codex);
+                let child = sleeping_child(&marker);
+                let process_id = child.id();
+                barrier.wait();
+                (
+                    process_id,
+                    manager.track_process(Service::Codex, child, marker),
+                )
+            }));
+        }
+
+        barrier.wait();
+        let results = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("tracking worker completes"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            results.iter().filter(|(_, result)| result.is_ok()).count(),
+            1
+        );
+        assert_eq!(
+            results.iter().filter(|(_, result)| result.is_err()).count(),
+            1
+        );
+        manager
+            .stop_all(Duration::from_secs(1))
+            .expect("owned process stops");
+
+        #[cfg(unix)]
+        for (process_id, _) in results {
+            assert!(!process_group_exists(process_id));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extracted_sidecar_io_does_not_block_stop_all() {
+        let manager = Arc::new(BrowserSessionManager::default());
+        let marker = BrowserSessionMarker::new(Service::Claude);
+        let (key, value) = marker.env_pair();
+        let mut command = Command::new("sleep");
+        command
+            .arg("30")
+            .env(key, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        configure_process_group(&mut command);
+        let child = command.spawn().expect("sidecar process starts");
+        manager
+            .track_process(Service::Claude, child, marker)
+            .expect("sidecar process is tracked");
+        let _stdio = manager
+            .take_process_stdio(Service::Claude)
+            .expect("sidecar stdio is extracted");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let stop_manager = Arc::clone(&manager);
+
+        thread::spawn(move || {
+            let result = stop_manager.stop_all(Duration::from_secs(1));
+            let _ = sender.send(result);
+        });
+
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stop_all is not blocked by extracted stdio")
+            .expect("sidecar process stops");
+    }
+
+    #[test]
     fn stop_service_reaps_exited_process() {
         let manager = BrowserSessionManager::default();
         let marker = BrowserSessionMarker::new(Service::Claude);
@@ -1486,6 +1831,28 @@ mod tests {
             result.status,
             BrowserSessionStopStatus::Stopped | BrowserSessionStopStatus::Killed
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_all_terminates_sidecar_descendants() {
+        let manager = BrowserSessionManager::default();
+        let marker = BrowserSessionMarker::new(Service::Codex);
+        let (key, value) = marker.env_pair();
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30 & wait"]).env(key, value);
+        configure_process_group(&mut command);
+        let child = command.spawn().expect("sidecar process starts");
+        let process_group_id = child.id();
+
+        manager
+            .track_process(Service::Codex, child, marker)
+            .expect("sidecar process is tracked");
+        manager
+            .stop_all(Duration::from_secs(1))
+            .expect("all sidecar processes stop");
+
+        assert!(!process_group_exists(process_group_id));
     }
 
     #[test]
@@ -1546,6 +1913,7 @@ mod tests {
             marker.process_marker.as_str()
         ));
 
+        let child_waiter = thread::spawn(move || child.wait());
         let result = second_manager
             .stop_service(Service::Claude, Duration::from_secs(1))
             .expect("orphaned process stops");
@@ -1554,7 +1922,7 @@ mod tests {
             result.status,
             BrowserSessionStopStatus::Stopped | BrowserSessionStopStatus::Killed
         ));
-        let _ = child.wait();
+        let _ = child_waiter.join().expect("orphan waiter completes");
         assert!(!dir.registry_path().exists());
     }
 
@@ -1846,7 +2214,6 @@ mod tests {
         assert!(value.get("diagnostics").is_none());
     }
 
-
     #[test]
     fn playwright_sidecar_refresh_request_debug_redacts_sensitive_input() {
         let profile_path = "/home/dev/.local/share/com.pickforge.pickgauge/browser-profiles/codex";
@@ -1994,11 +2361,9 @@ mod tests {
     fn playwright_sidecar_usage_response_carries_fable_window() {
         let plan = chromium_launch_plan(Service::Claude, "/tmp/pickgauge/claude");
         let launch_request = playwright_launch_request(&plan);
-        let sidecar_request = playwright_sidecar_refresh_request(
-            &launch_request,
-            "https://claude.ai/usage",
-        )
-        .expect("sidecar request is created");
+        let sidecar_request =
+            playwright_sidecar_refresh_request(&launch_request, "https://claude.ai/usage")
+                .expect("sidecar request is created");
         let raw = serde_json::json!({
             "ok": true,
             "status": "checked",
@@ -2478,11 +2843,10 @@ mod tests {
     #[cfg(unix)]
     fn sleeping_child(marker: &BrowserSessionMarker) -> Child {
         let (key, value) = marker.env_pair();
-        Command::new("sleep")
-            .arg("30")
-            .env(key, value)
-            .spawn()
-            .expect("sleep process starts")
+        let mut command = Command::new("sleep");
+        command.arg("30").env(key, value);
+        configure_process_group(&mut command);
+        command.spawn().expect("sleep process starts")
     }
 
     #[cfg(not(unix))]
@@ -2498,10 +2862,10 @@ mod tests {
     #[cfg(unix)]
     fn exited_child(marker: &BrowserSessionMarker) -> Child {
         let (key, value) = marker.env_pair();
-        Command::new("true")
-            .env(key, value)
-            .spawn()
-            .expect("short process starts")
+        let mut command = Command::new("true");
+        command.env(key, value);
+        configure_process_group(&mut command);
+        command.spawn().expect("short process starts")
     }
 
     #[cfg(not(unix))]

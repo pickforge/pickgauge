@@ -16,7 +16,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::Path,
-    process::{Child, ChildStdout},
+    process::{ChildStdin, ChildStdout},
     sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -423,6 +423,69 @@ fn set_restrictive_log_dir_permissions(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[derive(Default)]
+struct ConfigMutationCoordinator {
+    mutation: Mutex<()>,
+}
+
+impl ConfigMutationCoordinator {
+    fn serialized<T>(&self, operation: impl FnOnce() -> CommandResult<T>) -> CommandResult<T> {
+        let _guard = self.mutation.lock().map_err(|_| {
+            command_error(
+                "config_mutation_unavailable",
+                "Settings updates are temporarily unavailable",
+            )
+        })?;
+        operation()
+    }
+
+    fn update(
+        &self,
+        app: &AppHandle,
+        mutation: impl FnOnce(config::AppConfig) -> config::AppConfig,
+    ) -> CommandResult<config::AppConfig> {
+        self.serialized(|| {
+            let engine = app.state::<UsageEngine>();
+            let config_load = app.state::<ConfigLoadState>();
+            let previous_config = engine.config().map_err(map_usage_state_error)?;
+            let config = mutation(previous_config.clone()).normalized();
+
+            if browser_profile::should_prepare_browser_profiles(
+                &config.browser_profiles,
+                config.providers.web_enabled,
+            ) {
+                let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
+                prepare_managed_browser_profiles(&config, &app_data_dir)
+                    .map_err(map_browser_profile_error)?;
+            }
+
+            let autostart_changed = previous_config.autostart.enabled != config.autostart.enabled;
+            if autostart_changed {
+                sync_autostart(app, config.autostart.enabled)?;
+            }
+
+            let config = match config::save(&config) {
+                Ok(config) => config,
+                Err(error) => {
+                    if autostart_changed {
+                        let _ = sync_autostart(app, previous_config.autostart.enabled);
+                    }
+                    return Err(map_config_save_error(error));
+                }
+            };
+
+            config_load.clear_error().map_err(map_config_state_error)?;
+            engine
+                .update_config(config.clone())
+                .map_err(map_usage_state_error)?;
+            app.emit(SETTINGS_UPDATED_EVENT, &config)
+                .map_err(map_event_emit_error)?;
+            ensure_float_window(app, config.ui.float_button);
+            Ok(config)
+        })
+    }
+}
+
 impl ConfigLoadState {
     fn new(error: Option<String>) -> Self {
         Self {
@@ -472,9 +535,13 @@ async fn update_app_config(
         update_app_config_blocking(&update_app, config)
     })
     .await
-    .map_err(|_| command_error("config_update_task_failed", "Settings update stopped unexpectedly"))??;
+    .map_err(|_| {
+        command_error(
+            "config_update_task_failed",
+            "Settings update stopped unexpectedly",
+        )
+    })??;
 
-    ensure_float_window(&app, config.ui.float_button);
     schedule_config_refresh(app);
     Ok(config)
 }
@@ -483,42 +550,8 @@ fn update_app_config_blocking(
     app: &AppHandle,
     config: config::AppConfig,
 ) -> CommandResult<config::AppConfig> {
-    let engine = app.state::<UsageEngine>();
-    let config_load = app.state::<ConfigLoadState>();
-    let previous_config = engine.config().map_err(map_usage_state_error)?;
-    let config = config.normalized();
-
-    if browser_profile::should_prepare_browser_profiles(
-        &config.browser_profiles,
-        config.providers.web_enabled,
-    ) {
-        let app_data_dir = app.path().app_data_dir().map_err(map_app_data_dir_error)?;
-        prepare_managed_browser_profiles(&config, &app_data_dir)
-            .map_err(map_browser_profile_error)?;
-    }
-
-    let autostart_changed = previous_config.autostart.enabled != config.autostart.enabled;
-    if autostart_changed {
-        sync_autostart(app, config.autostart.enabled)?;
-    }
-
-    let config = match config::save(&config) {
-        Ok(config) => config,
-        Err(error) => {
-            if autostart_changed {
-                let _ = sync_autostart(app, previous_config.autostart.enabled);
-            }
-            return Err(map_config_save_error(error));
-        }
-    };
-
-    config_load.clear_error().map_err(map_config_state_error)?;
-    engine
-        .update_config(config.clone())
-        .map_err(map_usage_state_error)?;
-    app.emit(SETTINGS_UPDATED_EVENT, &config)
-        .map_err(map_event_emit_error)?;
-    Ok(config)
+    app.state::<ConfigMutationCoordinator>()
+        .update(app, |_| config)
 }
 
 fn schedule_config_refresh(app: AppHandle) {
@@ -553,11 +586,6 @@ fn prepare_managed_browser_profiles(
     browser_session::prepare_chromium_profile_preferences(&paths.claude)?;
 
     Ok(Some(paths))
-}
-
-#[tauri::command]
-fn get_usage_snapshots(engine: State<'_, UsageEngine>) -> CommandResult<Vec<UsageSnapshot>> {
-    engine.snapshots().map_err(map_usage_state_error)
 }
 
 /// Whether the desktop prefers a dark color scheme.
@@ -857,40 +885,31 @@ fn launch_playwright_sidecar_login(
     let (env_key, env_value) = marker.env_pair();
     command.env(env_key, env_value);
 
-    let mut child = command
+    browser_session::configure_process_group(&mut command);
+    let child = command
         .spawn()
         .map_err(|_| "Managed login sidecar is unavailable".to_string())?;
-    if let Err(error) = write_sidecar_launch_request(&mut child, request) {
-        return Err(kill_untracked_child(child, &error));
-    }
-    let Some(stdout) = child.stdout.take() else {
-        return Err(kill_untracked_child(
-            child,
-            "Managed login sidecar did not acknowledge launch",
-        ));
-    };
-    let line = match read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT) {
-        Ok(line) => line,
-        Err(error) => return Err(kill_untracked_child(child, &error)),
-    };
-
-    if let Err(error) = browser_session::playwright_sidecar_launch_response(&line, request) {
-        return Err(kill_untracked_child(child, &error));
+    let process_id = sessions.track_process(request.service, child, marker)?;
+    let launch_result = (|| {
+        let (mut stdin, stdout) = sessions.take_process_stdio(request.service)?;
+        write_sidecar_launch_request(&mut stdin, request)?;
+        let line = read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT)?;
+        browser_session::playwright_sidecar_launch_response(&line, request)?;
+        Ok(())
+    })();
+    if let Err(error) = launch_result {
+        return Err(stop_tracked_sidecar(sessions, request.service, error));
     }
 
-    sessions.track_process(request.service, child, marker)
+    Ok(process_id)
 }
 
 fn write_sidecar_launch_request(
-    child: &mut Child,
+    stdin: &mut ChildStdin,
     request: &browser_session::PlaywrightSidecarLaunchRequest,
 ) -> Result<(), String> {
     let raw = serde_json::to_vec(request)
         .map_err(|_| "Could not serialize managed login sidecar request".to_string())?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "Managed login sidecar is unavailable".to_string())?;
     stdin
         .write_all(&raw)
         .and_then(|_| stdin.write_all(b"\n"))
@@ -917,10 +936,13 @@ fn read_sidecar_stdout_line(stdout: ChildStdout, timeout: Duration) -> Result<St
     }
 }
 
-fn kill_untracked_child(mut child: Child, error: &str) -> String {
-    let _ = child.kill();
-    let _ = child.wait();
-    error.to_string()
+fn stop_tracked_sidecar(
+    sessions: &browser_session::BrowserSessionManager,
+    service: Service,
+    error: String,
+) -> String {
+    let _ = sessions.stop_service(service, browser_session::PROFILE_STOP_TIMEOUT);
+    error
 }
 
 #[tauri::command]
@@ -937,16 +959,6 @@ fn clear_cached_snapshots(
     app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
         .map_err(map_event_emit_error)?;
     Ok(display_state)
-}
-
-#[tauri::command]
-fn clear_provider_profile(
-    app: AppHandle,
-    engine: State<'_, UsageEngine>,
-    sessions: State<'_, browser_session::BrowserSessionManager>,
-    service: Service,
-) -> CommandResult<ClearedProviderProfile> {
-    clear_provider_profile_for_service(&app, &engine, &sessions, service)
 }
 
 #[tauri::command]
@@ -1305,33 +1317,29 @@ fn run_playwright_sidecar_usage_refresh(
         .sidecar(PLAYWRIGHT_SIDECAR_NAME)
         .map_err(|_| "Managed usage sidecar is unavailable".to_string())?
         .into();
-    let mut child = command
+    let marker = browser_session::BrowserSessionMarker::new(request.service);
+    let (env_key, env_value) = marker.env_pair();
+    command.env(env_key, env_value);
+    browser_session::configure_process_group(&mut command);
+    let child = command
         .spawn()
         .map_err(|_| "Managed usage sidecar is unavailable".to_string())?;
+    sessions.track_process(request.service, child, marker)?;
 
-    if let Err(error) = write_sidecar_launch_request(&mut child, request) {
-        return Err(kill_untracked_child(child, &error));
-    }
-
-    let Some(stdout) = child.stdout.take() else {
-        return Err(kill_untracked_child(
-            child,
-            "Managed usage sidecar did not acknowledge refresh",
-        ));
-    };
-    let line = match read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT) {
-        Ok(line) => line,
-        Err(error) => return Err(kill_untracked_child(child, &error)),
-    };
-    let response = match browser_session::playwright_sidecar_usage_response(&line, request) {
+    let response = (|| {
+        let (mut stdin, stdout) = sessions.take_process_stdio(request.service)?;
+        write_sidecar_launch_request(&mut stdin, request)?;
+        let line = read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT)?;
+        browser_session::playwright_sidecar_usage_response(&line, request)
+    })();
+    let response = match response {
         Ok(response) => response,
-        Err(error) => return Err(kill_untracked_child(child, &error)),
+        Err(error) => return Err(stop_tracked_sidecar(sessions, request.service, error)),
     };
 
-    child
-        .wait()
+    sessions
+        .stop_service(request.service, Duration::ZERO)
         .map_err(|_| "Managed usage sidecar did not finish refresh".to_string())?;
-
     Ok(response)
 }
 
@@ -2133,24 +2141,22 @@ fn show_main_window(app: AppHandle) -> CommandResult<WindowVisibility> {
 }
 
 fn apply_float_button_toggle(app: &AppHandle) -> Option<bool> {
-    let engine = app.state::<UsageEngine>();
-    let mut config = engine.config().ok()?;
-
-    config.ui.float_button = !config.ui.float_button;
-
-    let config = config::save(&config).ok()?;
-    let enabled = config.ui.float_button;
-    let _ = engine.update_config(config.clone());
-    let _ = app.emit(SETTINGS_UPDATED_EVENT, &config);
-    ensure_float_window(app, enabled);
-
-    Some(enabled)
+    app.state::<ConfigMutationCoordinator>()
+        .update(app, |mut config| {
+            config.ui.float_button = !config.ui.float_button;
+            config
+        })
+        .ok()
+        .map(|config| config.ui.float_button)
 }
 
 #[tauri::command]
 fn toggle_float_button(app: AppHandle) -> CommandResult<bool> {
     apply_float_button_toggle(&app).ok_or_else(|| {
-        command_error("float_toggle_failed", "Could not toggle the floating button")
+        command_error(
+            "float_toggle_failed",
+            "Could not toggle the floating button",
+        )
     })
 }
 
@@ -2268,14 +2274,12 @@ fn run_tray() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             clear_cached_snapshots,
-            clear_provider_profile,
             get_app_config,
             get_display_state,
             get_local_daily_usage,
             get_log_location,
             get_system_theme,
             get_usage_history,
-            get_usage_snapshots,
             hide_main_window,
             inspect_provider_profile,
             open_official_usage_page,
@@ -2304,6 +2308,7 @@ fn run_tray() {
             };
 
             app.manage(ConfigLoadState::new(config_error));
+            app.manage(ConfigMutationCoordinator::default());
             let sessions = match app_handle.path().app_data_dir() {
                 Ok(app_data_dir) => browser_session::BrowserSessionManager::with_registry_path(
                     app_data_dir.join(browser_session::SESSION_REGISTRY_FILE_NAME),
@@ -2358,6 +2363,10 @@ fn run_tray() {
             } => {
                 api.prevent_exit();
             }
+            tauri::RunEvent::Exit => {
+                let sessions = app_handle.state::<browser_session::BrowserSessionManager>();
+                let _ = sessions.stop_all(browser_session::PROFILE_STOP_TIMEOUT);
+            }
             _ => {}
         });
 }
@@ -2368,7 +2377,7 @@ mod tests {
     use std::{
         borrow::Cow,
         path::PathBuf,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     };
 
     static NEXT_TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
@@ -2905,6 +2914,34 @@ mod tests {
         state.clear_error().expect("state clear succeeds");
 
         assert_eq!(state.current_error().expect("state lock succeeds"), None);
+    }
+
+    #[test]
+    fn config_mutation_coordinator_serializes_updates() {
+        let coordinator = Arc::new(ConfigMutationCoordinator::default());
+        let value = Arc::new(AtomicUsize::new(0));
+        let mut workers = Vec::new();
+
+        for _ in 0..4 {
+            let coordinator = Arc::clone(&coordinator);
+            let value = Arc::clone(&value);
+            workers.push(thread::spawn(move || {
+                coordinator
+                    .serialized(|| {
+                        let current = value.load(Ordering::SeqCst);
+                        thread::sleep(Duration::from_millis(10));
+                        value.store(current + 1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .expect("config mutation succeeds");
+            }));
+        }
+
+        for worker in workers {
+            worker.join().expect("config mutation worker completes");
+        }
+
+        assert_eq!(value.load(Ordering::SeqCst), 4);
     }
 
     #[test]

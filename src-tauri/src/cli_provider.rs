@@ -10,14 +10,20 @@
 //!           usage:   GET  https://chatgpt.com/backend-api/codex/usage
 //! - Claude  refresh: POST https://platform.claude.com/v1/oauth/token (client 9d1c250a-…)
 //!           usage:   GET  https://api.anthropic.com/api/oauth/usage
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    time::{Duration, SystemTime},
+};
 
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::usage::{Service, UsageConfidence, UsageProviderError, UsageProviderId, UsageSnapshot, UsageSource};
+use crate::usage::{
+    Service, UsageConfidence, UsageProviderError, UsageProviderId, UsageSnapshot, UsageSource,
+};
 
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
@@ -29,8 +35,26 @@ const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
-// Refresh a Claude token this many ms before its stated expiry.
+// Refresh a token this many ms before its stated expiry.
 const EXPIRY_SKEW_MS: i64 = 60_000;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CredentialFileStamp {
+    modified: Option<SystemTime>,
+    len: u64,
+}
+
+#[derive(Clone)]
+struct CachedOAuthState {
+    access_token: String,
+    refresh_token: String,
+    expires_at_ms: Option<i64>,
+    account_id: String,
+    source_stamp: CredentialFileStamp,
+}
+
+static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static OAUTH_CACHE: OnceLock<Mutex<HashMap<Service, CachedOAuthState>>> = OnceLock::new();
 
 fn home() -> Result<PathBuf, UsageProviderError> {
     std::env::var_os("HOME")
@@ -38,11 +62,114 @@ fn home() -> Result<PathBuf, UsageProviderError> {
         .ok_or(UsageProviderError::Internal)
 }
 
-fn client() -> Result<reqwest::blocking::Client, UsageProviderError> {
-    reqwest::blocking::Client::builder()
+fn client() -> Result<&'static reqwest::blocking::Client, UsageProviderError> {
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+
+    let client = reqwest::blocking::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .build()
-        .map_err(|_| UsageProviderError::Internal)
+        .map_err(|_| UsageProviderError::Internal)?;
+    let _ = HTTP_CLIENT.set(client);
+    HTTP_CLIENT.get().ok_or(UsageProviderError::Internal)
+}
+
+fn oauth_cache() -> &'static Mutex<HashMap<Service, CachedOAuthState>> {
+    OAUTH_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn credential_file_stamp(path: &Path) -> Result<CredentialFileStamp, UsageProviderError> {
+    let metadata = std::fs::metadata(path).map_err(|_| UsageProviderError::NotConfigured)?;
+    Ok(CredentialFileStamp {
+        modified: metadata.modified().ok(),
+        len: metadata.len(),
+    })
+}
+
+fn cached_or_load_oauth(
+    service: Service,
+    path: &Path,
+    load: impl FnOnce(&Path, CredentialFileStamp) -> Result<CachedOAuthState, UsageProviderError>,
+) -> Result<CachedOAuthState, UsageProviderError> {
+    let source_stamp = match credential_file_stamp(path) {
+        Ok(stamp) => stamp,
+        Err(error) => {
+            discard_oauth(service)?;
+            return Err(error);
+        }
+    };
+    {
+        let mut cache = oauth_cache()
+            .lock()
+            .map_err(|_| UsageProviderError::Internal)?;
+        if let Some(cached) = cache.get(&service) {
+            if cached.source_stamp == source_stamp {
+                return Ok(cached.clone());
+            }
+        }
+        cache.remove(&service);
+    }
+
+    let loaded = load(path, source_stamp)?;
+    oauth_cache()
+        .lock()
+        .map_err(|_| UsageProviderError::Internal)?
+        .insert(service, loaded.clone());
+    Ok(loaded)
+}
+
+fn retain_oauth(service: Service, oauth: CachedOAuthState) -> Result<(), UsageProviderError> {
+    oauth_cache()
+        .lock()
+        .map_err(|_| UsageProviderError::Internal)?
+        .insert(service, oauth);
+    Ok(())
+}
+
+fn discard_oauth(service: Service) -> Result<(), UsageProviderError> {
+    oauth_cache()
+        .lock()
+        .map_err(|_| UsageProviderError::Internal)?
+        .remove(&service);
+    Ok(())
+}
+
+fn refreshed_oauth_state(
+    previous: &CachedOAuthState,
+    response: &Value,
+    now_ms: i64,
+) -> Result<CachedOAuthState, UsageProviderError> {
+    let access_token = response
+        .get("access_token")
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .ok_or(UsageProviderError::ParseFailed)?;
+    let refresh_token = response
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty())
+        .unwrap_or(&previous.refresh_token)
+        .to_string();
+    let expires_at_ms = response
+        .get("expires_in")
+        .and_then(Value::as_i64)
+        .filter(|seconds| *seconds > 0)
+        .and_then(|seconds| seconds.checked_mul(1_000))
+        .and_then(|duration| now_ms.checked_add(duration));
+
+    Ok(CachedOAuthState {
+        access_token,
+        refresh_token,
+        expires_at_ms,
+        account_id: previous.account_id.clone(),
+        source_stamp: previous.source_stamp.clone(),
+    })
+}
+
+fn now_unix_ms() -> i64 {
+    OffsetDateTime::now_utc().unix_timestamp() * 1_000
 }
 
 fn map_status_error(status: reqwest::StatusCode) -> UsageProviderError {
@@ -153,42 +280,70 @@ fn base_details(service: Service) -> Value {
 
 fn refresh_codex(now: &str) -> Result<UsageSnapshot, UsageProviderError> {
     let path = home()?.join(".codex/auth.json");
-    let raw = std::fs::read_to_string(&path).map_err(|_| UsageProviderError::NotConfigured)?;
-    let auth: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
+    let mut oauth = cached_or_load_oauth(Service::Codex, &path, load_codex_oauth)?;
 
-    let tokens = auth.get("tokens").ok_or(UsageProviderError::NotConfigured)?;
-    let mut access = tokens
-        .get("access_token")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .ok_or(UsageProviderError::NotConfigured)?;
-    let refresh_token = tokens
-        .get("refresh_token")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let account_id = tokens
-        .get("account_id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-
-    // Try with the stored token; on auth failure refresh once and retry.
-    match codex_usage(&access, &account_id, now) {
-        Err(UsageProviderError::LoginRequired) if !refresh_token.is_empty() => {
-            access = codex_refresh(&refresh_token)?;
-            codex_usage(&access, &account_id, now)
+    // Try with the retained token; on auth failure refresh once and retry.
+    match codex_usage(&oauth.access_token, &oauth.account_id, now) {
+        Err(UsageProviderError::LoginRequired) if !oauth.refresh_token.is_empty() => {
+            oauth = match codex_refresh(&oauth) {
+                Ok(oauth) => oauth,
+                Err(error) => {
+                    discard_oauth(Service::Codex)?;
+                    return Err(error);
+                }
+            };
+            retain_oauth(Service::Codex, oauth.clone())?;
+            let result = codex_usage(&oauth.access_token, &oauth.account_id, now);
+            if result == Err(UsageProviderError::LoginRequired) {
+                discard_oauth(Service::Codex)?;
+            }
+            result
+        }
+        Err(UsageProviderError::LoginRequired) => {
+            discard_oauth(Service::Codex)?;
+            Err(UsageProviderError::LoginRequired)
         }
         other => other,
     }
 }
 
-fn codex_refresh(refresh_token: &str) -> Result<String, UsageProviderError> {
+fn load_codex_oauth(
+    path: &Path,
+    source_stamp: CredentialFileStamp,
+) -> Result<CachedOAuthState, UsageProviderError> {
+    let raw = std::fs::read_to_string(path).map_err(|_| UsageProviderError::NotConfigured)?;
+    let auth: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
+    let tokens = auth
+        .get("tokens")
+        .ok_or(UsageProviderError::NotConfigured)?;
+
+    Ok(CachedOAuthState {
+        access_token: tokens
+            .get("access_token")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+            .ok_or(UsageProviderError::NotConfigured)?,
+        refresh_token: tokens
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        expires_at_ms: None,
+        account_id: tokens
+            .get("account_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        source_stamp,
+    })
+}
+
+fn codex_refresh(previous: &CachedOAuthState) -> Result<CachedOAuthState, UsageProviderError> {
     let body = json!({
         "client_id": CODEX_CLIENT_ID,
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
+        "refresh_token": previous.refresh_token,
         "scope": "openid profile email",
     });
     let response = client()?
@@ -199,13 +354,10 @@ fn codex_refresh(refresh_token: &str) -> Result<String, UsageProviderError> {
     if !response.status().is_success() {
         return Err(UsageProviderError::LoginRequired);
     }
-    let parsed: Value = response.json().map_err(|_| UsageProviderError::ParseFailed)?;
-    parsed
-        .get("access_token")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .ok_or(UsageProviderError::ParseFailed)
+    let parsed: Value = response
+        .json()
+        .map_err(|_| UsageProviderError::ParseFailed)?;
+    refreshed_oauth_state(previous, &parsed, now_unix_ms())
 }
 
 fn codex_usage(
@@ -224,12 +376,16 @@ fn codex_usage(
     if !status.is_success() {
         return Err(map_status_error(status));
     }
-    let body: Value = response.json().map_err(|_| UsageProviderError::ParseFailed)?;
+    let body: Value = response
+        .json()
+        .map_err(|_| UsageProviderError::ParseFailed)?;
     parse_codex_body(&body, now)
 }
 
 fn parse_codex_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let rate = body.get("rate_limit").ok_or(UsageProviderError::ParseFailed)?;
+    let rate = body
+        .get("rate_limit")
+        .ok_or(UsageProviderError::ParseFailed)?;
 
     // The payload declares each duration; only label the actual five-hour and
     // seven-day windows as such.
@@ -267,45 +423,82 @@ fn codex_window(window: Option<&Value>, expected_seconds: u64) -> Option<Window>
 
 fn refresh_claude(now: &str) -> Result<UsageSnapshot, UsageProviderError> {
     let path = home()?.join(".claude/.credentials.json");
-    let raw = std::fs::read_to_string(&path).map_err(|_| UsageProviderError::NotConfigured)?;
-    let creds: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
-    let oauth = creds
-        .get("claudeAiOauth")
-        .ok_or(UsageProviderError::NotConfigured)?;
-
-    let mut access = oauth
-        .get("accessToken")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .ok_or(UsageProviderError::NotConfigured)?;
-    let refresh_token = oauth
-        .get("refreshToken")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let expires_at = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
+    let mut oauth = cached_or_load_oauth(Service::Claude, &path, load_claude_oauth)?;
 
     // Claude states an explicit expiry; refresh proactively when it's near.
-    let now_ms = OffsetDateTime::now_utc().unix_timestamp() * 1000;
-    if expires_at > 0 && now_ms >= expires_at - EXPIRY_SKEW_MS && !refresh_token.is_empty() {
-        access = claude_refresh(&refresh_token)?;
+    let now_ms = now_unix_ms();
+    if oauth
+        .expires_at_ms
+        .is_some_and(|expires_at| now_ms >= expires_at - EXPIRY_SKEW_MS)
+        && !oauth.refresh_token.is_empty()
+    {
+        oauth = match claude_refresh(&oauth) {
+            Ok(oauth) => oauth,
+            Err(error) => {
+                discard_oauth(Service::Claude)?;
+                return Err(error);
+            }
+        };
+        retain_oauth(Service::Claude, oauth.clone())?;
     }
 
-    match claude_usage(&access, now) {
-        Err(UsageProviderError::LoginRequired) if !refresh_token.is_empty() => {
-            access = claude_refresh(&refresh_token)?;
-            claude_usage(&access, now)
+    match claude_usage(&oauth.access_token, now) {
+        Err(UsageProviderError::LoginRequired) if !oauth.refresh_token.is_empty() => {
+            oauth = match claude_refresh(&oauth) {
+                Ok(oauth) => oauth,
+                Err(error) => {
+                    discard_oauth(Service::Claude)?;
+                    return Err(error);
+                }
+            };
+            retain_oauth(Service::Claude, oauth.clone())?;
+            let result = claude_usage(&oauth.access_token, now);
+            if result == Err(UsageProviderError::LoginRequired) {
+                discard_oauth(Service::Claude)?;
+            }
+            result
+        }
+        Err(UsageProviderError::LoginRequired) => {
+            discard_oauth(Service::Claude)?;
+            Err(UsageProviderError::LoginRequired)
         }
         other => other,
     }
 }
 
-fn claude_refresh(refresh_token: &str) -> Result<String, UsageProviderError> {
+fn load_claude_oauth(
+    path: &Path,
+    source_stamp: CredentialFileStamp,
+) -> Result<CachedOAuthState, UsageProviderError> {
+    let raw = std::fs::read_to_string(path).map_err(|_| UsageProviderError::NotConfigured)?;
+    let creds: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
+    let oauth = creds
+        .get("claudeAiOauth")
+        .ok_or(UsageProviderError::NotConfigured)?;
+
+    Ok(CachedOAuthState {
+        access_token: oauth
+            .get("accessToken")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+            .ok_or(UsageProviderError::NotConfigured)?,
+        refresh_token: oauth
+            .get("refreshToken")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        expires_at_ms: oauth.get("expiresAt").and_then(Value::as_i64),
+        account_id: String::new(),
+        source_stamp,
+    })
+}
+
+fn claude_refresh(previous: &CachedOAuthState) -> Result<CachedOAuthState, UsageProviderError> {
     let body = json!({
         "client_id": CLAUDE_CLIENT_ID,
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
+        "refresh_token": previous.refresh_token,
     });
     let response = client()?
         .post(CLAUDE_TOKEN_URL)
@@ -315,13 +508,10 @@ fn claude_refresh(refresh_token: &str) -> Result<String, UsageProviderError> {
     if !response.status().is_success() {
         return Err(UsageProviderError::LoginRequired);
     }
-    let parsed: Value = response.json().map_err(|_| UsageProviderError::ParseFailed)?;
-    parsed
-        .get("access_token")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .ok_or(UsageProviderError::ParseFailed)
+    let parsed: Value = response
+        .json()
+        .map_err(|_| UsageProviderError::ParseFailed)?;
+    refreshed_oauth_state(previous, &parsed, now_unix_ms())
 }
 
 fn claude_usage(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
@@ -335,7 +525,9 @@ fn claude_usage(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderE
     if !status.is_success() {
         return Err(map_status_error(status));
     }
-    let body: Value = response.json().map_err(|_| UsageProviderError::ParseFailed)?;
+    let body: Value = response
+        .json()
+        .map_err(|_| UsageProviderError::ParseFailed)?;
     parse_claude_body(&body, now)
 }
 
@@ -359,11 +551,19 @@ fn claude_window(window: Option<&Value>) -> Option<Window> {
     Some(Window { used, reset })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
+    static NEXT_CACHE_TEST_ID: AtomicU64 = AtomicU64::new(0);
+
+    fn test_stamp() -> CredentialFileStamp {
+        CredentialFileStamp {
+            modified: None,
+            len: 0,
+        }
+    }
 
     // Real response shape from https://chatgpt.com/backend-api/codex/usage.
     #[test]
@@ -447,7 +647,10 @@ mod tests {
             let snapshot = parse_codex_body(&body, "2026-06-10T00:00:00Z")
                 .expect("valid weekly window remains usable");
             assert!(snapshot.details["windows"]["fiveHour"].is_null());
-            assert_eq!(snapshot.details["windows"]["week"]["remainingPercent"], 60.0);
+            assert_eq!(
+                snapshot.details["windows"]["week"]["remainingPercent"],
+                60.0
+            );
             assert_eq!(snapshot.remaining_percent, Some(60.0));
         }
     }
@@ -464,6 +667,95 @@ mod tests {
     }
 
     #[test]
+    fn refreshed_oauth_retains_rotated_refresh_token_and_expiry() {
+        let previous = CachedOAuthState {
+            access_token: "old-access".to_string(),
+            refresh_token: "old-refresh".to_string(),
+            expires_at_ms: Some(1),
+            account_id: "account".to_string(),
+            source_stamp: test_stamp(),
+        };
+
+        let refreshed = refreshed_oauth_state(
+            &previous,
+            &json!({
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "expires_in": 3_600
+            }),
+            10_000,
+        )
+        .expect("refresh response parses");
+
+        assert_eq!(refreshed.access_token, "new-access");
+        assert_eq!(refreshed.refresh_token, "new-refresh");
+        assert_eq!(refreshed.expires_at_ms, Some(3_610_000));
+        assert_eq!(refreshed.account_id, "account");
+    }
+
+    #[test]
+    fn refreshed_oauth_keeps_refresh_token_when_response_omits_rotation() {
+        let previous = CachedOAuthState {
+            access_token: "old-access".to_string(),
+            refresh_token: "old-refresh".to_string(),
+            expires_at_ms: None,
+            account_id: String::new(),
+            source_stamp: test_stamp(),
+        };
+
+        let refreshed =
+            refreshed_oauth_state(&previous, &json!({ "access_token": "new-access" }), 10_000)
+                .expect("refresh response parses");
+
+        assert_eq!(refreshed.refresh_token, "old-refresh");
+        assert_eq!(refreshed.expires_at_ms, None);
+    }
+
+    #[test]
+    fn oauth_cache_reloads_when_the_cli_credentials_file_changes() {
+        let path = std::env::temp_dir().join(format!(
+            "pickgauge-oauth-cache-test-{}-{}",
+            std::process::id(),
+            NEXT_CACHE_TEST_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, "first").expect("first credentials write succeeds");
+
+        let first = cached_or_load_oauth(Service::Grok, &path, |path, source_stamp| {
+            Ok(CachedOAuthState {
+                access_token: std::fs::read_to_string(path).expect("credentials read succeeds"),
+                refresh_token: String::new(),
+                expires_at_ms: None,
+                account_id: String::new(),
+                source_stamp,
+            })
+        })
+        .expect("first credentials load succeeds");
+        assert_eq!(first.access_token, "first");
+
+        let cached = cached_or_load_oauth(Service::Grok, &path, |_, _| {
+            panic!("unchanged credentials should use the cache")
+        })
+        .expect("cached credentials load succeeds");
+        assert_eq!(cached.access_token, "first");
+
+        std::fs::write(&path, "second-longer").expect("replacement credentials write succeeds");
+        let reloaded = cached_or_load_oauth(Service::Grok, &path, |path, source_stamp| {
+            Ok(CachedOAuthState {
+                access_token: std::fs::read_to_string(path).expect("credentials read succeeds"),
+                refresh_token: String::new(),
+                expires_at_ms: None,
+                account_id: String::new(),
+                source_stamp,
+            })
+        })
+        .expect("replacement credentials load succeeds");
+
+        assert_eq!(reloaded.access_token, "second-longer");
+        discard_oauth(Service::Grok).expect("test cache clears");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn deferred_cli_collection_is_disabled() {
         for service in [Service::Grok, Service::Ollama] {
             assert_eq!(
@@ -472,5 +764,4 @@ mod tests {
             );
         }
     }
-
 }

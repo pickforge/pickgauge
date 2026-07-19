@@ -34,14 +34,14 @@ bun).
   internal/release changes, what was tested, what was not tested yet, and known
   blockers. At release time, copy and polish it into the GitHub release
   description, then reset the draft.
-- Bump the version in `src-tauri/tauri.conf.json` and `package.json`, land on
-  `main`, tag `vX.Y.Z`, push the tag. CI builds Linux/macOS/Windows bundles,
-  signs the updater artifacts, and **auto-publishes** the release at the end
-  of the workflow — make sure `main` is ready before tagging.
-- The GitHub release description is the single source of release notes; polish
-  it right after the workflow finishes. pickforge.dev/pickgauge shows the
-  latest release via the GitHub API — no website change needed for a normal
-  release.
+- Bump the version in `src-tauri/tauri.conf.json`, `package.json`,
+  `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`; land on `main`, tag
+  `vX.Y.Z`, and push the tag. CI builds Linux/macOS/Windows bundles, signs the
+  updater artifacts, and uploads them with `latest.json` to a draft release.
+- The GitHub release description is the single source of release notes. After
+  CI finishes, polish the draft and publish it manually. pickforge.dev/pickgauge
+  shows the latest published release via the GitHub API — no website change
+  needed for a normal release.
 - Only touch `landing-page` (`src/pages/products.ts`) when install methods,
   platforms, or positioning change.
 ## Workspace policy

@@ -180,8 +180,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
 
-  publish-release:
-    name: Publish release
+  finalize-release:
+    name: Finalize draft release
     runs-on: ubuntu-24.04
     needs:
       - create-release
@@ -219,9 +219,3 @@ jobs:
           bun run pickforge-tauri-release verify-latest-json --input latest.json
 
           gh release upload "$RELEASE_TAG" latest.json --clobber
-
-      - name: Publish draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release edit "$RELEASE_TAG" --draft=false

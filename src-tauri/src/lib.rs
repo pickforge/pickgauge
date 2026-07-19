@@ -3,6 +3,7 @@ mod cli_provider;
 mod kwin;
 mod browser_session;
 mod config;
+mod official_reading;
 mod snapshot_store;
 mod usage_cli;
 pub mod history;
@@ -1233,6 +1234,34 @@ fn refresh_web_provider_headless(
         .map_err(map_provider_refresh_error)
 }
 
+/// Resolves the one official reading for a runtime service: a fresh CLI
+/// check first, falling through to a managed-web attempt only when the CLI
+/// reading is unavailable and the user has opted in to managed web.
+fn refresh_official_reading(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    sessions: &browser_session::BrowserSessionManager,
+    service: Service,
+) -> CommandResult<UsageDisplayState> {
+    let config = engine.config().map_err(map_usage_state_error)?;
+
+    let cli_snapshot = if config.providers.cli_enabled {
+        engine.refresh_cli_snapshot(service).ok().flatten()
+    } else {
+        None
+    };
+
+    if official_reading::managed_web_fallback_needed(
+        config.providers.cli_enabled,
+        config.providers.web_enabled,
+        cli_snapshot.as_ref(),
+    ) {
+        return refresh_web_provider_headless(app, engine, sessions, service);
+    }
+
+    engine.display_state().map_err(map_usage_state_error)
+}
+
 fn refresh_due_web_provider_headless(
     app: &AppHandle,
     engine: &UsageEngine,
@@ -1450,20 +1479,26 @@ fn refresh_all_with_headless_web(
     let mut display_state = engine.refresh_all().map_err(map_usage_refresh_error)?;
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    // CLI readings stay authoritative for Codex and Claude. Managed browser
-    // refresh is limited to those same services and only runs when CLI
-    // readings are disabled.
-    if config.providers.web_enabled && !config.providers.cli_enabled {
-        for (service, enabled) in [
-            (Service::Codex, config.enabled_services.codex),
-            (Service::Claude, config.enabled_services.claude),
-        ] {
-            if enabled {
-                if let Ok(updated) =
-                    refresh_web_provider_headless(app, engine, sessions, service)
-                {
-                    display_state = updated;
-                }
+    // Official readings are resolved per service: a usable CLI reading
+    // (just refreshed above) is always preferred, and managed browser
+    // refresh only runs for a service whose CLI reading is unavailable, so
+    // one service's failing CLI reading cannot suppress another's.
+    for (service, enabled) in [
+        (Service::Codex, config.enabled_services.codex),
+        (Service::Claude, config.enabled_services.claude),
+    ] {
+        if !enabled {
+            continue;
+        }
+
+        let cli_snapshot = engine.cli_snapshot(service).unwrap_or(None);
+        if official_reading::managed_web_fallback_needed(
+            config.providers.cli_enabled,
+            config.providers.web_enabled,
+            cli_snapshot.as_ref(),
+        ) {
+            if let Ok(updated) = refresh_web_provider_headless(app, engine, sessions, service) {
+                display_state = updated;
             }
         }
     }
@@ -1482,14 +1517,21 @@ fn refresh_due_with_headless_web(
 ) -> CommandResult<UsageDisplayState> {
     let config = engine.config().map_err(map_usage_state_error)?;
 
-    if config.providers.web_enabled && !config.providers.cli_enabled {
-        for (service, enabled) in [
-            (Service::Codex, config.enabled_services.codex),
-            (Service::Claude, config.enabled_services.claude),
-        ] {
-            if enabled {
-                refresh_due_web_provider_headless(app, engine, sessions, service)?;
-            }
+    for (service, enabled) in [
+        (Service::Codex, config.enabled_services.codex),
+        (Service::Claude, config.enabled_services.claude),
+    ] {
+        if !enabled {
+            continue;
+        }
+
+        let cli_snapshot = engine.cli_snapshot(service).map_err(map_usage_state_error)?;
+        if official_reading::managed_web_fallback_needed(
+            config.providers.cli_enabled,
+            config.providers.web_enabled,
+            cli_snapshot.as_ref(),
+        ) {
+            refresh_due_web_provider_headless(app, engine, sessions, service)?;
         }
     }
 
@@ -1537,7 +1579,7 @@ fn refresh_provider_blocking(
     )?;
 
     let refresh_result = if source == UsageSource::Web {
-        refresh_web_provider_headless(app, &engine, &sessions, service)
+        refresh_official_reading(app, &engine, &sessions, service)
     } else {
         engine
             .refresh_provider_source(service, source)

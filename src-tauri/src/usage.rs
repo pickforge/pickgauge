@@ -612,13 +612,18 @@ impl UsageEngine {
         service: Service,
         source: UsageSource,
     ) -> Result<UsageDisplayState, String> {
-        self.refresh_provider_source_with_snapshot_policy(
+        let provider_id = UsageProviderId::for_service_source(service, source)
+            .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
+        self.refresh_provider_by_id(
             service,
+            provider_id,
             source,
             RefreshPolicy::Manual,
             false,
+            source == UsageSource::Web,
             |provider, now| provider.refresh(now),
         )
+        .map(|(display_state, _)| display_state)
     }
 
     pub fn refresh_provider_source_with_snapshot<F>(
@@ -630,13 +635,18 @@ impl UsageEngine {
     where
         F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
     {
-        self.refresh_provider_source_with_snapshot_policy(
+        let provider_id = UsageProviderId::for_service_source(service, source)
+            .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
+        self.refresh_provider_by_id(
             service,
+            provider_id,
             source,
             RefreshPolicy::Manual,
             true,
+            source == UsageSource::Web,
             |_, now| refresh(now),
         )
+        .map(|(display_state, _)| display_state)
     }
 
     pub fn refresh_due_provider_source_with_snapshot<F>(
@@ -648,32 +658,74 @@ impl UsageEngine {
     where
         F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
     {
-        self.refresh_provider_source_with_snapshot_policy(
+        let provider_id = UsageProviderId::for_service_source(service, source)
+            .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
+        self.refresh_provider_by_id(
             service,
+            provider_id,
             source,
             RefreshPolicy::Scheduled,
             true,
+            source == UsageSource::Web,
             |_, now| refresh(now),
         )
+        .map(|(display_state, _)| display_state)
     }
 
-
-    fn refresh_provider_source_with_snapshot_policy<F>(
+    /// Refreshes a runtime service's CLI-backed official reading directly
+    /// (independent of the Web-source lookup, which would find the managed
+    /// web adapter instead), so callers can check whether it is usable
+    /// before deciding whether to fall through to managed web.
+    ///
+    /// `Ok(None)` means the CLI adapter is mid-refresh or in backoff and was
+    /// not refreshed this call; callers should treat that the same as an
+    /// unusable reading. `Err` means the CLI adapter is not configured.
+    pub(crate) fn refresh_cli_snapshot(
         &self,
         service: Service,
+    ) -> Result<Option<UsageSnapshot>, String> {
+        let provider_id = cli_provider_id(service)
+            .ok_or_else(|| "Provider is not configured".to_string())?;
+        self.refresh_provider_by_id(
+            service,
+            provider_id,
+            UsageSource::Web,
+            RefreshPolicy::Manual,
+            false,
+            false,
+            |provider, now| provider.refresh(now),
+        )
+        .map(|(_, snapshot)| snapshot)
+    }
+
+    /// Reads the runtime service's most recently refreshed CLI snapshot from
+    /// engine state, without triggering a new refresh.
+    pub(crate) fn cli_snapshot(&self, service: Service) -> Result<Option<UsageSnapshot>, String> {
+        let Some(provider_id) = cli_provider_id(service) else {
+            return Ok(None);
+        };
+        let key = provider_id.refresh_key(service);
+        let state = self.lock()?;
+        Ok(state.snapshots.get(&key).cloned())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn refresh_provider_by_id<F>(
+        &self,
+        service: Service,
+        provider_id: UsageProviderId,
         source: UsageSource,
         policy: RefreshPolicy,
         external_refresh: bool,
+        respects_manual_web_cooldown: bool,
         refresh: F,
-    ) -> Result<UsageDisplayState, String>
+    ) -> Result<(UsageDisplayState, Option<UsageSnapshot>), String>
     where
         F: FnOnce(&dyn UsageProvider, &str) -> Result<UsageSnapshot, UsageProviderError>,
     {
-        let provider_id = UsageProviderId::for_service_source(service, source)
-            .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
         let now = self.clock.now_rfc3339();
 
-        if policy == RefreshPolicy::Manual && source == UsageSource::Web {
+        if policy == RefreshPolicy::Manual && respects_manual_web_cooldown {
             self.ensure_manual_web_refresh_allowed(service, &now)?;
         }
 
@@ -705,7 +757,7 @@ impl UsageEngine {
                 provider_refresh_interval(&config, source),
             )
         {
-            return self.display_state();
+            return Ok((self.display_state()?, None));
         }
 
         let apply_backoff = external_refresh || !is_placeholder;
@@ -715,7 +767,7 @@ impl UsageEngine {
             apply_backoff,
             &now,
         )? {
-            return self.display_state();
+            return Ok((self.display_state()?, None));
         }
 
         let snapshot = match refresh(provider.as_ref(), &now) {
@@ -750,18 +802,20 @@ impl UsageEngine {
             }
         };
         self.record_scheduled_provider_refresh(&provider_key, &now)?;
-        if policy == RefreshPolicy::Manual && source == UsageSource::Web {
+        if policy == RefreshPolicy::Manual && respects_manual_web_cooldown {
             self.record_manual_web_refresh(service, &now)?;
         }
         self.finish_refresh(&provider_key)?;
 
         let mut state = self.lock()?;
-        let refreshed =
-            apply_current_provider_snapshots(&mut state, vec![(provider_key, snapshot)]);
+        let refreshed = apply_current_provider_snapshots(
+            &mut state,
+            vec![(provider_key, snapshot.clone())],
+        );
         if refreshed {
             state.last_updated = now.clone();
         }
-        Ok(state.display_state(&now))
+        Ok((state.display_state(&now), Some(snapshot)))
     }
 
     pub fn refresh_all_and_emit(&self, app: &AppHandle) -> Result<UsageDisplayState, String> {
@@ -1206,6 +1260,13 @@ fn preferred_web_snapshot<'a>(snapshots: &'a [&'a UsageSnapshot]) -> Option<&'a 
             web_has_usage_percent(left)
                 .cmp(&web_has_usage_percent(right))
                 .then_with(|| web_snapshot_is_parsed(left).cmp(&web_snapshot_is_parsed(right)))
+                // A healthy CLI reading is always preferred; this also keeps
+                // the choice deterministic when both adapters failed in the
+                // same refresh cycle, instead of depending on HashMap order.
+                .then_with(|| {
+                    crate::official_reading::is_cli_official_snapshot(left)
+                        .cmp(&crate::official_reading::is_cli_official_snapshot(right))
+                })
                 .then_with(|| {
                     parse_rfc3339(&left.last_updated).cmp(&parse_rfc3339(&right.last_updated))
                 })
@@ -1510,13 +1571,16 @@ fn providers_for_config(
             }));
         }
 
-        // CLI credentials take precedence over browser scraping for the
-        // official (Web-source) reading.
+        // CLI and managed web are independent adapters: a usable CLI
+        // reading is always preferred (see official_reading), but both stay
+        // registered so an unavailable CLI reading can fall through to an
+        // opted-in managed-web reading for this same service.
         if config.providers.cli_enabled {
             providers.push(Arc::new(CliUsageProvider {
                 service: Service::Codex,
             }));
-        } else if config.providers.web_enabled {
+        }
+        if config.providers.web_enabled {
             providers.push(Arc::new(FailClosedWebProvider {
                 service: Service::Codex,
             }));
@@ -1546,7 +1610,8 @@ fn providers_for_config(
             providers.push(Arc::new(CliUsageProvider {
                 service: Service::Claude,
             }));
-        } else if config.providers.web_enabled {
+        }
+        if config.providers.web_enabled {
             providers.push(Arc::new(FailClosedWebProvider {
                 service: Service::Claude,
             }));
@@ -1554,6 +1619,14 @@ fn providers_for_config(
     }
 
     providers
+}
+
+fn cli_provider_id(service: Service) -> Option<UsageProviderId> {
+    match service {
+        Service::Codex => Some(UsageProviderId::CodexCli),
+        Service::Claude => Some(UsageProviderId::ClaudeCli),
+        Service::Grok | Service::Ollama => None,
+    }
 }
 
 fn quota_calibration(settings: &LocalServiceQuotaSettings) -> Option<LocalQuotaCalibration> {
@@ -1879,6 +1952,23 @@ mod tests {
         }
     }
 
+    fn cli_and_web_enabled_config() -> AppConfig {
+        AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: true,
+                claude: true,
+                grok: false,
+                ollama: false,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: false,
+                web_enabled: true,
+                cli_enabled: true,
+            },
+            ..AppConfig::default()
+        }
+    }
+
     fn configured_quota(limit: f64, window_hours: u64) -> crate::config::LocalServiceQuotaSettings {
         crate::config::LocalServiceQuotaSettings {
             enabled: true,
@@ -1966,12 +2056,40 @@ mod tests {
         }
     }
 
+    fn cli_snapshot(service: Service, remaining_percent: f32, last_updated: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            service,
+            remaining_percent: Some(remaining_percent),
+            used_percent: Some(100.0 - remaining_percent),
+            reset_at: Some("2026-06-04T00:00:00Z".to_string()),
+            source: UsageSource::Web,
+            confidence: UsageConfidence::High,
+            last_updated: last_updated.to_string(),
+            details: serde_json::json!({
+                "status": "parsed",
+                "providerId": cli_provider_id(service).expect("cli provider id").code(),
+                "source": UsageSource::Web.code(),
+                "via": "cli",
+            }),
+        }
+    }
+
     fn web_error_snapshot(
         service: Service,
         error: UsageProviderError,
         last_updated: &str,
     ) -> UsageSnapshot {
         let provider = FailClosedWebProvider { service };
+
+        error_snapshot(&provider, error, last_updated)
+    }
+
+    fn cli_error_snapshot(
+        service: Service,
+        error: UsageProviderError,
+        last_updated: &str,
+    ) -> UsageSnapshot {
+        let provider = CliUsageProvider { service };
 
         error_snapshot(&provider, error, last_updated)
     }
@@ -2752,6 +2870,160 @@ mod tests {
         };
 
         assert!(providers_for_config(&config, &LocalProviderRoots::default()).is_empty());
+    }
+
+    // Regression for the global CLI-or-web gate (#48/#51 CAND-2): CLI and
+    // managed web are independent adapters per service, so an unavailable
+    // CLI reading for one service does not remove the managed-web adapter
+    // needed to fall back for that same service, and does not depend on the
+    // other service's CLI outcome either.
+    #[test]
+    fn providers_for_config_registers_cli_and_web_adapters_independently() {
+        let providers = providers_for_config(
+            &cli_and_web_enabled_config(),
+            &LocalProviderRoots::default(),
+        );
+        let ids = providers
+            .iter()
+            .map(|provider| provider.provider_id())
+            .collect::<Vec<_>>();
+
+        for expected in [
+            UsageProviderId::CodexCli,
+            UsageProviderId::CodexWeb,
+            UsageProviderId::ClaudeCli,
+            UsageProviderId::ClaudeWeb,
+        ] {
+            assert!(
+                ids.contains(&expected),
+                "expected {expected:?} to be registered alongside {ids:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn healthy_cli_reading_is_preferred_over_a_failing_managed_web_placeholder() {
+        let display_state = display_state_from_provider_snapshots(
+            cli_and_web_enabled_config(),
+            vec![
+                (
+                    "codex.cli",
+                    cli_snapshot(Service::Codex, 91.0, "2026-07-09T12:00:00Z"),
+                ),
+                (
+                    "codex.web",
+                    web_error_snapshot(
+                        Service::Codex,
+                        UsageProviderError::LoginRequired,
+                        "2026-07-09T12:00:00Z",
+                    ),
+                ),
+            ],
+            "2026-07-09T12:01:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.remaining_percent, Some(91.0));
+        assert_eq!(snapshot.details["mergeStatus"], "web_only");
+    }
+
+    #[test]
+    fn one_services_failing_cli_reading_does_not_block_the_others_healthy_reading() {
+        let display_state = display_state_from_provider_snapshots(
+            cli_and_web_enabled_config(),
+            vec![
+                (
+                    "codex.cli",
+                    cli_error_snapshot(
+                        Service::Codex,
+                        UsageProviderError::NotConfigured,
+                        "2026-07-09T12:00:00Z",
+                    ),
+                ),
+                (
+                    "claude.cli",
+                    cli_snapshot(Service::Claude, 58.0, "2026-07-09T12:00:00Z"),
+                ),
+            ],
+            "2026-07-09T12:01:00Z",
+        );
+
+        let codex = display_state
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.service == Service::Codex)
+            .expect("codex snapshot exists");
+        let claude = display_state
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.service == Service::Claude)
+            .expect("claude snapshot exists");
+
+        assert_eq!(codex.details["status"], "not_configured");
+        assert_eq!(claude.remaining_percent, Some(58.0));
+    }
+
+    #[test]
+    fn both_official_sources_failing_deterministically_surfaces_the_cli_status() {
+        let display_state = display_state_from_provider_snapshots(
+            cli_and_web_enabled_config(),
+            vec![
+                (
+                    "codex.cli",
+                    cli_error_snapshot(
+                        Service::Codex,
+                        UsageProviderError::ParseFailed,
+                        "2026-07-09T12:00:00Z",
+                    ),
+                ),
+                (
+                    "codex.web",
+                    web_error_snapshot(
+                        Service::Codex,
+                        UsageProviderError::LoginRequired,
+                        "2026-07-09T12:00:00Z",
+                    ),
+                ),
+            ],
+            "2026-07-09T12:01:00Z",
+        );
+        let snapshot = &display_state.snapshots[0];
+
+        assert_eq!(snapshot.details["status"], "parse_failed");
+        assert_eq!(snapshot.details["providerId"], "codex.cli");
+    }
+
+    #[test]
+    fn engine_cli_snapshot_reads_are_tracked_independently_per_service() {
+        let engine = UsageEngine::new(cli_and_web_enabled_config());
+
+        {
+            let mut state = engine.lock().expect("engine state locks");
+            state.snapshots.insert(
+                "codex.cli".to_string(),
+                cli_error_snapshot(
+                    Service::Codex,
+                    UsageProviderError::NotConfigured,
+                    "2026-07-09T12:00:00Z",
+                ),
+            );
+            state.snapshots.insert(
+                "claude.cli".to_string(),
+                cli_snapshot(Service::Claude, 58.0, "2026-07-09T12:00:00Z"),
+            );
+        }
+
+        let codex_cli = engine
+            .cli_snapshot(Service::Codex)
+            .expect("codex cli snapshot reads")
+            .expect("codex cli snapshot exists");
+        let claude_cli = engine
+            .cli_snapshot(Service::Claude)
+            .expect("claude cli snapshot reads")
+            .expect("claude cli snapshot exists");
+
+        assert_eq!(codex_cli.details["status"], "not_configured");
+        assert_eq!(claude_cli.remaining_percent, Some(58.0));
     }
 
     #[test]

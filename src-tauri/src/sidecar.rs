@@ -8,7 +8,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     process::{ChildStdout, Command},
     sync::mpsc,
     thread,
@@ -22,7 +22,8 @@ pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
 pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
-const PLAYWRIGHT_SIDECAR_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
+const PLAYWRIGHT_SIDECAR_RESPONSE_TIMEOUT: Duration = Duration::from_secs(35);
+const PLAYWRIGHT_SIDECAR_MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -366,6 +367,7 @@ fn execute<T>(
             .take_process_stdio(request.service)
             .map_err(|_| operation.process_state_unavailable().to_string())?;
         write_request(&mut stdin, request, operation)?;
+        drop(stdin);
         let line = read_response_line(stdout, timeout, operation)?;
         decode(&line, request)
     })();
@@ -410,11 +412,27 @@ fn read_response_line(
 ) -> Result<String, String> {
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
+        let reader = BufReader::new(stdout);
+        let mut bytes = Vec::new();
         let result = reader
-            .read_line(&mut line)
-            .map(|bytes| if bytes == 0 { String::new() } else { line });
+            .take(PLAYWRIGHT_SIDECAR_MAX_RESPONSE_BYTES + 1)
+            .read_until(b'\n', &mut bytes)
+            .and_then(|read| {
+                if bytes.len() as u64 > PLAYWRIGHT_SIDECAR_MAX_RESPONSE_BYTES {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "sidecar response exceeds limit",
+                    ));
+                }
+                String::from_utf8(bytes)
+                    .map(|line| if read == 0 { String::new() } else { line })
+                    .map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "sidecar response is not UTF-8",
+                        )
+                    })
+            });
         let _ = sender.send(result);
     });
 
@@ -649,12 +667,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn one_shot_refresh_cleans_up_lingering_process_after_valid_exchange() {
+    fn one_shot_refresh_closes_stdin_and_cleans_up_after_valid_exchange() {
         let sessions = BrowserSessionManager::default();
         let request = test_request(Service::Claude, true);
         let response = response_line(&request, "checked", Some("usage"));
         let command = shell_command(&format!(
-            "read request; printf '%s\\n' '{}'; sleep 30",
+            "request=$(cat); printf '%s\\n' '{}'; sleep 30",
             shell_quote(&response)
         ));
 
@@ -686,6 +704,23 @@ mod tests {
 
         assert_eq!(error, "Managed usage sidecar returned invalid response");
         assert!(!error.contains("/home/private"));
+        assert_no_process(&sessions, Service::Codex);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn oversized_response_cleans_up_without_echoing_output() {
+        let sessions = BrowserSessionManager::default();
+        let request = test_request(Service::Codex, true);
+        let command = shell_command(
+            "read request; head -c 65537 /dev/zero | tr '\\0' x; printf '\\n'; sleep 30",
+        );
+
+        let error =
+            refresh_usage_with_timeout(command, &sessions, &request, Duration::from_secs(1))
+                .expect_err("oversized response is rejected");
+
+        assert_eq!(error, "Could not read managed usage sidecar response");
         assert_no_process(&sessions, Service::Codex);
     }
 

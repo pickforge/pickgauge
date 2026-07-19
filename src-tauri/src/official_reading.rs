@@ -13,18 +13,14 @@
 //! reading. It does not execute either adapter; `usage.rs` runs the CLI
 //! adapter and `lib.rs` orchestrates the managed-web adapter, then both
 //! consult this module to decide what to do with the result.
-use crate::usage::UsageSnapshot;
+use crate::{usage::UsageSnapshot, usage_model::UsageModel};
 
 /// True when a resolved official-reading snapshot represents a healthy,
 /// parsed reading rather than a failing one (expired/absent credentials,
 /// parse failure, login required, etc). Covers the "healthy CLI" state from
 /// product issue #48; every other CLI state below is represented by `false`.
 pub(crate) fn is_usable_official_snapshot(snapshot: &UsageSnapshot) -> bool {
-    snapshot
-        .details
-        .get("status")
-        .and_then(|value| value.as_str())
-        == Some("parsed")
+    UsageModel::from_snapshot(snapshot).status == "parsed"
 }
 
 /// True when a Web-source snapshot came from the CLI adapter rather than the

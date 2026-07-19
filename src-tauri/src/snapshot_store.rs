@@ -1,4 +1,7 @@
-use crate::usage::UsageSnapshot;
+use crate::{
+    usage::{Service, UsageConfidence, UsageSnapshot, UsageSource},
+    usage_model::{UsageModel, UsageWindow, UsageWindows},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -10,14 +13,150 @@ use std::{
 
 const BUNDLE_IDENTIFIER: &str = "com.pickforge.pickgauge";
 const SNAPSHOT_FILE_NAME: &str = "snapshots.json";
-const SNAPSHOT_VERSION: u32 = 1;
+// Bumped from 1 to 2 when the cache moved from persisting each provider's
+// unrestricted `details` bag to the sanitized, typed `UsageModel` projection
+// (status/plan/windows only). Older files fail the version check below and
+// are discarded rather than migrated: this is a self-healing local cache,
+// repopulated by the next refresh.
+const SNAPSHOT_VERSION: u32 = 2;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredSnapshots {
     version: u32,
     updated_at: String,
-    snapshots: HashMap<String, UsageSnapshot>,
+    snapshots: HashMap<String, PersistedUsageSnapshot>,
+}
+
+/// The sanitized, typed projection of a `UsageSnapshot` written to disk: only
+/// the validated windows/status/plan model state (`usage_model`), never the
+/// unrestricted provider `details` bag with its merge/backoff diagnostics.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedUsageSnapshot {
+    service: Service,
+    source: UsageSource,
+    confidence: UsageConfidence,
+    last_updated: String,
+    remaining_percent: Option<f32>,
+    used_percent: Option<f32>,
+    reset_at: Option<String>,
+    status: String,
+    plan: Option<String>,
+    windows: PersistedUsageWindows,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedUsageWindows {
+    five_hour: Option<PersistedUsageWindow>,
+    week: Option<PersistedUsageWindow>,
+    fable: Option<PersistedUsageWindow>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedUsageWindow {
+    remaining_percent: Option<f32>,
+    used_percent: Option<f32>,
+    reset_at: Option<String>,
+}
+
+impl From<UsageWindow> for PersistedUsageWindow {
+    fn from(window: UsageWindow) -> Self {
+        Self {
+            remaining_percent: window.remaining_percent,
+            used_percent: window.used_percent,
+            reset_at: window.reset_at,
+        }
+    }
+}
+
+impl From<PersistedUsageWindow> for UsageWindow {
+    fn from(window: PersistedUsageWindow) -> Self {
+        Self {
+            remaining_percent: window.remaining_percent,
+            used_percent: window.used_percent,
+            reset_at: window.reset_at,
+        }
+    }
+}
+
+impl From<UsageWindows> for PersistedUsageWindows {
+    fn from(windows: UsageWindows) -> Self {
+        Self {
+            five_hour: windows.five_hour.map(Into::into),
+            week: windows.week.map(Into::into),
+            fable: windows.fable.map(Into::into),
+        }
+    }
+}
+
+impl From<&UsageSnapshot> for PersistedUsageSnapshot {
+    fn from(snapshot: &UsageSnapshot) -> Self {
+        let model = UsageModel::from_snapshot(snapshot);
+
+        Self {
+            service: snapshot.service,
+            source: snapshot.source,
+            confidence: snapshot.confidence,
+            last_updated: snapshot.last_updated.clone(),
+            remaining_percent: snapshot.remaining_percent,
+            used_percent: snapshot.used_percent,
+            reset_at: snapshot.reset_at.clone(),
+            status: model.status,
+            plan: model.plan,
+            windows: model.windows.into(),
+        }
+    }
+}
+
+impl From<PersistedUsageSnapshot> for UsageSnapshot {
+    fn from(persisted: PersistedUsageSnapshot) -> Self {
+        let mut details = serde_json::json!({ "status": persisted.status });
+        if let (Some(plan), Some(object)) = (&persisted.plan, details.as_object_mut()) {
+            object.insert("plan".to_string(), serde_json::json!(plan));
+        }
+        if let Some(windows) = persisted_windows_json(&persisted.windows) {
+            if let Some(object) = details.as_object_mut() {
+                object.insert("windows".to_string(), windows);
+            }
+        }
+
+        Self {
+            service: persisted.service,
+            remaining_percent: persisted.remaining_percent,
+            used_percent: persisted.used_percent,
+            reset_at: persisted.reset_at,
+            source: persisted.source,
+            confidence: persisted.confidence,
+            last_updated: persisted.last_updated,
+            details,
+        }
+    }
+}
+
+fn persisted_windows_json(windows: &PersistedUsageWindows) -> Option<serde_json::Value> {
+    if windows.five_hour.is_none() && windows.week.is_none() && windows.fable.is_none() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "fiveHour": persisted_window_json(&windows.five_hour),
+        "week": persisted_window_json(&windows.week),
+        "fable": persisted_window_json(&windows.fable),
+    }))
+}
+
+fn persisted_window_json(window: &Option<PersistedUsageWindow>) -> serde_json::Value {
+    match window {
+        Some(window) => serde_json::json!({
+            "remainingPercent": window.remaining_percent,
+            "usedPercent": window.used_percent,
+            "resetAt": window.reset_at,
+        }),
+        None => serde_json::Value::Null,
+    }
 }
 
 pub fn app_data_dir() -> Result<PathBuf, String> {
@@ -63,7 +202,11 @@ fn load_from_path(path: &Path) -> Result<HashMap<String, UsageSnapshot>, String>
         Ok(_) | Err(_) => return Ok(HashMap::new()),
     };
 
-    Ok(stored.snapshots)
+    Ok(stored
+        .snapshots
+        .into_iter()
+        .map(|(provider_key, persisted)| (provider_key, persisted.into()))
+        .collect())
 }
 
 fn save_to_path(
@@ -95,7 +238,10 @@ fn save_to_path(
     let stored = StoredSnapshots {
         version: SNAPSHOT_VERSION,
         updated_at: updated_at.to_string(),
-        snapshots: merged_snapshots,
+        snapshots: merged_snapshots
+            .iter()
+            .map(|(provider_key, snapshot)| (provider_key.clone(), snapshot.into()))
+            .collect(),
     };
     let raw = serde_json::to_string_pretty(&stored)
         .map_err(|error| format!("Could not serialize usage snapshots: {error}"))?;
@@ -255,12 +401,23 @@ mod tests {
 
         save_in(&dir.path, &snapshots, "2026-07-09T12:00:00Z").expect("snapshots save");
 
+        // The store persists the sanitized model projection (status/plan/
+        // windows), not the provider's unrestricted `details` bag, so
+        // diagnostic-only keys like `providerId` do not round-trip.
+        let loaded = load_in(&dir.path).expect("snapshots load");
+        let loaded_snapshot = &loaded["codex.cli"];
+        assert_eq!(loaded_snapshot.service, Service::Codex);
+        assert_eq!(loaded_snapshot.remaining_percent, Some(64.0));
+        assert_eq!(loaded_snapshot.used_percent, Some(36.0));
+        assert_eq!(loaded_snapshot.details["status"], "parsed");
         assert_eq!(
-            load_in(&dir.path).expect("snapshots load"),
-            snapshots
+            loaded_snapshot.details["windows"]["fiveHour"]["remainingPercent"],
+            64.0
         );
+        assert!(loaded_snapshot.details.get("providerId").is_none());
+
         let raw = fs::read_to_string(dir.snapshot_path()).expect("snapshot file reads");
-        assert!(raw.contains("\"version\": 1"));
+        assert!(raw.contains("\"version\": 2"));
         assert!(raw.contains("\"updatedAt\": \"2026-07-09T12:00:00Z\""));
     }
 
@@ -297,7 +454,7 @@ mod tests {
 
         fs::write(
             &path,
-            r#"{"version":2,"updatedAt":"2026-07-09T12:00:00Z","snapshots":{}}"#,
+            r#"{"version":3,"updatedAt":"2026-07-09T12:00:00Z","snapshots":{}}"#,
         )
         .expect("unsupported snapshot file is written");
         assert!(load_in(&dir.path)

@@ -6,6 +6,7 @@ mod config;
 mod official_reading;
 mod snapshot_store;
 mod usage_cli;
+mod usage_model;
 pub mod history;
 pub mod local_provider;
 pub mod sounds;

@@ -1,4 +1,7 @@
-use crate::usage::{Service, UsageConfidence, UsageProviderId, UsageSnapshot, UsageSource};
+use crate::{
+    observation_reuse::ObservationReuse,
+    usage::{Service, UsageConfidence, UsageProviderId, UsageSnapshot, UsageSource},
+};
 use rusqlite::{types::ValueRef, Connection, OpenFlags, Row};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -7,6 +10,8 @@ use std::{
     fs::{self, File},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration as StdDuration,
 };
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 
@@ -14,22 +19,31 @@ const CLAUDE_PROJECTS_DIR: &str = "projects";
 const JSONL_EXTENSION: &str = "jsonl";
 const MAX_CLAUDE_JSONL_FILES: usize = 512;
 const MAX_CLAUDE_RECORDS_PER_REFRESH: u64 = 100_000;
+const MAX_CLAUDE_DISCOVERY_ENTRIES: u64 = MAX_CLAUDE_RECORDS_PER_REFRESH;
 const CODEX_STATE_DB_FILE: &str = "state_5.sqlite";
 const MAX_CODEX_THREADS_PER_REFRESH: u64 = 10_000;
 const LOCAL_WINDOW_POLICY: &str = "all_scanned_local_activity";
 const CLAUDE_TIMESTAMP_SEMANTICS: &str = "source_rfc3339";
 const CODEX_TIMESTAMP_SEMANTICS: &str = "unix_epoch_ms";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ClaudeLocalProvider {
     data_root: PathBuf,
     calibration: Option<LocalQuotaCalibration>,
+    observation_reuse: Option<Arc<ObservationReuse<ClaudeLocalObservation>>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct CodexLocalProvider {
     data_root: PathBuf,
     calibration: Option<LocalQuotaCalibration>,
+    observation_reuse: Option<Arc<ObservationReuse<CodexLocalObservation>>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct LocalObservationReuse {
+    claude: Arc<ObservationReuse<ClaudeLocalObservation>>,
+    codex: Arc<ObservationReuse<CodexLocalObservation>>,
 }
 
 #[derive(Clone, Debug)]
@@ -38,7 +52,7 @@ pub struct LocalQuotaCalibration {
     window_hours: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct ClaudeUsageSummary {
     files_scanned: u64,
     records_read: u64,
@@ -62,7 +76,7 @@ struct ClaudeUsageSummary {
     window_tokens: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct CodexUsageSummary {
     threads_read: u64,
     usage_threads: u64,
@@ -86,6 +100,25 @@ struct ClaudeJsonlRecord {
     message: Option<ClaudeMessage>,
 }
 
+#[derive(Debug)]
+struct ClaudeLocalObservation {
+    summary: ClaudeUsageSummary,
+    activity: Vec<ObservedActivity>,
+}
+
+#[derive(Debug)]
+struct CodexLocalObservation {
+    summary: CodexUsageSummary,
+    activity: Vec<ObservedActivity>,
+}
+
+#[derive(Debug)]
+struct ObservedActivity {
+    timestamp_ms: Option<i128>,
+    tokens: u64,
+    activity_key: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ClaudeMessage {
     model: Option<String>,
@@ -101,11 +134,21 @@ struct ClaudeUsage {
     server_tool_use: Option<serde_json::Value>,
 }
 
+impl LocalObservationReuse {
+    pub(crate) fn new(ttl: StdDuration) -> Self {
+        Self {
+            claude: Arc::new(ObservationReuse::new(ttl)),
+            codex: Arc::new(ObservationReuse::new(ttl)),
+        }
+    }
+}
+
 impl ClaudeLocalProvider {
     pub fn new(data_root: impl Into<PathBuf>) -> Self {
         Self {
             data_root: data_root.into(),
             calibration: None,
+            observation_reuse: None,
         }
     }
 
@@ -126,6 +169,11 @@ impl ClaudeLocalProvider {
         self.calibration.clone()
     }
 
+    pub(crate) fn with_observation_reuse(mut self, reuse: &LocalObservationReuse) -> Self {
+        self.observation_reuse = Some(reuse.claude.clone());
+        self
+    }
+
     pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
         let provider_id = UsageProviderId::ClaudeLocal;
         let window = self
@@ -133,7 +181,10 @@ impl ClaudeLocalProvider {
             .as_ref()
             .and_then(|calibration| calibration.window(now));
 
-        match self.scan_usage_summary(window) {
+        match self
+            .observation()
+            .map(|observation| observation.summary(window))
+        {
             Ok(summary) if summary.usage_records > 0 => {
                 let calibration = calibration_snapshot_values(
                     self.calibration.as_ref(),
@@ -244,73 +295,18 @@ impl ClaudeLocalProvider {
         utc_offset_seconds: i32,
         now: &str,
     ) -> Result<Vec<DailyTokenUsage>, String> {
-        let projects_dir = self.data_root.join(CLAUDE_PROJECTS_DIR);
-
-        if !projects_dir.is_dir() {
-            return Err("claude_projects_missing".to_string());
-        }
-
-        let mut accumulator = DailyTokenAccumulator::new(days, utc_offset_seconds, now)?;
-        let mut files = Vec::new();
-        collect_jsonl_files(&projects_dir, &mut files)?;
-        files.truncate(MAX_CLAUDE_JSONL_FILES);
-
-        let mut records_read: u64 = 0;
-
-        'files: for file_path in files {
-            let Ok(file) = File::open(&file_path) else {
-                continue;
-            };
-
-            for line in BufReader::new(file).lines() {
-                let Ok(line) = line else {
-                    continue;
-                };
-                let line = line.trim();
-
-                if line.is_empty() {
-                    continue;
-                }
-
-                if records_read >= MAX_CLAUDE_RECORDS_PER_REFRESH {
-                    break 'files;
-                }
-
-                records_read += 1;
-
-                let Ok(record) = serde_json::from_str::<ClaudeJsonlRecord>(line) else {
-                    continue;
-                };
-                let Some(timestamp_ms) = record.timestamp.as_deref().and_then(parse_rfc3339_ms)
-                else {
-                    continue;
-                };
-                let Some(usage) = record
-                    .message
-                    .as_ref()
-                    .and_then(|message| message.usage.as_ref())
-                else {
-                    continue;
-                };
-
-                let tokens = usage
-                    .input_tokens
-                    .unwrap_or_default()
-                    .saturating_add(usage.output_tokens.unwrap_or_default())
-                    .saturating_add(usage.cache_creation_input_tokens.unwrap_or_default())
-                    .saturating_add(usage.cache_read_input_tokens.unwrap_or_default());
-
-                accumulator.add(timestamp_ms, tokens, record.session_id.as_deref());
-            }
-        }
-
-        Ok(accumulator.into_daily())
+        self.observation()?
+            .daily_token_usage(days, utc_offset_seconds, now)
     }
 
-    fn scan_usage_summary(
-        &self,
-        window: Option<LocalUsageWindow>,
-    ) -> Result<ClaudeUsageSummary, String> {
+    fn observation(&self) -> Result<Arc<ClaudeLocalObservation>, String> {
+        match &self.observation_reuse {
+            Some(reuse) => reuse.get_or_observe(|| self.observe_source()),
+            None => self.observe_source().map(Arc::new),
+        }
+    }
+
+    fn observe_source(&self) -> Result<ClaudeLocalObservation, String> {
         let projects_dir = self.data_root.join(CLAUDE_PROJECTS_DIR);
 
         if !projects_dir.is_dir() {
@@ -318,6 +314,7 @@ impl ClaudeLocalProvider {
         }
 
         let mut summary = ClaudeUsageSummary::default();
+        let mut activity = Vec::new();
         let mut files = Vec::new();
         collect_jsonl_files(&projects_dir, &mut files)?;
 
@@ -360,13 +357,18 @@ impl ClaudeLocalProvider {
 
                 summary.records_read += 1;
                 match serde_json::from_str::<ClaudeJsonlRecord>(line) {
-                    Ok(record) => summary.record(record, window),
+                    Ok(record) => {
+                        if let Some(observed) = ObservedActivity::from_claude(&record) {
+                            activity.push(observed);
+                        }
+                        summary.record(record);
+                    }
                     Err(_) => summary.invalid_records += 1,
                 }
             }
         }
 
-        Ok(summary)
+        Ok(ClaudeLocalObservation { summary, activity })
     }
 }
 
@@ -375,6 +377,7 @@ impl CodexLocalProvider {
         Self {
             data_root: data_root.into(),
             calibration: None,
+            observation_reuse: None,
         }
     }
 
@@ -395,13 +398,21 @@ impl CodexLocalProvider {
         self.calibration.clone()
     }
 
+    pub(crate) fn with_observation_reuse(mut self, reuse: &LocalObservationReuse) -> Self {
+        self.observation_reuse = Some(reuse.codex.clone());
+        self
+    }
+
     pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
         let window = self
             .calibration
             .as_ref()
             .and_then(|calibration| calibration.window(now));
 
-        match self.scan_usage_summary(window) {
+        match self
+            .observation()
+            .map(|observation| observation.summary(window))
+        {
             Ok(summary) if summary.usage_threads > 0 => {
                 let calibration = calibration_snapshot_values(
                     self.calibration.as_ref(),
@@ -499,56 +510,18 @@ impl CodexLocalProvider {
         utc_offset_seconds: i32,
         now: &str,
     ) -> Result<Vec<DailyTokenUsage>, String> {
-        let db_path = self.data_root.join(CODEX_STATE_DB_FILE);
-
-        if !db_path.is_file() {
-            return Err("codex_state_db_missing".to_string());
-        }
-
-        let mut accumulator = DailyTokenAccumulator::new(days, utc_offset_seconds, now)?;
-        let connection = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|_| "codex_state_db_unreadable".to_string())?;
-        let mut statement = connection
-            .prepare(
-                "SELECT tokens_used, updated_at_ms, updated_at
-                 FROM threads
-                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
-                 LIMIT ?1",
-            )
-            .map_err(|_| "codex_threads_query_failed".to_string())?;
-        let rows = statement
-            .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
-                let tokens_used = optional_i64_column(row, 0);
-                let updated_at_ms = optional_i64_column(row, 1);
-                let updated_at = optional_i64_column(row, 2);
-
-                Ok((
-                    tokens_used,
-                    updated_at_ms.or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
-                ))
-            })
-            .map_err(|_| "codex_threads_query_failed".to_string())?;
-
-        for row in rows {
-            let (tokens_used, updated_at_ms) =
-                row.map_err(|_| "codex_threads_query_failed".to_string())?;
-            let Some(tokens) = tokens_used.and_then(|value| u64::try_from(value).ok()) else {
-                continue;
-            };
-            let Some(updated_at_ms) = updated_at_ms else {
-                continue;
-            };
-
-            accumulator.add(i128::from(updated_at_ms), tokens, None);
-        }
-
-        Ok(accumulator.into_daily())
+        self.observation()?
+            .daily_token_usage(days, utc_offset_seconds, now)
     }
 
-    fn scan_usage_summary(
-        &self,
-        window: Option<LocalUsageWindow>,
-    ) -> Result<CodexUsageSummary, String> {
+    fn observation(&self) -> Result<Arc<CodexLocalObservation>, String> {
+        match &self.observation_reuse {
+            Some(reuse) => reuse.get_or_observe(|| self.observe_source()),
+            None => self.observe_source().map(Arc::new),
+        }
+    }
+
+    fn observe_source(&self) -> Result<CodexLocalObservation, String> {
         let db_path = self.data_root.join(CODEX_STATE_DB_FILE);
 
         if !db_path.is_file() {
@@ -557,7 +530,10 @@ impl CodexLocalProvider {
 
         let connection = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|_| "codex_state_db_unreadable".to_string())?;
-        let total_threads = connection
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|_| "codex_threads_query_failed".to_string())?;
+        let total_threads = transaction
             .query_row("SELECT COUNT(*) FROM threads", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -567,36 +543,45 @@ impl CodexLocalProvider {
             threads_skipped: total_threads.saturating_sub(MAX_CODEX_THREADS_PER_REFRESH),
             ..CodexUsageSummary::default()
         };
-        let mut statement = connection
-            .prepare(
-                "SELECT tokens_used, updated_at_ms, updated_at, model
-                 FROM threads
-                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
-                 LIMIT ?1",
-            )
-            .map_err(|_| "codex_threads_query_failed".to_string())?;
-        let rows = statement
-            .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
-                let tokens_used = optional_i64_column(row, 0);
-                let updated_at_ms = optional_i64_column(row, 1);
-                let updated_at = optional_i64_column(row, 2);
-                let model = optional_string_column(row, 3);
+        let mut activity = Vec::new();
+        {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT tokens_used, updated_at_ms, updated_at, model
+                     FROM threads
+                     ORDER BY COALESCE(updated_at_ms, updated_at * 1000, 0) DESC
+                     LIMIT ?1",
+                )
+                .map_err(|_| "codex_threads_query_failed".to_string())?;
+            let rows = statement
+                .query_map([MAX_CODEX_THREADS_PER_REFRESH as i64], |row| {
+                    let tokens_used = optional_i64_column(row, 0);
+                    let updated_at_ms = optional_i64_column(row, 1);
+                    let updated_at = optional_i64_column(row, 2);
+                    let model = optional_string_column(row, 3);
 
-                Ok(CodexThreadRecord {
-                    tokens_used,
-                    updated_at_ms: updated_at_ms
-                        .or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
-                    model,
+                    Ok(CodexThreadRecord {
+                        tokens_used,
+                        updated_at_ms: updated_at_ms
+                            .or_else(|| updated_at.map(|value| value.saturating_mul(1000))),
+                        model,
+                    })
                 })
-            })
+                .map_err(|_| "codex_threads_query_failed".to_string())?;
+
+            for row in rows {
+                let record = row.map_err(|_| "codex_threads_query_failed".to_string())?;
+                if let Some(observed) = ObservedActivity::from_codex(&record) {
+                    activity.push(observed);
+                }
+                summary.record(record);
+            }
+        }
+        transaction
+            .commit()
             .map_err(|_| "codex_threads_query_failed".to_string())?;
 
-        for row in rows {
-            let record = row.map_err(|_| "codex_threads_query_failed".to_string())?;
-            summary.record(record, window);
-        }
-
-        Ok(summary)
+        Ok(CodexLocalObservation { summary, activity })
     }
 }
 
@@ -622,6 +607,27 @@ struct DayBucket {
     tokens: u64,
     activity_keys: HashSet<String>,
     anonymous_activity: u64,
+}
+
+fn daily_token_usage(
+    activity: &[ObservedActivity],
+    days: u32,
+    utc_offset_seconds: i32,
+    now: &str,
+) -> Result<Vec<DailyTokenUsage>, String> {
+    let mut accumulator = DailyTokenAccumulator::new(days, utc_offset_seconds, now)?;
+
+    for observed in activity {
+        if let Some(timestamp_ms) = observed.timestamp_ms {
+            accumulator.add(
+                timestamp_ms,
+                observed.tokens,
+                observed.activity_key.as_deref(),
+            );
+        }
+    }
+
+    Ok(accumulator.into_daily())
 }
 
 impl DailyTokenAccumulator {
@@ -698,6 +704,98 @@ struct CalibrationSnapshotValues {
     usage_unit: Option<&'static str>,
 }
 
+impl ClaudeLocalObservation {
+    fn summary(&self, window: Option<LocalUsageWindow>) -> ClaudeUsageSummary {
+        let mut summary = self.summary.clone();
+
+        if let Some(window) = window {
+            for activity in &self.activity {
+                match activity.timestamp_ms {
+                    Some(timestamp_ms) if window.contains(timestamp_ms) => {
+                        summary.window_usage_records += 1;
+                        summary.window_tokens =
+                            summary.window_tokens.saturating_add(activity.tokens);
+                    }
+                    Some(_) => summary.records_outside_window += 1,
+                    None => summary.records_without_timestamp += 1,
+                }
+            }
+        }
+
+        summary
+    }
+
+    fn daily_token_usage(
+        &self,
+        days: u32,
+        utc_offset_seconds: i32,
+        now: &str,
+    ) -> Result<Vec<DailyTokenUsage>, String> {
+        daily_token_usage(&self.activity, days, utc_offset_seconds, now)
+    }
+}
+
+impl CodexLocalObservation {
+    fn summary(&self, window: Option<LocalUsageWindow>) -> CodexUsageSummary {
+        let mut summary = self.summary.clone();
+
+        if let Some(window) = window {
+            for activity in &self.activity {
+                match activity.timestamp_ms {
+                    Some(timestamp_ms) if window.contains(timestamp_ms) => {
+                        summary.window_usage_threads += 1;
+                        summary.window_tokens =
+                            summary.window_tokens.saturating_add(activity.tokens);
+                    }
+                    Some(_) => summary.threads_outside_window += 1,
+                    None => summary.threads_without_timestamp += 1,
+                }
+            }
+        }
+
+        summary
+    }
+
+    fn daily_token_usage(
+        &self,
+        days: u32,
+        utc_offset_seconds: i32,
+        now: &str,
+    ) -> Result<Vec<DailyTokenUsage>, String> {
+        daily_token_usage(&self.activity, days, utc_offset_seconds, now)
+    }
+}
+
+impl ObservedActivity {
+    fn from_claude(record: &ClaudeJsonlRecord) -> Option<Self> {
+        let usage = record.message.as_ref()?.usage.as_ref()?;
+        let tokens = usage
+            .input_tokens
+            .unwrap_or_default()
+            .saturating_add(usage.output_tokens.unwrap_or_default())
+            .saturating_add(usage.cache_creation_input_tokens.unwrap_or_default())
+            .saturating_add(usage.cache_read_input_tokens.unwrap_or_default());
+
+        Some(Self {
+            timestamp_ms: record.timestamp.as_deref().and_then(parse_rfc3339_ms),
+            tokens,
+            activity_key: record.session_id.clone(),
+        })
+    }
+
+    fn from_codex(record: &CodexThreadRecord) -> Option<Self> {
+        let tokens = record
+            .tokens_used
+            .and_then(|value| u64::try_from(value).ok())?;
+
+        Some(Self {
+            timestamp_ms: record.updated_at_ms.map(i128::from),
+            tokens,
+            activity_key: None,
+        })
+    }
+}
+
 impl ClaudeUsageSummary {
     fn cache_tokens(&self) -> u64 {
         self.cache_creation_input_tokens
@@ -710,7 +808,7 @@ impl ClaudeUsageSummary {
             .saturating_add(self.cache_tokens())
     }
 
-    fn record(&mut self, record: ClaudeJsonlRecord, window: Option<LocalUsageWindow>) {
+    fn record(&mut self, record: ClaudeJsonlRecord) {
         let Some(message) = record.message else {
             return;
         };
@@ -723,10 +821,6 @@ impl ClaudeUsageSummary {
         let cache_creation_input_tokens = usage.cache_creation_input_tokens.unwrap_or_default();
         let cache_read_input_tokens = usage.cache_read_input_tokens.unwrap_or_default();
         let server_tool_use_count = server_tool_use_count(usage.server_tool_use.as_ref());
-        let record_tokens = input_tokens
-            .saturating_add(output_tokens)
-            .saturating_add(cache_creation_input_tokens)
-            .saturating_add(cache_read_input_tokens);
 
         self.usage_records += 1;
         self.input_tokens = self.input_tokens.saturating_add(input_tokens);
@@ -742,19 +836,6 @@ impl ClaudeUsageSummary {
             .saturating_add(server_tool_use_count);
 
         if let Some(timestamp) = record.timestamp {
-            let timestamp_ms = parse_rfc3339_ms(&timestamp);
-
-            if let Some(window) = window {
-                match timestamp_ms {
-                    Some(timestamp_ms) if window.contains(timestamp_ms) => {
-                        self.window_usage_records += 1;
-                        self.window_tokens = self.window_tokens.saturating_add(record_tokens);
-                    }
-                    Some(_) => self.records_outside_window += 1,
-                    None => self.records_without_timestamp += 1,
-                }
-            }
-
             match &self.first_timestamp {
                 Some(current) if current <= &timestamp => {}
                 _ => self.first_timestamp = Some(timestamp.clone()),
@@ -764,8 +845,6 @@ impl ClaudeUsageSummary {
                 Some(current) if current >= &timestamp => {}
                 _ => self.last_timestamp = Some(timestamp),
             }
-        } else if window.is_some() {
-            self.records_without_timestamp += 1;
         }
 
         if let Some(model) = message.model {
@@ -794,7 +873,7 @@ fn server_tool_use_count(value: Option<&serde_json::Value>) -> u64 {
 }
 
 impl CodexUsageSummary {
-    fn record(&mut self, record: CodexThreadRecord, window: Option<LocalUsageWindow>) {
+    fn record(&mut self, record: CodexThreadRecord) {
         self.threads_read += 1;
 
         let Some(tokens_used) = record
@@ -809,15 +888,6 @@ impl CodexUsageSummary {
         self.total_tokens = self.total_tokens.saturating_add(tokens_used);
 
         if let Some(updated_at_ms) = record.updated_at_ms {
-            if let Some(window) = window {
-                if window.contains(i128::from(updated_at_ms)) {
-                    self.window_usage_threads += 1;
-                    self.window_tokens = self.window_tokens.saturating_add(tokens_used);
-                } else {
-                    self.threads_outside_window += 1;
-                }
-            }
-
             match self.first_updated_at_ms {
                 Some(current) if current <= updated_at_ms => {}
                 _ => self.first_updated_at_ms = Some(updated_at_ms),
@@ -827,8 +897,6 @@ impl CodexUsageSummary {
                 Some(current) if current >= updated_at_ms => {}
                 _ => self.last_updated_at_ms = Some(updated_at_ms),
             }
-        } else if window.is_some() {
-            self.threads_without_timestamp += 1;
         }
 
         if let Some(model) = record.model {
@@ -964,21 +1032,41 @@ fn merge_json_objects(target: &mut serde_json::Value, source: serde_json::Value)
 }
 
 fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = fs::read_dir(root).map_err(|_| "claude_projects_unreadable".to_string())?;
+    collect_jsonl_files_with_limit(root, files, MAX_CLAUDE_DISCOVERY_ENTRIES)
+}
 
-    for entry in entries {
-        let entry = entry.map_err(|_| "claude_project_entry_unreadable".to_string())?;
-        let path = entry.path();
-        let metadata = entry
-            .metadata()
-            .map_err(|_| "claude_project_metadata_unreadable".to_string())?;
+fn collect_jsonl_files_with_limit(
+    root: &Path,
+    files: &mut Vec<PathBuf>,
+    entry_limit: u64,
+) -> Result<(), String> {
+    let mut pending_directories = vec![root.to_path_buf()];
+    let mut entries_read = 0_u64;
 
-        if metadata.is_dir() {
-            collect_jsonl_files(&path, files)?;
-        } else if metadata.is_file()
-            && path.extension().and_then(|extension| extension.to_str()) == Some(JSONL_EXTENSION)
-        {
-            files.push(path);
+    while let Some(directory) = pending_directories.pop() {
+        let entries =
+            fs::read_dir(directory).map_err(|_| "claude_projects_unreadable".to_string())?;
+
+        for entry in entries {
+            if entries_read >= entry_limit {
+                return Err("claude_project_entry_limit_reached".to_string());
+            }
+            entries_read += 1;
+
+            let entry = entry.map_err(|_| "claude_project_entry_unreadable".to_string())?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|_| "claude_project_metadata_unreadable".to_string())?;
+
+            if file_type.is_dir() {
+                pending_directories.push(path);
+            } else if file_type.is_file()
+                && path.extension().and_then(|extension| extension.to_str())
+                    == Some(JSONL_EXTENSION)
+            {
+                files.push(path);
+            }
         }
     }
 
@@ -1342,6 +1430,41 @@ mod tests {
         assert_eq!(snapshot.details["usageRecords"], 0);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn claude_local_provider_does_not_follow_project_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(projects_dir.join("session.jsonl"), claude_usage_record(12))
+            .expect("fixture file is written");
+        symlink(&projects_dir, projects_dir.join("loop"))
+            .expect("directory loop symlink is created");
+        let provider = ClaudeLocalProvider::new(&dir.path);
+
+        let snapshot = provider.refresh_snapshot("2026-06-03T22:00:00Z");
+
+        assert_eq!(snapshot.details["filesScanned"], 1);
+        assert_eq!(snapshot.details["usageRecords"], 1);
+    }
+
+    #[test]
+    fn claude_project_discovery_stops_at_entry_limit() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR);
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(projects_dir.join("a.jsonl"), "").expect("first fixture is written");
+        fs::write(projects_dir.join("b.jsonl"), "").expect("second fixture is written");
+        let mut files = Vec::new();
+
+        assert_eq!(
+            collect_jsonl_files_with_limit(&projects_dir, &mut files, 1),
+            Err("claude_project_entry_limit_reached".to_string())
+        );
+    }
+
     #[test]
     fn claude_local_provider_limits_project_jsonl_file_scans() {
         let dir = TestDir::new();
@@ -1577,6 +1700,7 @@ mod tests {
             [
                 r#"{"type":"assistant","timestamp":"2026-06-01T10:00:00Z","sessionId":"session-a","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":100,"output_tokens":20}}}"#,
                 r#"{"type":"assistant","timestamp":"2026-06-01T18:00:00Z","sessionId":"session-b","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":50,"output_tokens":10}}}"#,
+                r#"{"type":"assistant","timestamp":"2026-06-01T20:00:00Z","sessionId":"session-a","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":25,"output_tokens":5}}}"#,
                 r#"{"type":"assistant","timestamp":"2026-06-02T09:00:00Z","sessionId":"session-a","message":{"role":"assistant","model":"claude-fixture","usage":{"input_tokens":40,"output_tokens":5}}}"#,
             ]
             .join("\n"),
@@ -1593,7 +1717,7 @@ mod tests {
             vec![
                 DailyTokenUsage {
                     day: "2026-06-01".to_string(),
-                    tokens: 180,
+                    tokens: 210,
                     activity: 2,
                 },
                 DailyTokenUsage {
@@ -1678,6 +1802,75 @@ mod tests {
 
         assert_eq!(daily.len(), 1);
         assert_eq!(daily[0].day, "2026-06-02");
+    }
+
+    #[test]
+    fn daily_token_usage_clamps_days_and_utc_offset_once() {
+        let now = "2026-06-03T00:00:00Z";
+        let now_ms = parse_rfc3339_ms(now).expect("timestamp parses");
+
+        let minimum =
+            DailyTokenAccumulator::new(0, i32::MAX, now).expect("minimum daily window builds");
+        assert_eq!(minimum.since_ms, now_ms - 86_400_000);
+        assert_eq!(minimum.offset_seconds, 64_800);
+
+        let maximum = DailyTokenAccumulator::new(u32::MAX, i32::MIN, now)
+            .expect("maximum daily window builds");
+        assert_eq!(maximum.since_ms, now_ms - i128::from(730 * 86_400_000_u64));
+        assert_eq!(maximum.offset_seconds, -64_800);
+    }
+
+    #[test]
+    fn claude_live_and_daily_views_share_one_observation() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR).join("project-a");
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        let source = projects_dir.join("session.jsonl");
+        fs::write(&source, claude_usage_record(12)).expect("initial fixture is written");
+        let reuse = LocalObservationReuse::new(StdDuration::from_secs(60));
+        let live_provider = ClaudeLocalProvider::new(&dir.path)
+            .with_calibration(quota(100.0, 24))
+            .with_observation_reuse(&reuse);
+
+        let snapshot = live_provider.refresh_snapshot("2026-06-03T22:00:00Z");
+        fs::write(&source, claude_usage_record(900)).expect("source changes after observation");
+        let daily = ClaudeLocalProvider::new(&dir.path)
+            .with_observation_reuse(&reuse)
+            .daily_token_usage(30, 0, "2026-06-03T22:00:00Z")
+            .expect("daily projection succeeds");
+
+        assert_eq!(snapshot.details["totalTokens"], 17);
+        assert_eq!(snapshot.details["windowTokens"], 17);
+        assert_eq!(daily[0].tokens, 17);
+        assert_eq!(daily[0].activity, 1);
+    }
+
+    #[test]
+    fn codex_live_and_daily_views_share_one_observation() {
+        let dir = TestDir::new();
+        create_codex_state_db(
+            &dir.path,
+            &[(1200, ms("2026-06-03T21:00:00Z"), Some("codex-fixture"))],
+        );
+        let reuse = LocalObservationReuse::new(StdDuration::from_secs(60));
+        let live_provider = CodexLocalProvider::new(&dir.path)
+            .with_calibration(quota(2000.0, 5))
+            .with_observation_reuse(&reuse);
+
+        let snapshot = live_provider.refresh_snapshot("2026-06-03T22:00:00Z");
+        Connection::open(dir.path.join(CODEX_STATE_DB_FILE))
+            .expect("state db opens for fixture mutation")
+            .execute("UPDATE threads SET tokens_used = 9000", [])
+            .expect("source changes after observation");
+        let daily = CodexLocalProvider::new(&dir.path)
+            .with_observation_reuse(&reuse)
+            .daily_token_usage(30, 0, "2026-06-03T22:00:00Z")
+            .expect("daily projection succeeds");
+
+        assert_eq!(snapshot.details["totalTokens"], 1200);
+        assert_eq!(snapshot.details["windowTokens"], 1200);
+        assert_eq!(daily[0].tokens, 1200);
+        assert_eq!(daily[0].activity, 1);
     }
 
     #[test]

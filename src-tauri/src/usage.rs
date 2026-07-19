@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter};
@@ -137,12 +137,6 @@ pub(crate) trait UsageProvider: Send + Sync {
     fn is_placeholder(&self) -> bool {
         false
     }
-    fn local_data_root(&self) -> Option<PathBuf> {
-        None
-    }
-    fn local_calibration(&self) -> Option<LocalQuotaCalibration> {
-        None
-    }
 
     fn provider_key(&self) -> String {
         self.provider_id().refresh_key(self.service())
@@ -161,7 +155,7 @@ pub struct UsageEngine {
 
 struct UsageEngineState {
     config: AppConfig,
-    providers: Vec<Box<dyn UsageProvider>>,
+    providers: Vec<Arc<dyn UsageProvider>>,
     snapshots: HashMap<String, UsageSnapshot>,
     active_provider_keys: HashSet<String>,
     provider_failures: HashMap<String, ProviderFailureState>,
@@ -546,14 +540,9 @@ impl UsageEngine {
     fn refresh_all_with_policy(&self, policy: RefreshPolicy) -> Result<UsageDisplayState, String> {
         let (providers, config, scheduled_provider_refreshes) = {
             let state = self.lock()?;
-            let providers = state
-                .providers
-                .iter()
-                .map(|provider| provider_descriptor(provider.as_ref()))
-                .collect::<Vec<_>>();
 
             (
-                providers,
+                state.providers.clone(),
                 state.config.clone(),
                 state.scheduled_provider_refreshes.clone(),
             )
@@ -563,46 +552,50 @@ impl UsageEngine {
         let now = self.clock.now_rfc3339();
 
         for provider in providers {
+            let provider_key = provider.provider_key();
+            let source = provider.source();
+            let is_placeholder = provider.is_placeholder();
+
             if policy == RefreshPolicy::Scheduled
                 && !provider_refresh_due(
-                    scheduled_provider_refreshes.get(&provider.provider_key),
+                    scheduled_provider_refreshes.get(&provider_key),
                     &now,
-                    provider_refresh_interval(&config, provider.source),
+                    provider_refresh_interval(&config, source),
                 )
             {
                 continue;
             }
 
             if !self.try_begin_refresh_with_backoff(
-                provider.provider_key.clone(),
-                provider.source,
-                !provider.is_placeholder,
+                provider_key.clone(),
+                source,
+                !is_placeholder,
                 &now,
             )? {
                 continue;
             }
 
-            let snapshot = match self.refresh_provider(&provider, &now) {
+            let snapshot = match provider.refresh(&now) {
                 Ok(snapshot) => {
-                    self.record_provider_success(&provider.provider_key)?;
+                    self.record_provider_success(&provider_key)?;
                     snapshot
                 }
                 Err(error) => {
-                    let failure = if provider.is_placeholder {
+                    let failure = if is_placeholder {
                         None
                     } else {
-                        self.record_provider_failure(&provider.provider_key, provider.source, &now)?
+                        self.record_provider_failure(&provider_key, source, &now)?
                     };
-                    let mut snapshot = error_snapshot(&provider, error, &now);
+                    let mut snapshot = error_snapshot(provider.as_ref(), error, &now);
                     if let Some(failure) = failure {
                         add_failure_details(&mut snapshot, &failure);
                     }
                     snapshot
                 }
             };
-            self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
-            refreshed.push((provider.provider_key.clone(), snapshot));
-            self.finish_refresh(&provider.provider_key)?;
+            self.record_scheduled_provider_refresh(&provider_key, &now)?;
+            refreshed.push((provider_key.clone(), snapshot));
+            self.finish_refresh(&provider_key)?;
         }
 
         let mut state = self.lock()?;
@@ -624,26 +617,7 @@ impl UsageEngine {
             source,
             RefreshPolicy::Manual,
             false,
-            |now| {
-                let provider_id = UsageProviderId::for_service_source(service, source)
-                    .ok_or(UsageProviderError::Internal)?;
-                let provider = {
-                    let state = self
-                        .inner
-                        .lock()
-                        .map_err(|_| UsageProviderError::Internal)?;
-                    state
-                        .providers
-                        .iter()
-                        .map(|provider| provider_descriptor(provider.as_ref()))
-                        .find(|provider| {
-                            provider.service == service && provider.provider_id == provider_id
-                        })
-                }
-                .ok_or(UsageProviderError::Internal)?;
-
-                self.refresh_provider(&provider, now)
-            },
+            |provider, now| provider.refresh(now),
         )
     }
 
@@ -661,7 +635,7 @@ impl UsageEngine {
             source,
             RefreshPolicy::Manual,
             true,
-            refresh,
+            |_, now| refresh(now),
         )
     }
 
@@ -679,7 +653,7 @@ impl UsageEngine {
             source,
             RefreshPolicy::Scheduled,
             true,
-            refresh,
+            |_, now| refresh(now),
         )
     }
 
@@ -693,7 +667,7 @@ impl UsageEngine {
         refresh: F,
     ) -> Result<UsageDisplayState, String>
     where
-        F: FnOnce(&str) -> Result<UsageSnapshot, UsageProviderError>,
+        F: FnOnce(&dyn UsageProvider, &str) -> Result<UsageSnapshot, UsageProviderError>,
     {
         let provider_id = UsageProviderId::for_service_source(service, source)
             .ok_or_else(|| "Provider source cannot be refreshed directly".to_string())?;
@@ -708,16 +682,21 @@ impl UsageEngine {
             let provider = state
                 .providers
                 .iter()
-                .map(|provider| provider_descriptor(provider.as_ref()))
-                .find(|provider| provider.service == service && provider.provider_id == provider_id)
+                .find(|provider| {
+                    provider.service() == service && provider.provider_id() == provider_id
+                })
+                .cloned()
                 .ok_or_else(|| "Provider is not configured".to_string())?;
             let last_scheduled_refresh = state
                 .scheduled_provider_refreshes
-                .get(&provider.provider_key)
+                .get(&provider.provider_key())
                 .cloned();
 
             (provider, last_scheduled_refresh, state.config.clone())
         };
+        let provider_key = provider.provider_key();
+        let provider_source = provider.source();
+        let is_placeholder = provider.is_placeholder();
 
         if policy == RefreshPolicy::Scheduled
             && !provider_refresh_due(
@@ -729,28 +708,29 @@ impl UsageEngine {
             return self.display_state();
         }
 
-        let apply_backoff = external_refresh || !provider.is_placeholder;
+        let apply_backoff = external_refresh || !is_placeholder;
         if !self.try_begin_refresh_with_backoff(
-            provider.provider_key.clone(),
-            provider.source,
+            provider_key.clone(),
+            provider_source,
             apply_backoff,
             &now,
         )? {
             return self.display_state();
         }
 
-        let snapshot = match refresh(&now) {
+        let snapshot = match refresh(provider.as_ref(), &now) {
             Ok(snapshot) if snapshot.service == service && snapshot.source == source => {
-                self.record_provider_success(&provider.provider_key)?;
+                self.record_provider_success(&provider_key)?;
                 snapshot
             }
             Ok(_) => {
                 let failure = if apply_backoff {
-                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?
+                    self.record_provider_failure(&provider_key, provider_source, &now)?
                 } else {
                     None
                 };
-                let mut snapshot = error_snapshot(&provider, UsageProviderError::Internal, &now);
+                let mut snapshot =
+                    error_snapshot(provider.as_ref(), UsageProviderError::Internal, &now);
                 if let Some(failure) = failure {
                     add_failure_details(&mut snapshot, &failure);
                 }
@@ -758,28 +738,26 @@ impl UsageEngine {
             }
             Err(error) => {
                 let failure = if apply_backoff {
-                    self.record_provider_failure(&provider.provider_key, provider.source, &now)?
+                    self.record_provider_failure(&provider_key, provider_source, &now)?
                 } else {
                     None
                 };
-                let mut snapshot = error_snapshot(&provider, error, &now);
+                let mut snapshot = error_snapshot(provider.as_ref(), error, &now);
                 if let Some(failure) = failure {
                     add_failure_details(&mut snapshot, &failure);
                 }
                 snapshot
             }
         };
-        self.record_scheduled_provider_refresh(&provider.provider_key, &now)?;
+        self.record_scheduled_provider_refresh(&provider_key, &now)?;
         if policy == RefreshPolicy::Manual && source == UsageSource::Web {
             self.record_manual_web_refresh(service, &now)?;
         }
-        self.finish_refresh(&provider.provider_key)?;
+        self.finish_refresh(&provider_key)?;
 
         let mut state = self.lock()?;
-        let refreshed = apply_current_provider_snapshots(
-            &mut state,
-            vec![(provider.provider_key, snapshot)],
-        );
+        let refreshed =
+            apply_current_provider_snapshots(&mut state, vec![(provider_key, snapshot)]);
         if refreshed {
             state.last_updated = now.clone();
         }
@@ -803,54 +781,6 @@ impl UsageEngine {
     pub fn scheduler_sleep_duration(&self) -> Result<Duration, String> {
         let state = self.lock()?;
         Ok(Duration::from_secs(state.config.intervals.local_seconds))
-    }
-
-    fn refresh_provider(
-        &self,
-        provider: &ProviderDescriptor,
-        now: &str,
-    ) -> Result<UsageSnapshot, UsageProviderError> {
-        match (provider.provider_id, provider.service) {
-            (UsageProviderId::Fake, Service::Codex) => FakeUsageProvider {
-                service: Service::Codex,
-                remaining_percent: 72.0,
-            }
-            .refresh(now),
-            (UsageProviderId::Fake, Service::Claude) => FakeUsageProvider {
-                service: Service::Claude,
-                remaining_percent: 41.0,
-            }
-            .refresh(now),
-            (UsageProviderId::ClaudeLocal, Service::Claude) => provider
-                .local_data_root
-                .clone()
-                .map(ClaudeLocalProvider::new)
-                .map(|local_provider| {
-                    local_provider.with_calibration(provider.local_calibration.clone())
-                })
-                .ok_or(UsageProviderError::Internal)?
-                .refresh(now),
-            (UsageProviderId::CodexLocal, Service::Codex) => provider
-                .local_data_root
-                .clone()
-                .map(CodexLocalProvider::new)
-                .map(|local_provider| {
-                    local_provider.with_calibration(provider.local_calibration.clone())
-                })
-                .ok_or(UsageProviderError::Internal)?
-                .refresh(now),
-            (UsageProviderId::CodexWeb, Service::Codex)
-            | (UsageProviderId::ClaudeWeb, Service::Claude) => {
-                Err(UsageProviderError::LoginRequired)
-            }
-            (UsageProviderId::CodexCli, Service::Codex) => {
-                crate::cli_provider::refresh(Service::Codex, now)
-            }
-            (UsageProviderId::ClaudeCli, Service::Claude) => {
-                crate::cli_provider::refresh(Service::Claude, now)
-            }
-            _ => Err(UsageProviderError::Internal),
-        }
     }
 
     #[cfg(test)]
@@ -1535,14 +1465,6 @@ impl UsageProvider for ClaudeLocalProvider {
     fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
         Ok(self.refresh_snapshot(now))
     }
-
-    fn local_data_root(&self) -> Option<PathBuf> {
-        Some(self.data_root().to_path_buf())
-    }
-
-    fn local_calibration(&self) -> Option<LocalQuotaCalibration> {
-        self.calibration()
-    }
 }
 
 impl UsageProvider for CodexLocalProvider {
@@ -1561,44 +1483,13 @@ impl UsageProvider for CodexLocalProvider {
     fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
         Ok(self.refresh_snapshot(now))
     }
-
-    fn local_data_root(&self) -> Option<PathBuf> {
-        Some(self.data_root().to_path_buf())
-    }
-
-    fn local_calibration(&self) -> Option<LocalQuotaCalibration> {
-        self.calibration()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ProviderDescriptor {
-    provider_key: String,
-    provider_id: UsageProviderId,
-    service: Service,
-    source: UsageSource,
-    is_placeholder: bool,
-    local_data_root: Option<PathBuf>,
-    local_calibration: Option<LocalQuotaCalibration>,
-}
-
-fn provider_descriptor(provider: &dyn UsageProvider) -> ProviderDescriptor {
-    ProviderDescriptor {
-        provider_key: provider.provider_key(),
-        provider_id: provider.provider_id(),
-        service: provider.service(),
-        source: provider.source(),
-        is_placeholder: provider.is_placeholder(),
-        local_data_root: provider.local_data_root(),
-        local_calibration: provider.local_calibration(),
-    }
 }
 
 fn providers_for_config(
     config: &AppConfig,
     local_roots: &LocalProviderRoots,
-) -> Vec<Box<dyn UsageProvider>> {
-    let mut providers: Vec<Box<dyn UsageProvider>> = Vec::new();
+) -> Vec<Arc<dyn UsageProvider>> {
+    let mut providers: Vec<Arc<dyn UsageProvider>> = Vec::new();
 
     if config.enabled_services.codex {
         if config.providers.local_enabled {
@@ -1610,10 +1501,10 @@ fn providers_for_config(
                 .or_else(CodexLocalProvider::from_default_root);
 
             if let Some(provider) = provider {
-                providers.push(Box::new(provider.with_calibration(calibration)));
+                providers.push(Arc::new(provider.with_calibration(calibration)));
             }
         } else {
-            providers.push(Box::new(FakeUsageProvider {
+            providers.push(Arc::new(FakeUsageProvider {
                 service: Service::Codex,
                 remaining_percent: 72.0,
             }));
@@ -1622,11 +1513,11 @@ fn providers_for_config(
         // CLI credentials take precedence over browser scraping for the
         // official (Web-source) reading.
         if config.providers.cli_enabled {
-            providers.push(Box::new(CliUsageProvider {
+            providers.push(Arc::new(CliUsageProvider {
                 service: Service::Codex,
             }));
         } else if config.providers.web_enabled {
-            providers.push(Box::new(FailClosedWebProvider {
+            providers.push(Arc::new(FailClosedWebProvider {
                 service: Service::Codex,
             }));
         }
@@ -1642,26 +1533,25 @@ fn providers_for_config(
                 .or_else(ClaudeLocalProvider::from_default_root);
 
             if let Some(provider) = provider {
-                providers.push(Box::new(provider.with_calibration(calibration)));
+                providers.push(Arc::new(provider.with_calibration(calibration)));
             }
         } else {
-            providers.push(Box::new(FakeUsageProvider {
+            providers.push(Arc::new(FakeUsageProvider {
                 service: Service::Claude,
                 remaining_percent: 41.0,
             }));
         }
 
         if config.providers.cli_enabled {
-            providers.push(Box::new(CliUsageProvider {
+            providers.push(Arc::new(CliUsageProvider {
                 service: Service::Claude,
             }));
         } else if config.providers.web_enabled {
-            providers.push(Box::new(FailClosedWebProvider {
+            providers.push(Arc::new(FailClosedWebProvider {
                 service: Service::Claude,
             }));
         }
     }
-
 
     providers
 }
@@ -1678,22 +1568,22 @@ fn quota_calibration(settings: &LocalServiceQuotaSettings) -> Option<LocalQuotaC
 }
 
 fn error_snapshot(
-    provider: &ProviderDescriptor,
+    provider: &dyn UsageProvider,
     error: UsageProviderError,
     now: &str,
 ) -> UsageSnapshot {
     UsageSnapshot {
-        service: provider.service,
+        service: provider.service(),
         remaining_percent: None,
         used_percent: None,
         reset_at: None,
-        source: provider.source,
+        source: provider.source(),
         confidence: UsageConfidence::Unknown,
         last_updated: now.to_string(),
         details: serde_json::json!({
             "status": error.code(),
-            "providerId": provider.provider_id.code(),
-            "source": provider.source.code(),
+            "providerId": provider.provider_id().code(),
+            "source": provider.source().code(),
         }),
     }
 }
@@ -1834,6 +1724,39 @@ mod tests {
 
     struct SequenceClock {
         values: TestMutex<VecDeque<String>>,
+    }
+
+    struct RegisteredTestProvider;
+
+    impl UsageProvider for RegisteredTestProvider {
+        fn provider_id(&self) -> UsageProviderId {
+            UsageProviderId::Fake
+        }
+
+        fn service(&self) -> Service {
+            Service::Codex
+        }
+
+        fn source(&self) -> UsageSource {
+            UsageSource::Fake
+        }
+
+        fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+            Ok(UsageSnapshot {
+                service: self.service(),
+                remaining_percent: Some(13.0),
+                used_percent: Some(87.0),
+                reset_at: None,
+                source: self.source(),
+                confidence: UsageConfidence::High,
+                last_updated: now.to_string(),
+                details: serde_json::json!({
+                    "status": "registered_test_provider",
+                    "providerId": self.provider_id().code(),
+                    "source": self.source().code(),
+                }),
+            })
+        }
     }
 
     static TEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -2048,17 +1971,7 @@ mod tests {
         error: UsageProviderError,
         last_updated: &str,
     ) -> UsageSnapshot {
-        let provider_id = UsageProviderId::for_service_source(service, UsageSource::Web)
-            .expect("web provider id");
-        let provider = ProviderDescriptor {
-            provider_key: provider_id.refresh_key(service),
-            provider_id,
-            service,
-            source: UsageSource::Web,
-            is_placeholder: false,
-            local_data_root: None,
-            local_calibration: None,
-        };
+        let provider = FailClosedWebProvider { service };
 
         error_snapshot(&provider, error, last_updated)
     }
@@ -2183,6 +2096,22 @@ mod tests {
         }
 
         visit(label, details, &forbidden_keys, &forbidden_text);
+    }
+
+    #[test]
+    fn registered_provider_implementation_executes_without_engine_dispatch() {
+        let engine = UsageEngine::new(config_with_services(true, false));
+        engine.lock().expect("engine state locks").providers =
+            vec![Arc::new(RegisteredTestProvider)];
+
+        let display_state = engine.refresh_all().expect("refresh succeeds");
+
+        assert_eq!(display_state.snapshots.len(), 1);
+        assert_eq!(display_state.snapshots[0].remaining_percent, Some(13.0));
+        assert_eq!(
+            display_state.snapshots[0].details["status"],
+            "registered_test_provider"
+        );
     }
 
     #[test]
@@ -2785,15 +2714,15 @@ mod tests {
             state
                 .providers
                 .iter()
-                .map(|provider| provider_descriptor(provider.as_ref()))
+                .map(|provider| (provider.source(), provider.provider_id()))
                 .collect::<Vec<_>>()
         };
 
         assert!(providers
             .iter()
-            .all(|provider| provider.source != UsageSource::Web));
-        assert!(providers.iter().all(|provider| !matches!(
-            provider.provider_id,
+            .all(|(source, _)| *source != UsageSource::Web));
+        assert!(providers.iter().all(|(_, provider_id)| !matches!(
+            provider_id,
             UsageProviderId::CodexWeb | UsageProviderId::ClaudeWeb
         )));
 
@@ -3587,14 +3516,8 @@ mod tests {
             ],
             "2026-06-03T23:05:00Z",
         );
-        let provider = ProviderDescriptor {
-            provider_key: "codex.web".to_string(),
-            provider_id: UsageProviderId::CodexWeb,
+        let provider = FailClosedWebProvider {
             service: Service::Codex,
-            source: UsageSource::Web,
-            is_placeholder: false,
-            local_data_root: None,
-            local_calibration: None,
         };
 
         for snapshot in local_state
@@ -3717,14 +3640,9 @@ mod tests {
 
     #[test]
     fn provider_errors_map_to_sanitized_unknown_snapshots() {
-        let provider = ProviderDescriptor {
-            provider_key: "codex.fake".to_string(),
-            provider_id: UsageProviderId::Fake,
+        let provider = FakeUsageProvider {
             service: Service::Codex,
-            source: UsageSource::Fake,
-            is_placeholder: false,
-            local_data_root: None,
-            local_calibration: None,
+            remaining_percent: 72.0,
         };
         let snapshot = error_snapshot(
             &provider,

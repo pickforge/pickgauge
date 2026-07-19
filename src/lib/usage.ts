@@ -21,46 +21,99 @@ export type UsageWindow = {
   resetAt: string | null;
 };
 
+export type UsageWindows = {
+  fiveHour: UsageWindow | null;
+  week: UsageWindow | null;
+  fable: UsageWindow | null;
+};
+
+/**
+ * Validated, typed model state for a snapshot's independent quota windows,
+ * official status, and plan: the single place that reads `details` by
+ * string key and applies null/freshness/headline policy, instead of each
+ * caller re-parsing the unrestricted bag on its own.
+ *
+ * `headline` mirrors the desktop projection's own `remainingPercent`/
+ * `usedPercent`/`resetAt`: the backend has already decided whether a
+ * five-hour, weekly, or no reading at all is the right headline (a
+ * single-window reading such as a Fable-only snapshot must never become
+ * it), so this trusts that decision rather than re-deriving it from
+ * `windows`.
+ */
+export type UsageModel = {
+  status: string;
+  plan: string | null;
+  windows: UsageWindows;
+  headline: UsageWindow | null;
+};
+
+function isValidPercent(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+function isValidResetAt(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
+}
+
+function readValidatedWindow(value: unknown): UsageWindow | null {
+  if (!value || typeof value !== "object") return null;
+  const w = value as Record<string, unknown>;
+  const remainingPercent = isValidPercent(w.remainingPercent) ? w.remainingPercent : null;
+  const usedPercent = isValidPercent(w.usedPercent) ? w.usedPercent : null;
+
+  if (remainingPercent === null && usedPercent === null) return null;
+
+  return {
+    remainingPercent,
+    usedPercent,
+    resetAt: isValidResetAt(w.resetAt) ? w.resetAt : null,
+  };
+}
+
+/**
+ * Builds the typed model from a snapshot's `details` bag: the seam between
+ * the desktop projection PickGauge already receives and every UI surface
+ * that needs validated windows/status/plan.
+ */
+export function deriveUsageModel(snapshot: UsageSnapshot): UsageModel {
+  const status = typeof snapshot.details.status === "string" ? snapshot.details.status : "unknown";
+  const plan = typeof snapshot.details.plan === "string" ? snapshot.details.plan : null;
+  const rawWindows = snapshot.details.windows as Record<string, unknown> | undefined;
+
+  const windows: UsageWindows = {
+    fiveHour: readValidatedWindow(rawWindows?.fiveHour),
+    week: readValidatedWindow(rawWindows?.week),
+    fable: readValidatedWindow(rawWindows?.fable),
+  };
+
+  const headline: UsageWindow | null =
+    snapshot.remainingPercent !== null || snapshot.usedPercent !== null
+      ? {
+          remainingPercent: snapshot.remainingPercent,
+          usedPercent: snapshot.usedPercent,
+          resetAt: snapshot.resetAt,
+        }
+      : null;
+
+  // A provider with no independent windows at all (a flat percentage) still
+  // renders a five-hour bar. A provider that *did* report windows -- even
+  // week/Fable only, with no five-hour reading -- must not have that
+  // headline relabeled as a five-hour reading it never made.
+  if (rawWindows === undefined && windows.fiveHour === null) {
+    windows.fiveHour = headline;
+  }
+
+  return { status, plan, windows, headline };
+}
+
 /**
  * Pull the 5-hour, weekly, and Claude Fable windows out of a snapshot's details, when the
  * provider supplies them (the CLI-credentials provider does). Falls back to
  * the headline `remainingPercent` for the 5-hour window so providers without
  * window detail still render.
  */
-export function usageWindows(snapshot: UsageSnapshot): {
-  fiveHour: UsageWindow | null;
-  week: UsageWindow | null;
-  fable: UsageWindow | null;
-} {
-  const readWindow = (value: unknown): UsageWindow | null => {
-    if (!value || typeof value !== "object") return null;
-    const w = value as Record<string, unknown>;
-    const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
-    return {
-      remainingPercent: num(w.remainingPercent),
-      usedPercent: num(w.usedPercent),
-      resetAt: typeof w.resetAt === "string" ? w.resetAt : null,
-    };
-  };
-
-  const windows = snapshot.details?.windows as Record<string, unknown> | undefined;
-  const fiveHour = readWindow(windows?.fiveHour);
-  const week = readWindow(windows?.week);
-  const fable = readWindow(windows?.fable);
-
-  return {
-    fiveHour:
-      fiveHour ??
-      (windows === undefined && snapshot.remainingPercent !== null
-        ? {
-            remainingPercent: snapshot.remainingPercent,
-            usedPercent: snapshot.usedPercent,
-            resetAt: snapshot.resetAt,
-          }
-        : null),
-    week,
-    fable,
-  };
+export function usageWindows(snapshot: UsageSnapshot): UsageWindows {
+  return deriveUsageModel(snapshot).windows;
 }
 
 type ProviderStatusCode =
@@ -186,7 +239,7 @@ export function floatDisplaySnapshots(snapshots: UsageSnapshot[]) {
   return snapshots.filter(
     (snapshot) =>
       (snapshot.service === "codex" || snapshot.service === "claude") &&
-      !(snapshot.remainingPercent === null && typeof snapshot.details.plan === "string"),
+      !(snapshot.remainingPercent === null && deriveUsageModel(snapshot).plan !== null),
   );
 }
 

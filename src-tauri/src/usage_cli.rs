@@ -1,6 +1,7 @@
 use crate::{
     config, snapshot_store,
     usage::{self, UsageConfidence, UsageDisplayState, UsageEngine, UsageSnapshot},
+    usage_model::{UsageModel, UsageWindow},
 };
 use serde::Serialize;
 use std::{
@@ -153,27 +154,20 @@ fn usage_json_response(display_state: &UsageDisplayState, generated_at: &str) ->
 }
 
 fn usage_json_service(snapshot: &UsageSnapshot, generated_at: &str) -> UsageJsonService {
+    let model = UsageModel::from_snapshot(snapshot);
+
     UsageJsonService {
         service: snapshot.service.code().to_string(),
         label: snapshot.service.label().to_string(),
-        status: snapshot
-            .details
-            .get("status")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown")
-            .to_string(),
-        plan: snapshot
-            .details
-            .get("plan")
-            .and_then(serde_json::Value::as_str)
-            .map(ToOwned::to_owned),
+        status: model.status,
+        plan: model.plan,
         remaining_percent: snapshot.remaining_percent,
         used_percent: snapshot.used_percent,
         reset_at: snapshot.reset_at.clone(),
         windows: UsageJsonWindows {
-            five_hour: detail_window(snapshot, "fiveHour"),
-            week: detail_window(snapshot, "week"),
-            fable: detail_window(snapshot, "fable"),
+            five_hour: json_window(model.windows.five_hour),
+            week: json_window(model.windows.week),
+            fable: json_window(model.windows.fable),
         },
         source: snapshot.source.code().to_string(),
         confidence: snapshot.confidence,
@@ -182,23 +176,12 @@ fn usage_json_service(snapshot: &UsageSnapshot, generated_at: &str) -> UsageJson
     }
 }
 
-fn detail_window(snapshot: &UsageSnapshot, name: &str) -> Option<UsageJsonWindow> {
-    let window = snapshot.details.get("windows")?.get(name)?.as_object()?;
-
-    Some(UsageJsonWindow {
-        remaining_percent: window_percent(window.get("remainingPercent")),
-        used_percent: window_percent(window.get("usedPercent")),
-        reset_at: window
-            .get("resetAt")
-            .and_then(serde_json::Value::as_str)
-            .map(ToOwned::to_owned),
+fn json_window(window: Option<UsageWindow>) -> Option<UsageJsonWindow> {
+    window.map(|window| UsageJsonWindow {
+        remaining_percent: window.remaining_percent,
+        used_percent: window.used_percent,
+        reset_at: window.reset_at,
     })
-}
-
-fn window_percent(value: Option<&serde_json::Value>) -> Option<f32> {
-    let value = value?.as_f64()?;
-    let value = value as f32;
-    value.is_finite().then_some(value)
 }
 
 fn stale_seconds(last_updated: &str, generated_at: &str) -> Option<u64> {

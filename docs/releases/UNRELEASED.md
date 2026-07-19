@@ -26,6 +26,7 @@ reset this file.
 - Grok and Ollama are deferred from the runtime and product surface; their browser automation, harvested-session HTTP requests, and managed profile actions remain removed.
 - Claude web reads preserve available weekly and Fable quotas when the session meter is unavailable, while keeping fallback percentage labels fail-closed.
 - OAuth refresh tokens and expiry are retained in memory only, with one shared HTTP client; credentials are never written by PickGauge.
+- Registered usage providers are retained and executed directly through the provider module instead of being reconstructed and dispatched again by the engine.
 - Daily history statistics are aggregated in SQLite, and obsolete uncalled IPC commands were removed.
 
 ## Validation
@@ -34,8 +35,8 @@ reset this file.
 
 - Workflow YAML parse check:
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
-- `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets` (260 Rust tests)
-- Filtered config serialization, browser process-tree, OAuth cache, and SQLite aggregation tests.
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets` (261 Rust tests)
+- Filtered provider execution, config serialization, browser process-tree, OAuth cache, and SQLite aggregation tests.
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets` with strict warnings after allowing four pre-existing lint classes.
 - `bun run build`
 - `bun run check`

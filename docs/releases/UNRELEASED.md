@@ -17,17 +17,23 @@ reset this file.
   unchanged (golden test stays byte-identical); the persisted snapshot cache
   now stores the sanitized model instead of each provider's unrestricted
   `details` bag (cache version bumped, self-healing on next refresh).
+- Concentrated startup, manual, scheduled, targeted, and cache-clear refresh
+  publication behind one lifecycle policy. Accepted display states now share
+  one ordered snapshot-event, history, cache, cue, provider-error, and
+  terminal-event chain; nonfatal effects remain best-effort, cache clearing
+  remains emit-only, and shutdown rejects later publication.
 
 ## Validation
 
 ### Tested
 
-- `cargo test --locked --all-targets` (281 Rust tests).
-- Filtered usage-focused Rust tests (96).
-- `cargo clippy --all-targets --locked` (only the four documented
-  pre-existing lint classes).
+- `cargo test --locked --all-targets` (291 Rust tests).
+- Filtered refresh-publication policy tests (10).
+- `cargo clippy --all-targets --locked` with strict warnings (only the four
+  documented pre-existing lint classes allowed).
 - Headless `usage --json` v1 golden fixture (byte-identical).
-- `bun run test` (frontend/unit/sidecar suites) and `bun run check`.
+- `bun run test` (71 frontend tests plus install/sidecar suites) and `bun run
+  check`.
 - `bun run build`.
 
 ### Not yet tested

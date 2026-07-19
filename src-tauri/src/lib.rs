@@ -4,6 +4,7 @@ mod kwin;
 mod browser_session;
 mod config;
 mod official_reading;
+mod refresh_publication;
 mod snapshot_store;
 mod usage_cli;
 mod usage_model;
@@ -30,6 +31,7 @@ use tauri::{
     AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
+use refresh_publication::{PublicationEffects, RefreshPublicationPolicy, RefreshScope};
 use usage::{
     Service, UsageDisplayState, UsageEngine, UsageProviderError, UsageProviderErrorEvent,
     UsageRefreshEvent, UsageRefreshStatus, UsageSnapshot, UsageSource,
@@ -321,6 +323,13 @@ fn map_event_emit_error(_: tauri::Error) -> CommandError {
 
 fn map_usage_refresh_error(_: String) -> CommandError {
     command_error("usage_refresh_failed", "Could not refresh usage state")
+}
+
+fn publication_unavailable_error() -> CommandError {
+    command_error(
+        "refresh_publication_unavailable",
+        "Usage refresh publication is unavailable",
+    )
 }
 
 fn map_provider_refresh_error(error: String) -> CommandError {
@@ -952,15 +961,18 @@ fn clear_cached_snapshots(
     app: AppHandle,
     engine: State<'_, UsageEngine>,
 ) -> CommandResult<UsageDisplayState> {
-    let display_state = engine
-        .clear_cached_snapshots()
-        .map_err(map_snapshot_cache_error)?;
-    if let Ok(app_data_dir) = app.path().app_data_dir() {
-        let _ = snapshot_store::clear_in(&app_data_dir);
-    }
-    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-        .map_err(map_event_emit_error)?;
-    Ok(display_state)
+    let publication = app.state::<RefreshPublicationPolicy>();
+    let effects = TauriPublicationEffects::new(&app, &engine);
+
+    publication.clear_cache(&effects, publication_unavailable_error, || {
+        let display_state = engine
+            .clear_cached_snapshots()
+            .map_err(map_snapshot_cache_error)?;
+        if let Ok(app_data_dir) = app.path().app_data_dir() {
+            let _ = snapshot_store::clear_in(&app_data_dir);
+        }
+        Ok(display_state)
+    })
 }
 
 #[tauri::command]
@@ -1099,25 +1111,6 @@ fn clear_provider_profile_for_service(
     })
 }
 
-/// Runs after every snapshots-updated emit: persists the usage trail and
-/// plays threshold-crossing cues. Failures are deliberately non-fatal.
-fn after_snapshots_updated(app: &AppHandle, display_state: &UsageDisplayState) {
-    if let Some(store) = app.try_state::<history::HistoryStore>() {
-        let _ = store.record(&display_state.snapshots, history::now_unix());
-    }
-
-    if let (Some(engine), Ok(app_data_dir)) = (
-        app.try_state::<UsageEngine>(),
-        app.path().app_data_dir(),
-    ) {
-        if let Ok(snapshots) = engine.raw_snapshots() {
-            let _ = snapshot_store::save_in(&app_data_dir, &snapshots, &display_state.updated_at);
-        }
-    }
-
-    play_threshold_cues(app, display_state);
-}
-
 fn play_threshold_cues(app: &AppHandle, display_state: &UsageDisplayState) {
     let Ok(config) = app.state::<UsageEngine>().config() else {
         return;
@@ -1162,24 +1155,94 @@ fn play_threshold_cues(app: &AppHandle, display_state: &UsageDisplayState) {
     }
 }
 
+struct TauriPublicationEffects<'a> {
+    app: &'a AppHandle,
+    engine: &'a UsageEngine,
+}
+
+impl<'a> TauriPublicationEffects<'a> {
+    fn new(app: &'a AppHandle, engine: &'a UsageEngine) -> Self {
+        Self { app, engine }
+    }
+}
+
+impl PublicationEffects<CommandError> for TauriPublicationEffects<'_> {
+    fn emit_lifecycle(
+        &self,
+        scope: RefreshScope,
+        status: UsageRefreshStatus,
+    ) -> CommandResult<()> {
+        let event_name = if status == UsageRefreshStatus::Started {
+            usage::REFRESH_STARTED_EVENT
+        } else {
+            usage::REFRESH_FINISHED_EVENT
+        };
+        let event = UsageRefreshEvent::new(
+            scope.service,
+            scope.source,
+            status,
+            usage::now_rfc3339(),
+        );
+        self.app
+            .emit(event_name, &event)
+            .map_err(map_event_emit_error)
+    }
+
+    fn emit_snapshots_updated(&self, display_state: &UsageDisplayState) -> CommandResult<()> {
+        self.app
+            .emit(usage::SNAPSHOTS_UPDATED_EVENT, display_state)
+            .map_err(map_event_emit_error)
+    }
+
+    fn record_history(&self, display_state: &UsageDisplayState) -> CommandResult<()> {
+        if let Some(store) = self.app.try_state::<history::HistoryStore>() {
+            store
+                .record(&display_state.snapshots, history::now_unix())
+                .map_err(map_usage_state_error)?;
+        }
+        Ok(())
+    }
+
+    fn persist_raw_snapshots(&self, display_state: &UsageDisplayState) -> CommandResult<()> {
+        let app_data_dir = self
+            .app
+            .path()
+            .app_data_dir()
+            .map_err(map_app_data_dir_error)?;
+        let snapshots = self.engine.raw_snapshots().map_err(map_usage_state_error)?;
+        snapshot_store::save_in(&app_data_dir, &snapshots, &display_state.updated_at)
+            .map_err(map_usage_state_error)
+    }
+
+    fn play_sound_cues(&self, display_state: &UsageDisplayState) -> CommandResult<()> {
+        play_threshold_cues(self.app, display_state);
+        Ok(())
+    }
+
+    fn surface_provider_errors(&self, display_state: &UsageDisplayState) -> CommandResult<()> {
+        emit_provider_error_events(self.app, display_state);
+        Ok(())
+    }
+}
+
+fn publish_refresh(
+    app: &AppHandle,
+    engine: &UsageEngine,
+    scope: RefreshScope,
+    refresh: impl FnOnce() -> CommandResult<UsageDisplayState>,
+) -> CommandResult<UsageDisplayState> {
+    let publication = app.state::<RefreshPublicationPolicy>();
+    let effects = TauriPublicationEffects::new(app, engine);
+    publication.refresh(&effects, scope, publication_unavailable_error, refresh)
+}
+
 fn refresh_all_and_publish(
     app: &AppHandle,
     engine: &UsageEngine,
-) -> Result<UsageDisplayState, String> {
-    let display_state = engine.refresh_all_and_emit(app)?;
-    after_snapshots_updated(app, &display_state);
-    Ok(display_state)
-}
-
-fn emit_refresh_event(
-    app: &AppHandle,
-    service: Option<Service>,
-    source: Option<UsageSource>,
-    event_name: &str,
-    status: UsageRefreshStatus,
-) -> CommandResult<()> {
-    let event = UsageRefreshEvent::new(service, source, status, usage::now_rfc3339());
-    app.emit(event_name, &event).map_err(map_event_emit_error)
+) -> CommandResult<UsageDisplayState> {
+    publish_refresh(app, engine, RefreshScope::ALL, || {
+        engine.refresh_all().map_err(map_usage_refresh_error)
+    })
 }
 
 fn emit_provider_error_events(app: &AppHandle, display_state: &UsageDisplayState) {
@@ -1439,37 +1502,9 @@ fn refresh_usage_blocking(app: &AppHandle) -> CommandResult<UsageDisplayState> {
     let engine = app.state::<UsageEngine>();
     let sessions = app.state::<browser_session::BrowserSessionManager>();
 
-    emit_refresh_event(
-        app,
-        None,
-        None,
-        usage::REFRESH_STARTED_EVENT,
-        UsageRefreshStatus::Started,
-    )?;
-
-    match refresh_all_with_headless_web(app, &engine, &sessions) {
-        Ok(display_state) => {
-            emit_provider_error_events(app, &display_state);
-            emit_refresh_event(
-                app,
-                None,
-                None,
-                usage::REFRESH_FINISHED_EVENT,
-                UsageRefreshStatus::Finished,
-            )?;
-            Ok(display_state)
-        }
-        Err(error) => {
-            let _ = emit_refresh_event(
-                app,
-                None,
-                None,
-                usage::REFRESH_FINISHED_EVENT,
-                UsageRefreshStatus::Failed,
-            );
-            Err(error)
-        }
-    }
+    publish_refresh(app, &engine, RefreshScope::ALL, || {
+        refresh_all_with_headless_web(app, &engine, &sessions)
+    })
 }
 
 fn refresh_all_with_headless_web(
@@ -1504,10 +1539,6 @@ fn refresh_all_with_headless_web(
         }
     }
 
-    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-        .map_err(map_event_emit_error)?;
-    after_snapshots_updated(app, &display_state);
-
     Ok(display_state)
 }
 
@@ -1538,12 +1569,7 @@ fn refresh_due_with_headless_web(
         }
     }
 
-    let display_state = engine.refresh_due().map_err(map_usage_refresh_error)?;
-    app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-        .map_err(map_event_emit_error)?;
-    after_snapshots_updated(app, &display_state);
-
-    Ok(display_state)
+    engine.refresh_due().map_err(map_usage_refresh_error)
 }
 
 // Async for the same reason as refresh_usage: the web/CLI provider work
@@ -1573,48 +1599,20 @@ fn refresh_provider_blocking(
     let engine = app.state::<UsageEngine>();
     let sessions = app.state::<browser_session::BrowserSessionManager>();
 
-    emit_refresh_event(
+    publish_refresh(
         app,
-        Some(service),
-        Some(source),
-        usage::REFRESH_STARTED_EVENT,
-        UsageRefreshStatus::Started,
-    )?;
-
-    let refresh_result = if source == UsageSource::Web {
-        refresh_official_reading(app, &engine, &sessions, service)
-    } else {
-        engine
-            .refresh_provider_source(service, source)
-            .map_err(map_provider_refresh_error)
-    };
-
-    match refresh_result {
-        Ok(display_state) => {
-            app.emit(usage::SNAPSHOTS_UPDATED_EVENT, &display_state)
-                .map_err(map_event_emit_error)?;
-            after_snapshots_updated(app, &display_state);
-            emit_provider_error_events(app, &display_state);
-            emit_refresh_event(
-                app,
-                Some(service),
-                Some(source),
-                usage::REFRESH_FINISHED_EVENT,
-                UsageRefreshStatus::Finished,
-            )?;
-            Ok(display_state)
-        }
-        Err(error) => {
-            let _ = emit_refresh_event(
-                app,
-                Some(service),
-                Some(source),
-                usage::REFRESH_FINISHED_EVENT,
-                UsageRefreshStatus::Failed,
-            );
-            Err(error)
-        }
-    }
+        &engine,
+        RefreshScope::provider(service, source),
+        || {
+            if source == UsageSource::Web {
+                refresh_official_reading(app, &engine, &sessions, service)
+            } else {
+                engine
+                    .refresh_provider_source(service, source)
+                    .map_err(map_provider_refresh_error)
+            }
+        },
+    )
 }
 
 fn tray_icon_rgba_for(state: usage::TrayGaugeState, low_usage_threshold: f32) -> Option<Vec<u8>> {
@@ -1691,28 +1689,9 @@ fn start_usage_scheduler(app: AppHandle) {
         let sleep_duration = {
             let engine = app.state::<UsageEngine>();
             let sessions = app.state::<browser_session::BrowserSessionManager>();
-            let _ = emit_refresh_event(
-                &app,
-                None,
-                None,
-                usage::REFRESH_STARTED_EVENT,
-                UsageRefreshStatus::Started,
-            );
-            let refresh_result = refresh_due_with_headless_web(&app, &engine, &sessions);
-            if let Ok(display_state) = &refresh_result {
-                emit_provider_error_events(&app, display_state);
-            }
-            let _ = emit_refresh_event(
-                &app,
-                None,
-                None,
-                usage::REFRESH_FINISHED_EVENT,
-                if refresh_result.is_ok() {
-                    UsageRefreshStatus::Finished
-                } else {
-                    UsageRefreshStatus::Failed
-                },
-            );
+            let _ = publish_refresh(&app, &engine, RefreshScope::ALL, || {
+                refresh_due_with_headless_web(&app, &engine, &sessions)
+            });
             engine
                 .scheduler_sleep_duration()
                 .unwrap_or_else(|_| std::time::Duration::from_secs(45))
@@ -2354,6 +2333,7 @@ fn run_tray() {
 
             app.manage(ConfigLoadState::new(config_error));
             app.manage(ConfigMutationCoordinator::default());
+            app.manage(RefreshPublicationPolicy::new());
             let sessions = match app_handle.path().app_data_dir() {
                 Ok(app_data_dir) => browser_session::BrowserSessionManager::with_registry_path(
                     app_data_dir.join(browser_session::SESSION_REGISTRY_FILE_NAME),
@@ -2409,6 +2389,7 @@ fn run_tray() {
                 api.prevent_exit();
             }
             tauri::RunEvent::Exit => {
+                app_handle.state::<RefreshPublicationPolicy>().shutdown();
                 let sessions = app_handle.state::<browser_session::BrowserSessionManager>();
                 let _ = sessions.stop_all(browser_session::PROFILE_STOP_TIMEOUT);
             }

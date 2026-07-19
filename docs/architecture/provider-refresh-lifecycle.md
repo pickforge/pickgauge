@@ -2,19 +2,28 @@
 
 This document defines the current PickGauge provider refresh policy. It must be updated before adding a browser automation backend or async provider runtime.
 
+## Publication Ownership
+
+`RefreshPublicationPolicy` in `src-tauri/src/refresh_publication.rs` owns publication after the usage engine accepts a display state. Startup, configuration-triggered, manual, scheduled, and targeted refreshes all use the same ordered policy:
+
+1. emit `usage://refresh-started`;
+2. run the engine/provider refresh;
+3. emit `usage://snapshots-updated` for the accepted display state;
+4. record history, persist the sanitized raw-snapshot projection, and evaluate sound cues;
+5. surface sanitized `usage://provider-error` events;
+6. emit exactly one terminal `usage://refresh-finished` event with `finished` or `failed`.
+
+History, snapshot-cache, cue, and provider-error failures are nonfatal. A snapshot-update emit failure fails publication but still attempts the one `failed` terminal event. Cache clearing uses the policy's emit-only mode after clearing engine state and deleting the persisted cache, so it cannot recreate the cache through normal refresh effects.
+
+The publication policy is separate from `ConfigMutationCoordinator`: configuration mutation and refresh publication serialize different state transitions. On app exit, publication shuts down before managed browser sessions, and no later refresh operation or publication effect is accepted.
+
 ## Scheduler Ownership
 
 The current app does not create or own a Tokio runtime. Scheduled refresh is owned by the Tauri app process through `start_usage_scheduler` in `src-tauri/src/lib.rs`, which starts one background `std::thread`.
 
-The scheduler thread:
+The scheduler thread calls `refresh_due_with_headless_web` through `RefreshPublicationPolicy`, then sleeps for `UsageEngine::scheduler_sleep_duration`. Provider work remains bounded and outside the usage-engine mutex.
 
-- emits `usage://refresh-started` before a scheduled cycle;
-- calls `UsageEngine::refresh_due_and_emit`;
-- emits `usage://refresh-finished` with `finished` or `failed`;
-- sleeps for `UsageEngine::scheduler_sleep_duration`;
-- never holds raw provider data outside `UsageEngine`.
-
-Future async or browser-backed providers must define explicit task ownership before implementation. They must not create detached tasks whose lifecycle can outlive provider disablement, profile deletion, or app shutdown.
+Future async provider runtimes must define explicit task ownership before implementation. They must not create detached tasks whose lifecycle can outlive provider disablement, profile deletion, or app shutdown.
 
 ## Timeout Behavior
 
@@ -25,15 +34,7 @@ Local providers are bounded by scan limits instead of wall-clock timeouts:
 - Overlapping refreshes for a provider key are skipped.
 - Failed refreshes enter bounded retry/backoff.
 
-Web providers are not implemented yet. Before a web provider is added, it must define:
-
-- navigation timeout;
-- visible-state extraction timeout;
-- browser shutdown timeout;
-- retry/backoff interaction;
-- failure mapping to stable provider statuses such as `timed_out`, `login_required`, `mfa_required`, `captcha_or_bot_check`, `unexpected_ui`, or `network_unavailable`.
-
-Until those web timeout rules exist in code and tests, web providers remain opt-in placeholders and direct web refresh commands fail closed.
+Managed web refreshes are opt-in and use the app-owned Playwright sidecar. They use bounded sidecar acknowledgement and browser shutdown timeouts, provider retry/backoff, and stable sanitized statuses such as `timed_out`, `login_required`, `mfa_required`, `captcha_or_bot_check`, `unexpected_ui`, and `network_unavailable`.
 
 ## Cancellation Behavior
 

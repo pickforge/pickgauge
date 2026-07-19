@@ -4,6 +4,7 @@ mod kwin;
 mod browser_session;
 mod config;
 mod official_reading;
+mod observation_reuse;
 mod refresh_publication;
 mod snapshot_store;
 mod usage_cli;
@@ -22,7 +23,7 @@ use std::{
     process::{ChildStdin, ChildStdout},
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tauri::{
     image::Image,
@@ -662,55 +663,50 @@ async fn get_usage_history(
     })
 }
 
-/// Recent local-scan reports keyed by (days, utc_offset_seconds). The scan
-/// parses every Codex/Claude session log on disk, so navigating between
-/// Dashboard and History must not repeat it within a short window.
-#[derive(Default)]
-struct LocalUsageCache(Mutex<HashMap<(u32, i32), (Instant, LocalDailyUsageReport)>>);
-
-const LOCAL_USAGE_CACHE_TTL: Duration = Duration::from_secs(60);
+const LOCAL_OBSERVATION_REUSE_TTL: Duration = Duration::from_secs(60);
 
 #[tauri::command]
 async fn get_local_daily_usage(
-    cache: State<'_, LocalUsageCache>,
+    reuse: State<'_, local_provider::LocalObservationReuse>,
     days: u32,
     utc_offset_seconds: i32,
 ) -> CommandResult<LocalDailyUsageReport> {
-    let key = (days, utc_offset_seconds);
-    if let Some((scanned_at, report)) = cache.0.lock().unwrap().get(&key) {
-        if scanned_at.elapsed() < LOCAL_USAGE_CACHE_TTL {
-            return Ok(report.clone());
-        }
-    }
+    let reuse = reuse.inner().clone();
 
-    // The scan walks and parses every local session log; run it on a
-    // blocking thread so the UI keeps rendering.
-    let report =
-        tauri::async_runtime::spawn_blocking(move || scan_local_daily_usage(days, utc_offset_seconds))
-            .await
-            .map_err(|_| {
-                command_error("local_usage_scan_failed", "Local usage scan failed")
-            })?;
-    cache
-        .0
-        .lock()
-        .unwrap()
-        .insert(key, (Instant::now(), report.clone()));
-    Ok(report)
+    // Source observation can walk every local session log; keep it off the
+    // main thread. The desktop-owned reuse shares concurrent misses and the
+    // short expiry with live local-provider refreshes.
+    tauri::async_runtime::spawn_blocking(move || {
+        scan_local_daily_usage(&reuse, days, utc_offset_seconds)
+    })
+    .await
+    .map_err(|_| command_error("local_usage_scan_failed", "Local usage scan failed"))
 }
 
-fn scan_local_daily_usage(days: u32, utc_offset_seconds: i32) -> LocalDailyUsageReport {
+fn scan_local_daily_usage(
+    reuse: &local_provider::LocalObservationReuse,
+    days: u32,
+    utc_offset_seconds: i32,
+) -> LocalDailyUsageReport {
     let now = usage::now_rfc3339();
     let (codex, codex_status) = match local_provider::CodexLocalProvider::from_default_root()
         .ok_or_else(|| "codex_home_unavailable".to_string())
-        .and_then(|provider| provider.daily_token_usage(days, utc_offset_seconds, &now))
+        .and_then(|provider| {
+            provider
+                .with_observation_reuse(reuse)
+                .daily_token_usage(days, utc_offset_seconds, &now)
+        })
     {
         Ok(daily) => (daily, None),
         Err(status) => (Vec::new(), Some(status)),
     };
     let (claude, claude_status) = match local_provider::ClaudeLocalProvider::from_default_root()
         .ok_or_else(|| "claude_home_unavailable".to_string())
-        .and_then(|provider| provider.daily_token_usage(days, utc_offset_seconds, &now))
+        .and_then(|provider| {
+            provider
+                .with_observation_reuse(reuse)
+                .daily_token_usage(days, utc_offset_seconds, &now)
+        })
     {
         Ok(daily) => (daily, None),
         Err(status) => (Vec::new(), Some(status)),
@@ -2348,9 +2344,14 @@ fn run_tray() {
                 log_startup_warning(StartupWarning::AutostartSync);
             }
             let float_button_enabled = config.ui.float_button;
-            app.manage(UsageEngine::new(config));
+            let local_observation_reuse =
+                local_provider::LocalObservationReuse::new(LOCAL_OBSERVATION_REUSE_TTL);
+            app.manage(UsageEngine::new_desktop(
+                config,
+                local_observation_reuse.clone(),
+            ));
             app.manage(CueTracker::default());
-            app.manage(LocalUsageCache::default());
+            app.manage(local_observation_reuse);
             match app_handle.path().app_data_dir() {
                 Ok(app_data_dir) => match history::HistoryStore::open_in(&app_data_dir) {
                     Ok(store) => {

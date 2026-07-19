@@ -1,6 +1,8 @@
 use crate::{
     config::{AppConfig, LocalQuotaLimitKind, LocalQuotaUsageUnit, LocalServiceQuotaSettings},
-    local_provider::{ClaudeLocalProvider, CodexLocalProvider, LocalQuotaCalibration},
+    local_provider::{
+        ClaudeLocalProvider, CodexLocalProvider, LocalObservationReuse, LocalQuotaCalibration,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -150,6 +152,7 @@ pub struct UsageEngine {
     inner: Mutex<UsageEngineState>,
     clock: Box<dyn Clock>,
     local_roots: LocalProviderRoots,
+    local_observation_reuse: Option<LocalObservationReuse>,
 }
 
 struct UsageEngineState {
@@ -384,6 +387,15 @@ impl UsageEngine {
         Self::with_clock(config, Box::new(SystemClock))
     }
 
+    pub(crate) fn new_desktop(config: AppConfig, reuse: LocalObservationReuse) -> Self {
+        Self::with_clock_and_local_roots_and_reuse(
+            config,
+            Box::new(SystemClock),
+            LocalProviderRoots::default(),
+            Some(reuse),
+        )
+    }
+
     pub(crate) fn new_headless(config: AppConfig) -> Self {
         let mut engine = Self::new(config);
         let state = engine
@@ -405,12 +417,25 @@ impl UsageEngine {
         clock: Box<dyn Clock>,
         local_roots: LocalProviderRoots,
     ) -> Self {
+        Self::with_clock_and_local_roots_and_reuse(config, clock, local_roots, None)
+    }
+
+    fn with_clock_and_local_roots_and_reuse(
+        config: AppConfig,
+        clock: Box<dyn Clock>,
+        local_roots: LocalProviderRoots,
+        local_observation_reuse: Option<LocalObservationReuse>,
+    ) -> Self {
         let config = config.normalized();
         let last_updated = clock.now_rfc3339();
 
         Self {
             inner: Mutex::new(UsageEngineState {
-                providers: providers_for_config(&config, &local_roots),
+                providers: providers_for_config_with_reuse(
+                    &config,
+                    &local_roots,
+                    local_observation_reuse.as_ref(),
+                ),
                 config,
                 snapshots: HashMap::new(),
                 active_provider_keys: HashSet::new(),
@@ -421,6 +446,7 @@ impl UsageEngine {
             }),
             clock,
             local_roots,
+            local_observation_reuse,
         }
     }
 
@@ -431,7 +457,11 @@ impl UsageEngine {
 
     pub fn update_config(&self, config: AppConfig) -> Result<AppConfig, String> {
         let config = config.normalized();
-        let providers = providers_for_config(&config, &self.local_roots);
+        let providers = providers_for_config_with_reuse(
+            &config,
+            &self.local_roots,
+            self.local_observation_reuse.as_ref(),
+        );
         let provider_keys: HashSet<_> = providers
             .iter()
             .map(|provider| provider.provider_key())
@@ -1529,9 +1559,18 @@ impl UsageProvider for CodexLocalProvider {
     }
 }
 
+#[cfg(test)]
 fn providers_for_config(
     config: &AppConfig,
     local_roots: &LocalProviderRoots,
+) -> Vec<Arc<dyn UsageProvider>> {
+    providers_for_config_with_reuse(config, local_roots, None)
+}
+
+fn providers_for_config_with_reuse(
+    config: &AppConfig,
+    local_roots: &LocalProviderRoots,
+    local_observation_reuse: Option<&LocalObservationReuse>,
 ) -> Vec<Arc<dyn UsageProvider>> {
     let mut providers: Vec<Arc<dyn UsageProvider>> = Vec::new();
 
@@ -1545,6 +1584,10 @@ fn providers_for_config(
                 .or_else(CodexLocalProvider::from_default_root);
 
             if let Some(provider) = provider {
+                let provider = match local_observation_reuse {
+                    Some(reuse) => provider.with_observation_reuse(reuse),
+                    None => provider,
+                };
                 providers.push(Arc::new(provider.with_calibration(calibration)));
             }
         } else {
@@ -1580,6 +1623,10 @@ fn providers_for_config(
                 .or_else(ClaudeLocalProvider::from_default_root);
 
             if let Some(provider) = provider {
+                let provider = match local_observation_reuse {
+                    Some(reuse) => provider.with_observation_reuse(reuse),
+                    None => provider,
+                };
                 providers.push(Arc::new(provider.with_calibration(calibration)));
             }
         } else {

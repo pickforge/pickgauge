@@ -6,7 +6,10 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -19,6 +22,7 @@ pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
+static NEXT_PROCESS_MARKER_ID: AtomicU64 = AtomicU64::new(0);
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
     "--disable-save-password-bubble",
     "--disable-password-manager-reauthentication",
@@ -1260,7 +1264,18 @@ fn remove_registry_file(path: &Path) -> Result<(), String> {
 
 #[allow(dead_code)]
 fn new_process_marker(service: Service) -> String {
-    format!("{service:?}-{}-{}", std::process::id(), now_unix_millis())
+    process_marker(
+        service,
+        now_unix_millis(),
+        NEXT_PROCESS_MARKER_ID.fetch_add(1, Ordering::Relaxed),
+    )
+}
+
+fn process_marker(service: Service, now_unix_millis: u128, marker_id: u64) -> String {
+    format!(
+        "{service:?}-{}-{now_unix_millis}-{marker_id}",
+        std::process::id()
+    )
 }
 
 #[allow(dead_code)]
@@ -1337,6 +1352,14 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn same_timestamp_process_markers_remain_unique() {
+        assert_ne!(
+            process_marker(Service::Claude, 42, 1),
+            process_marker(Service::Claude, 42, 2)
+        );
     }
 
     #[test]

@@ -22,7 +22,9 @@ pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
 pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
 pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
 pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
-const PLAYWRIGHT_SIDECAR_RESPONSE_TIMEOUT: Duration = Duration::from_secs(35);
+// Covers the peer's sequential 30s browser-launch and navigation budgets,
+// plus its final 5s network-idle wait.
+const PLAYWRIGHT_SIDECAR_RESPONSE_TIMEOUT: Duration = Duration::from_secs(70);
 const PLAYWRIGHT_SIDECAR_MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Eq, PartialEq, Serialize)]

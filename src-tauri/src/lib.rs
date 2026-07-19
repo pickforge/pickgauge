@@ -6,6 +6,7 @@ mod config;
 mod official_reading;
 mod observation_reuse;
 mod refresh_publication;
+mod sidecar;
 mod snapshot_store;
 mod usage_cli;
 mod usage_model;
@@ -18,11 +19,8 @@ pub mod web_provider;
 use std::{
     collections::HashMap,
     fs,
-    io::{BufRead, BufReader, Write},
     path::Path,
-    process::{ChildStdin, ChildStdout},
-    sync::{mpsc, Arc, Mutex},
-    thread,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::{
@@ -54,8 +52,6 @@ const CODEX_USAGE_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytic
 const CLAUDE_USAGE_URL: &str = "https://claude.ai/new#settings/usage";
 const SENTRY_DSN: &str =
     "https://3a176d7b2fdccedfb2812e6a0b231f56@o4511699702317056.ingest.us.sentry.io/4511699813924864";
-const PLAYWRIGHT_SIDECAR_NAME: &str = "pickgauge-playwright-sidecar";
-const PLAYWRIGHT_SIDECAR_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const LOG_FILE_NAME: &str = "pickgauge.log";
 const LOG_REDACTION_POLICY_PATH: &str = "docs/security/log-redaction-policy.md";
 const TRAY_ICON_SIZE: u32 = 64;
@@ -239,9 +235,8 @@ struct LocalDailyUsageReport {
 
 struct ProviderLoginStartPlan {
     login: ProviderLoginStart,
-    sidecar_request: Option<browser_session::PlaywrightSidecarLaunchRequest>,
+    sidecar_request: Option<sidecar::PlaywrightSidecarLaunchRequest>,
 }
-
 
 type CommandResult<T> = Result<T, CommandError>;
 
@@ -854,7 +849,7 @@ fn provider_login_start_plan(
     let sidecar_request = launch_request
         .as_ref()
         .map(|request| {
-            browser_session::playwright_sidecar_launch_request(request, official_usage_url(service))
+            sidecar::playwright_sidecar_launch_request(request, official_usage_url(service))
         })
         .transpose()?;
     let profile_prepared = launch_request.is_some();
@@ -868,7 +863,7 @@ fn provider_login_start_plan(
             service,
             url: official_usage_url(service).to_string(),
             status: LOGIN_STATUS_REQUIRED.to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            backend: sidecar::PLAYWRIGHT_BACKEND_ID.to_string(),
             profile_label,
             profile_prepared,
             started_at,
@@ -877,81 +872,17 @@ fn provider_login_start_plan(
     })
 }
 
-
 fn launch_playwright_sidecar_login(
     app: &AppHandle,
     sessions: &browser_session::BrowserSessionManager,
-    request: &browser_session::PlaywrightSidecarLaunchRequest,
+    request: &sidecar::PlaywrightSidecarLaunchRequest,
 ) -> Result<u32, String> {
-    sessions.stop_service(request.service, browser_session::PROFILE_STOP_TIMEOUT)?;
-
-    let marker = browser_session::BrowserSessionMarker::new(request.service);
-    let mut command: std::process::Command = app
+    let command = app
         .shell()
-        .sidecar(PLAYWRIGHT_SIDECAR_NAME)
+        .sidecar(sidecar::PLAYWRIGHT_SIDECAR_NAME)
         .map_err(|_| "Managed login sidecar is unavailable".to_string())?
         .into();
-    let (env_key, env_value) = marker.env_pair();
-    command.env(env_key, env_value);
-
-    browser_session::configure_process_group(&mut command);
-    let child = command
-        .spawn()
-        .map_err(|_| "Managed login sidecar is unavailable".to_string())?;
-    let process_id = sessions.track_process(request.service, child, marker)?;
-    let launch_result = (|| {
-        let (mut stdin, stdout) = sessions.take_process_stdio(request.service)?;
-        write_sidecar_launch_request(&mut stdin, request)?;
-        let line = read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT)?;
-        browser_session::playwright_sidecar_launch_response(&line, request)?;
-        Ok(())
-    })();
-    if let Err(error) = launch_result {
-        return Err(stop_tracked_sidecar(sessions, request.service, error));
-    }
-
-    Ok(process_id)
-}
-
-fn write_sidecar_launch_request(
-    stdin: &mut ChildStdin,
-    request: &browser_session::PlaywrightSidecarLaunchRequest,
-) -> Result<(), String> {
-    let raw = serde_json::to_vec(request)
-        .map_err(|_| "Could not serialize managed login sidecar request".to_string())?;
-    stdin
-        .write_all(&raw)
-        .and_then(|_| stdin.write_all(b"\n"))
-        .map_err(|_| "Could not write managed login sidecar request".to_string())
-}
-
-fn read_sidecar_stdout_line(stdout: ChildStdout, timeout: Duration) -> Result<String, String> {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
-        let result = reader
-            .read_line(&mut line)
-            .map(|bytes| if bytes == 0 { String::new() } else { line })
-            .map_err(|_| "Could not read managed login sidecar response".to_string());
-        let _ = sender.send(result);
-    });
-
-    match receiver.recv_timeout(timeout) {
-        Ok(Ok(line)) if !line.trim().is_empty() => Ok(line),
-        Ok(Ok(_)) => Err("Managed login sidecar did not acknowledge launch".to_string()),
-        Ok(Err(error)) => Err(error),
-        Err(_) => Err("Managed login sidecar did not acknowledge launch".to_string()),
-    }
-}
-
-fn stop_tracked_sidecar(
-    sessions: &browser_session::BrowserSessionManager,
-    service: Service,
-    error: String,
-) -> String {
-    let _ = sessions.stop_service(service, browser_session::PROFILE_STOP_TIMEOUT);
-    error
+    sidecar::launch_login(command, sessions, request)
 }
 
 #[tauri::command]
@@ -1353,7 +1284,7 @@ fn headless_web_usage_response(
     engine: &UsageEngine,
     sessions: &browser_session::BrowserSessionManager,
     service: Service,
-) -> Result<browser_session::PlaywrightSidecarUsageResponse, String> {
+) -> Result<sidecar::PlaywrightSidecarUsageResponse, String> {
     let config = engine
         .config()
         .map_err(|_| "Could not load usage configuration".to_string())?;
@@ -1374,7 +1305,7 @@ fn web_usage_refresh_sidecar_request(
     config: &config::AppConfig,
     app_data_dir: &Path,
     service: Service,
-) -> Result<browser_session::PlaywrightSidecarLaunchRequest, String> {
+) -> Result<sidecar::PlaywrightSidecarLaunchRequest, String> {
     if !managed_browser_service(service) {
         return Err("Managed web refresh is not available for this provider".to_string());
     }
@@ -1390,52 +1321,24 @@ fn web_usage_refresh_sidecar_request(
     };
     let launch_plan = browser_session::chromium_launch_plan(service, profile_path);
     let launch_request = browser_session::playwright_launch_request(&launch_plan);
-    browser_session::playwright_sidecar_refresh_request(
-        &launch_request,
-        official_usage_url(service),
-    )
+    sidecar::playwright_sidecar_refresh_request(&launch_request, official_usage_url(service))
 }
 
 fn run_playwright_sidecar_usage_refresh(
     app: &AppHandle,
     sessions: &browser_session::BrowserSessionManager,
-    request: &browser_session::PlaywrightSidecarLaunchRequest,
-) -> Result<browser_session::PlaywrightSidecarUsageResponse, String> {
-    sessions.stop_service(request.service, browser_session::PROFILE_STOP_TIMEOUT)?;
-
-    let mut command: std::process::Command = app
+    request: &sidecar::PlaywrightSidecarLaunchRequest,
+) -> Result<sidecar::PlaywrightSidecarUsageResponse, String> {
+    let command = app
         .shell()
-        .sidecar(PLAYWRIGHT_SIDECAR_NAME)
+        .sidecar(sidecar::PLAYWRIGHT_SIDECAR_NAME)
         .map_err(|_| "Managed usage sidecar is unavailable".to_string())?
         .into();
-    let marker = browser_session::BrowserSessionMarker::new(request.service);
-    let (env_key, env_value) = marker.env_pair();
-    command.env(env_key, env_value);
-    browser_session::configure_process_group(&mut command);
-    let child = command
-        .spawn()
-        .map_err(|_| "Managed usage sidecar is unavailable".to_string())?;
-    sessions.track_process(request.service, child, marker)?;
-
-    let response = (|| {
-        let (mut stdin, stdout) = sessions.take_process_stdio(request.service)?;
-        write_sidecar_launch_request(&mut stdin, request)?;
-        let line = read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT)?;
-        browser_session::playwright_sidecar_usage_response(&line, request)
-    })();
-    let response = match response {
-        Ok(response) => response,
-        Err(error) => return Err(stop_tracked_sidecar(sessions, request.service, error)),
-    };
-
-    sessions
-        .stop_service(request.service, Duration::ZERO)
-        .map_err(|_| "Managed usage sidecar did not finish refresh".to_string())?;
-    Ok(response)
+    sidecar::refresh_usage(command, sessions, request)
 }
 
 fn usage_snapshot_from_sidecar_usage_response(
-    response: browser_session::PlaywrightSidecarUsageResponse,
+    response: sidecar::PlaywrightSidecarUsageResponse,
     observed_at: &str,
 ) -> Result<UsageSnapshot, UsageProviderError> {
     if !response.service.is_runtime() {
@@ -2407,6 +2310,7 @@ mod tests {
         borrow::Cow,
         path::PathBuf,
         sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+        thread,
     };
 
     static NEXT_TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
@@ -2753,7 +2657,7 @@ mod tests {
 
     #[test]
     fn sidecar_usage_response_maps_visible_fields_to_web_snapshot() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
+        let response = sidecar::PlaywrightSidecarUsageResponse {
             remaining_percent: Some(63.0),
             used_percent: Some(37.0),
             reset_at: Some("2026-06-05T00:00:00Z".to_string()),
@@ -2795,7 +2699,7 @@ mod tests {
 
     #[test]
     fn claude_sidecar_usage_response_carries_fable_window() {
-        let response = browser_session::PlaywrightSidecarUsageResponse {
+        let response = sidecar::PlaywrightSidecarUsageResponse {
             remaining_percent: Some(82.0),
             used_percent: Some(18.0),
             visible_fields: vec![
@@ -2803,12 +2707,12 @@ mod tests {
                 "used_percent".to_string(),
                 "quota_window".to_string(),
             ],
-            weekly: Some(browser_session::PlaywrightSidecarUsageWindow {
+            weekly: Some(sidecar::PlaywrightSidecarUsageWindow {
                 remaining_percent: Some(57.0),
                 used_percent: Some(43.0),
                 reset_at: None,
             }),
-            fable: Some(browser_session::PlaywrightSidecarUsageWindow {
+            fable: Some(sidecar::PlaywrightSidecarUsageWindow {
                 remaining_percent: Some(88.0),
                 used_percent: Some(12.0),
                 reset_at: None,
@@ -2844,7 +2748,7 @@ mod tests {
     fn sidecar_usage_response_parse_failures_are_sanitized() {
         for (response, reason) in [
             (
-                browser_session::PlaywrightSidecarUsageResponse {
+                sidecar::PlaywrightSidecarUsageResponse {
                     remaining_percent: Some(80.0),
                     used_percent: Some(80.0),
                     visible_fields: vec![
@@ -2856,7 +2760,7 @@ mod tests {
                 "invalid_visible_percentage",
             ),
             (
-                browser_session::PlaywrightSidecarUsageResponse {
+                sidecar::PlaywrightSidecarUsageResponse {
                     remaining_percent: Some(80.0),
                     reset_at: Some("not-a-timestamp".to_string()),
                     visible_fields: vec!["remaining_percent".to_string(), "reset_at".to_string()],
@@ -2865,7 +2769,7 @@ mod tests {
                 "invalid_reset_at",
             ),
             (
-                browser_session::PlaywrightSidecarUsageResponse {
+                sidecar::PlaywrightSidecarUsageResponse {
                     remaining_percent: Some(80.0),
                     visible_fields: vec![
                         "remaining_percent".to_string(),
@@ -2897,16 +2801,16 @@ mod tests {
     fn sidecar_usage_response(
         service: Service,
         page_state: &str,
-    ) -> browser_session::PlaywrightSidecarUsageResponse {
-        browser_session::PlaywrightSidecarUsageResponse {
+    ) -> sidecar::PlaywrightSidecarUsageResponse {
+        sidecar::PlaywrightSidecarUsageResponse {
             protocol_version: 1,
-            action: browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            action: sidecar::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE.to_string(),
+            backend: sidecar::PLAYWRIGHT_BACKEND_ID.to_string(),
             service,
             profile_label: provider_profile_label(service).to_string(),
             headless: true,
             arg_count: 4,
-            status: browser_session::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
+            status: sidecar::PLAYWRIGHT_SIDECAR_STATUS_CHECKED.to_string(),
             page_state: page_state.to_string(),
             remaining_percent: None,
             used_percent: None,
@@ -3068,7 +2972,7 @@ mod tests {
             service: Service::Codex,
             url: official_usage_url(Service::Codex).to_string(),
             status: "login_required".to_string(),
-            backend: browser_session::PLAYWRIGHT_BACKEND_ID.to_string(),
+            backend: sidecar::PLAYWRIGHT_BACKEND_ID.to_string(),
             profile_label: "codex-profile".to_string(),
             profile_prepared: true,
             started_at: "2026-06-03T00:00:00Z".to_string(),
@@ -3105,7 +3009,7 @@ mod tests {
         .expect("login start report succeeds");
         let value = serde_json::to_value(&login).expect("login start report serializes");
 
-        assert_eq!(login.backend, browser_session::PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(login.backend, sidecar::PLAYWRIGHT_BACKEND_ID);
         assert_eq!(login.profile_label, "claude-profile");
         assert!(login.profile_prepared);
         assert_eq!(value["backend"], "playwright-headed-chromium-sidecar");
@@ -3179,7 +3083,7 @@ mod tests {
 
         assert_eq!(
             request.action,
-            browser_session::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE
+            sidecar::PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE
         );
         assert_eq!(request.service, Service::Claude);
         assert_eq!(request.url, official_usage_url(Service::Claude));
@@ -3243,7 +3147,7 @@ mod tests {
         )
         .expect("login start report succeeds");
 
-        assert_eq!(login.backend, browser_session::PLAYWRIGHT_BACKEND_ID);
+        assert_eq!(login.backend, sidecar::PLAYWRIGHT_BACKEND_ID);
         assert_eq!(login.profile_label, "codex-profile");
         assert!(!login.profile_prepared);
         assert!(!dir.path.join("browser-profiles").exists());

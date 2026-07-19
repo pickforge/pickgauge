@@ -1,4 +1,4 @@
-use crate::usage::Service;
+use crate::{sidecar::PLAYWRIGHT_BACKEND_ID, usage::Service};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -6,7 +6,10 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -17,14 +20,9 @@ pub const PROCESS_MARKER_ENV: &str = "PICKGAUGE_BROWSER_PROCESS_MARKER";
 pub const CHROMIUM_DEFAULT_PROFILE_DIR: &str = "Default";
 pub const CHROMIUM_PREFERENCES_FILE_NAME: &str = "Preferences";
 pub const PROFILE_INSPECTION_ENTRY_LIMIT: usize = 2_048;
-pub const PLAYWRIGHT_BACKEND_ID: &str = "playwright-headed-chromium-sidecar";
-pub const PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN: &str = "launchLogin";
-pub const PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE: &str = "refreshUsage";
-pub const PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION: u32 = 1;
-pub const PLAYWRIGHT_SIDECAR_STATUS_CHECKED: &str = "checked";
-pub const PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED: &str = "launched";
 
 const SESSION_REGISTRY_SCHEMA_VERSION: u32 = 1;
+static NEXT_PROCESS_MARKER_ID: AtomicU64 = AtomicU64::new(0);
 const CHROMIUM_PASSWORD_MANAGER_FLAGS: [&str; 4] = [
     "--disable-save-password-bubble",
     "--disable-password-manager-reauthentication",
@@ -169,140 +167,6 @@ pub struct PlaywrightLaunchDiagnostics {
     pub args: Vec<String>,
 }
 
-#[derive(Clone, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaywrightSidecarLaunchRequest {
-    pub protocol_version: u32,
-    pub action: &'static str,
-    pub backend: &'static str,
-    pub service: Service,
-    pub url: String,
-    pub profile_label: String,
-    pub user_data_dir: String,
-    pub headless: bool,
-    pub args: Vec<String>,
-    #[serde(skip)]
-    pub diagnostics: PlaywrightSidecarLaunchDiagnostics,
-}
-
-impl fmt::Debug for PlaywrightSidecarLaunchRequest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let user_data_dir = format!("<{}>", self.profile_label);
-
-        formatter
-            .debug_struct("PlaywrightSidecarLaunchRequest")
-            .field("protocol_version", &self.protocol_version)
-            .field("action", &self.action)
-            .field("backend", &self.backend)
-            .field("service", &self.service)
-            .field("url", &self.url)
-            .field("profile_label", &self.profile_label)
-            .field("user_data_dir", &user_data_dir)
-            .field("headless", &self.headless)
-            .field("arg_count", &self.diagnostics.arg_count)
-            .field("diagnostics", &self.diagnostics)
-            .finish()
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PlaywrightSidecarLaunchDiagnostics {
-    pub protocol_version: u32,
-    pub action: &'static str,
-    pub backend: &'static str,
-    pub service: Service,
-    pub profile_label: String,
-    pub user_data_dir: String,
-    pub headless: bool,
-    pub arg_count: usize,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PlaywrightSidecarLaunchResponse {
-    pub protocol_version: u32,
-    pub action: String,
-    pub backend: String,
-    pub service: Service,
-    pub profile_label: String,
-    pub headless: bool,
-    pub arg_count: usize,
-    pub status: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PlaywrightSidecarUsageResponse {
-    pub protocol_version: u32,
-    pub action: String,
-    pub backend: String,
-    pub service: Service,
-    pub profile_label: String,
-    pub headless: bool,
-    pub arg_count: usize,
-    pub status: String,
-    pub page_state: String,
-    pub remaining_percent: Option<f32>,
-    pub used_percent: Option<f32>,
-    pub reset_at: Option<String>,
-    pub visible_fields: Vec<String>,
-    pub weekly: Option<PlaywrightSidecarUsageWindow>,
-    pub fable: Option<PlaywrightSidecarUsageWindow>,
-    pub products: Vec<PlaywrightSidecarUsageProduct>,
-}
-
-/// A secondary rate-limit window carried alongside the headline window.
-/// Percentages and the reset timestamp are validated by the web provider, so
-/// this only transports the raw values.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaywrightSidecarUsageWindow {
-    pub remaining_percent: Option<f32>,
-    pub used_percent: Option<f32>,
-    pub reset_at: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaywrightSidecarUsageProduct {
-    pub product: String,
-    pub usage_percent: f32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawPlaywrightSidecarLaunchResponse {
-    ok: bool,
-    status: String,
-    protocol_version: u32,
-    action: Option<String>,
-    backend: Option<String>,
-    service: Option<Service>,
-    profile_label: Option<String>,
-    headless: Option<bool>,
-    arg_count: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawPlaywrightSidecarUsageResponse {
-    ok: bool,
-    status: String,
-    protocol_version: u32,
-    action: Option<String>,
-    backend: Option<String>,
-    service: Option<Service>,
-    profile_label: Option<String>,
-    headless: Option<bool>,
-    arg_count: Option<usize>,
-    page_state: Option<String>,
-    remaining_percent: Option<f32>,
-    used_percent: Option<f32>,
-    reset_at: Option<String>,
-    visible_fields: Option<Vec<String>>,
-    weekly: Option<PlaywrightSidecarUsageWindow>,
-    fable: Option<PlaywrightSidecarUsageWindow>,
-    products: Option<Vec<PlaywrightSidecarUsageProduct>>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BrowserProfileStorageInspection {
     pub credential_store_files: usize,
@@ -395,6 +259,7 @@ impl BrowserSessionManager {
     ) -> Result<u32, String> {
         let process_id = child.id();
         let marker_service = marker.service;
+        let tracked_marker = marker.clone();
         #[cfg(windows)]
         let (child, job) = own_windows_process(child)?;
         let mut process = ManagedBrowserProcess {
@@ -433,7 +298,7 @@ impl BrowserSessionManager {
         drop(processes);
 
         if let Err(error) = self.write_registry_snapshot() {
-            let _ = self.stop_service(service, Duration::from_secs(1));
+            let _ = self.stop_marked_process(&tracked_marker, Duration::from_secs(1));
             return Err(error);
         }
 
@@ -445,12 +310,40 @@ impl BrowserSessionManager {
         service: Service,
         timeout: Duration,
     ) -> Result<BrowserSessionStopResult, String> {
+        self.stop_service_inner(service, None, timeout)
+    }
+
+    pub fn stop_marked_process(
+        &self,
+        marker: &BrowserSessionMarker,
+        timeout: Duration,
+    ) -> Result<BrowserSessionStopResult, String> {
+        self.stop_service_inner(marker.service, Some(&marker.process_marker), timeout)
+    }
+
+    fn stop_service_inner(
+        &self,
+        service: Service,
+        expected_marker: Option<&str>,
+        timeout: Duration,
+    ) -> Result<BrowserSessionStopResult, String> {
         let mut processes = self
             .processes
             .lock()
             .map_err(|_| "Browser session state is unavailable".to_string())?;
 
-        if !processes.contains_key(&service) {
+        if let Some(expected_marker) = expected_marker {
+            let marker_matches = processes
+                .get(&service)
+                .map(|process| process.process_marker.as_str())
+                == Some(expected_marker);
+            if !marker_matches {
+                return Ok(BrowserSessionStopResult {
+                    service,
+                    status: BrowserSessionStopStatus::NoManagedProcess,
+                });
+            }
+        } else if !processes.contains_key(&service) {
             drop(processes);
             return self.stop_orphaned_service(service, timeout);
         }
@@ -471,14 +364,15 @@ impl BrowserSessionManager {
 
     pub fn take_process_stdio(
         &self,
-        service: Service,
+        marker: &BrowserSessionMarker,
     ) -> Result<(ChildStdin, ChildStdout), String> {
         let mut processes = self
             .processes
             .lock()
             .map_err(|_| "Browser session state is unavailable".to_string())?;
         let process = processes
-            .get_mut(&service)
+            .get_mut(&marker.service)
+            .filter(|process| process.process_marker == marker.process_marker)
             .ok_or_else(|| "Managed browser process is unavailable".to_string())?;
         let stdin = process
             .child
@@ -713,237 +607,6 @@ pub fn playwright_launch_request(plan: &BrowserLaunchPlan) -> PlaywrightLaunchRe
         args,
         diagnostics,
     }
-}
-
-#[allow(dead_code)]
-pub fn playwright_sidecar_launch_request(
-    request: &PlaywrightLaunchRequest,
-    url: impl Into<String>,
-) -> Result<PlaywrightSidecarLaunchRequest, String> {
-    playwright_sidecar_request(
-        request,
-        url,
-        PLAYWRIGHT_SIDECAR_ACTION_LAUNCH_LOGIN,
-        false,
-        "Managed browser login URL must use HTTPS",
-    )
-}
-
-#[allow(dead_code)]
-pub fn playwright_sidecar_refresh_request(
-    request: &PlaywrightLaunchRequest,
-    url: impl Into<String>,
-) -> Result<PlaywrightSidecarLaunchRequest, String> {
-    playwright_sidecar_request(
-        request,
-        url,
-        PLAYWRIGHT_SIDECAR_ACTION_REFRESH_USAGE,
-        true,
-        "Managed browser refresh URL must use HTTPS",
-    )
-}
-
-fn playwright_sidecar_request(
-    request: &PlaywrightLaunchRequest,
-    url: impl Into<String>,
-    action: &'static str,
-    headless: bool,
-    https_error: &str,
-) -> Result<PlaywrightSidecarLaunchRequest, String> {
-    let url = url.into();
-    if !url.starts_with("https://") {
-        return Err(https_error.to_string());
-    }
-
-    let user_data_dir = request.user_data_dir.to_string_lossy().to_string();
-    let redacted_user_data_dir = format!("<{}>", request.profile_label);
-    let diagnostics = PlaywrightSidecarLaunchDiagnostics {
-        protocol_version: PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION,
-        action,
-        backend: request.backend,
-        service: request.service,
-        profile_label: request.profile_label.clone(),
-        user_data_dir: redacted_user_data_dir,
-        headless,
-        arg_count: request.args.len(),
-    };
-
-    Ok(PlaywrightSidecarLaunchRequest {
-        protocol_version: PLAYWRIGHT_SIDECAR_PROTOCOL_VERSION,
-        action,
-        backend: request.backend,
-        service: request.service,
-        url,
-        profile_label: request.profile_label.clone(),
-        user_data_dir,
-        headless,
-        args: request.args.clone(),
-        diagnostics,
-    })
-}
-
-#[allow(dead_code)]
-pub fn playwright_sidecar_launch_response(
-    raw: &str,
-    request: &PlaywrightSidecarLaunchRequest,
-) -> Result<PlaywrightSidecarLaunchResponse, String> {
-    let response = serde_json::from_str::<RawPlaywrightSidecarLaunchResponse>(raw)
-        .map_err(|_| "Managed login sidecar returned invalid response".to_string())?;
-
-    if !response.ok {
-        return Err("Managed login sidecar rejected launch".to_string());
-    }
-
-    if response.status != PLAYWRIGHT_SIDECAR_STATUS_LAUNCHED {
-        return Err("Managed login sidecar did not launch browser".to_string());
-    }
-
-    let Some(action) = response.action else {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    };
-    let Some(backend) = response.backend else {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    };
-    let Some(service) = response.service else {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    };
-    let Some(profile_label) = response.profile_label else {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    };
-    let Some(headless) = response.headless else {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    };
-    let Some(arg_count) = response.arg_count else {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    };
-
-    if response.protocol_version != request.protocol_version
-        || action != request.action
-        || backend != request.backend
-        || service != request.service
-        || profile_label != request.profile_label
-        || headless != request.headless
-        || arg_count != request.args.len()
-    {
-        return Err("Managed login sidecar returned mismatched response".to_string());
-    }
-
-    Ok(PlaywrightSidecarLaunchResponse {
-        protocol_version: response.protocol_version,
-        action,
-        backend,
-        service,
-        profile_label,
-        headless,
-        arg_count,
-        status: response.status,
-    })
-}
-
-#[allow(dead_code)]
-pub fn playwright_sidecar_usage_response(
-    raw: &str,
-    request: &PlaywrightSidecarLaunchRequest,
-) -> Result<PlaywrightSidecarUsageResponse, String> {
-    let response = serde_json::from_str::<RawPlaywrightSidecarUsageResponse>(raw)
-        .map_err(|_| "Managed usage sidecar returned invalid response".to_string())?;
-
-    if !response.ok {
-        return Err("Managed usage sidecar rejected refresh".to_string());
-    }
-
-    if response.status != PLAYWRIGHT_SIDECAR_STATUS_CHECKED {
-        return Err("Managed usage sidecar did not check usage".to_string());
-    }
-
-    let Some(action) = response.action else {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    };
-    let Some(backend) = response.backend else {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    };
-    let Some(service) = response.service else {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    };
-    let Some(profile_label) = response.profile_label else {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    };
-    let Some(headless) = response.headless else {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    };
-    let Some(arg_count) = response.arg_count else {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    };
-    let Some(page_state) = response.page_state else {
-        return Err("Managed usage sidecar returned invalid page state".to_string());
-    };
-    let visible_fields = response.visible_fields.unwrap_or_default();
-    let products = response.products.unwrap_or_default();
-
-    if response.protocol_version != request.protocol_version
-        || action != request.action
-        || backend != request.backend
-        || service != request.service
-        || profile_label != request.profile_label
-        || headless != request.headless
-        || arg_count != request.args.len()
-    {
-        return Err("Managed usage sidecar returned mismatched response".to_string());
-    }
-
-    if page_state.len() > 32
-        || !page_state
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
-    {
-        return Err("Managed usage sidecar returned invalid page state".to_string());
-    }
-
-    if visible_fields.iter().any(|field| {
-        field.is_empty()
-            || field.len() > 64
-            || !field
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
-    }) {
-        return Err("Managed usage sidecar returned invalid visible fields".to_string());
-    }
-
-    if products.len() > 6
-        || products.iter().any(|product| {
-            !matches!(
-                product.product.as_str(),
-                "PRODUCT_GROK_CHAT"
-                    | "PRODUCT_GROK_BUILD"
-                    | "PRODUCT_API"
-                    | "PRODUCT_GROK_IMAGINE"
-                    | "PRODUCT_GROK_VOICE"
-                    | "PRODUCT_GROK_PLUGINS"
-            ) || !product.usage_percent.is_finite()
-                || !(0.0..=100.0).contains(&product.usage_percent)
-        })
-    {
-        return Err("Managed usage sidecar returned invalid products".to_string());
-    }
-
-    Ok(PlaywrightSidecarUsageResponse {
-        protocol_version: response.protocol_version,
-        action,
-        backend,
-        service,
-        profile_label,
-        headless,
-        arg_count,
-        status: response.status,
-        page_state,
-        remaining_percent: response.remaining_percent,
-        used_percent: response.used_percent,
-        reset_at: response.reset_at,
-        visible_fields,
-        weekly: response.weekly,
-        fable: response.fable,
-        products,
-    })
 }
 
 fn chromium_disabled_storage_preferences() -> serde_json::Value {
@@ -1601,7 +1264,18 @@ fn remove_registry_file(path: &Path) -> Result<(), String> {
 
 #[allow(dead_code)]
 fn new_process_marker(service: Service) -> String {
-    format!("{service:?}-{}-{}", std::process::id(), now_unix_millis())
+    process_marker(
+        service,
+        now_unix_millis(),
+        NEXT_PROCESS_MARKER_ID.fetch_add(1, Ordering::Relaxed),
+    )
+}
+
+fn process_marker(service: Service, now_unix_millis: u128, marker_id: u64) -> String {
+    format!(
+        "{service:?}-{}-{now_unix_millis}-{marker_id}",
+        std::process::id()
+    )
 }
 
 #[allow(dead_code)]
@@ -1641,6 +1315,7 @@ fn set_restrictive_directory_permissions(_path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sidecar::*;
     use std::{
         process::{Command, Stdio},
         sync::{
@@ -1677,6 +1352,14 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn same_timestamp_process_markers_remain_unique() {
+        assert_ne!(
+            process_marker(Service::Claude, 42, 1),
+            process_marker(Service::Claude, 42, 2)
+        );
     }
 
     #[test]
@@ -1763,6 +1446,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn stale_process_marker_cannot_take_or_stop_replacement() {
+        let manager = BrowserSessionManager::default();
+        let stale_marker = BrowserSessionMarker::new(Service::Claude);
+        let stale_child = sleeping_child_with_stdio(&stale_marker);
+        manager
+            .track_process(Service::Claude, stale_child, stale_marker.clone())
+            .expect("stale process is tracked");
+        manager
+            .stop_service(Service::Claude, Duration::from_secs(1))
+            .expect("stale process stops");
+
+        let replacement_marker = BrowserSessionMarker::new(Service::Claude);
+        let replacement_child = sleeping_child_with_stdio(&replacement_marker);
+        manager
+            .track_process(
+                Service::Claude,
+                replacement_child,
+                replacement_marker.clone(),
+            )
+            .expect("replacement process is tracked");
+
+        assert!(manager.take_process_stdio(&stale_marker).is_err());
+        assert_eq!(
+            manager
+                .stop_marked_process(&stale_marker, Duration::ZERO)
+                .expect("stale cleanup is a no-op")
+                .status,
+            BrowserSessionStopStatus::NoManagedProcess
+        );
+        let _stdio = manager
+            .take_process_stdio(&replacement_marker)
+            .expect("replacement keeps its stdio");
+        assert_ne!(
+            manager
+                .stop_marked_process(&replacement_marker, Duration::from_secs(1))
+                .expect("replacement process stops")
+                .status,
+            BrowserSessionStopStatus::NoManagedProcess
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn extracted_sidecar_io_does_not_block_stop_all() {
@@ -1778,10 +1503,10 @@ mod tests {
         configure_process_group(&mut command);
         let child = command.spawn().expect("sidecar process starts");
         manager
-            .track_process(Service::Claude, child, marker)
+            .track_process(Service::Claude, child, marker.clone())
             .expect("sidecar process is tracked");
         let _stdio = manager
-            .take_process_stdio(Service::Claude)
+            .take_process_stdio(&marker)
             .expect("sidecar stdio is extracted");
         let (sender, receiver) = std::sync::mpsc::channel();
         let stop_manager = Arc::clone(&manager);
@@ -2855,6 +2580,31 @@ mod tests {
         Command::new("cmd")
             .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
             .env(key, value)
+            .spawn()
+            .expect("sleep process starts")
+    }
+
+    #[cfg(unix)]
+    fn sleeping_child_with_stdio(marker: &BrowserSessionMarker) -> Child {
+        let (key, value) = marker.env_pair();
+        let mut command = Command::new("sleep");
+        command
+            .arg("30")
+            .env(key, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        configure_process_group(&mut command);
+        command.spawn().expect("sleep process starts")
+    }
+
+    #[cfg(not(unix))]
+    fn sleeping_child_with_stdio(marker: &BrowserSessionMarker) -> Child {
+        let (key, value) = marker.env_pair();
+        Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
+            .env(key, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .expect("sleep process starts")
     }

@@ -32,8 +32,8 @@ reset this file.
 
 ### Tested
 
-- `cargo test --locked --all-targets` (298 Rust tests).
-- Filtered local-provider tests (26), observation-reuse tests (3), and
+- `cargo test --locked --all-targets` (299 Rust tests).
+- Filtered local-provider tests (27), observation-reuse tests (3), and
   refresh-publication policy tests (10).
 - `cargo clippy --all-targets --locked` with strict warnings (only the four
   documented pre-existing lint classes allowed).

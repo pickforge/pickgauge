@@ -19,6 +19,7 @@ const CLAUDE_PROJECTS_DIR: &str = "projects";
 const JSONL_EXTENSION: &str = "jsonl";
 const MAX_CLAUDE_JSONL_FILES: usize = 512;
 const MAX_CLAUDE_RECORDS_PER_REFRESH: u64 = 100_000;
+const MAX_CLAUDE_DISCOVERY_ENTRIES: u64 = MAX_CLAUDE_RECORDS_PER_REFRESH;
 const CODEX_STATE_DB_FILE: &str = "state_5.sqlite";
 const MAX_CODEX_THREADS_PER_REFRESH: u64 = 10_000;
 const LOCAL_WINDOW_POLICY: &str = "all_scanned_local_activity";
@@ -1031,21 +1032,41 @@ fn merge_json_objects(target: &mut serde_json::Value, source: serde_json::Value)
 }
 
 fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = fs::read_dir(root).map_err(|_| "claude_projects_unreadable".to_string())?;
+    collect_jsonl_files_with_limit(root, files, MAX_CLAUDE_DISCOVERY_ENTRIES)
+}
 
-    for entry in entries {
-        let entry = entry.map_err(|_| "claude_project_entry_unreadable".to_string())?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|_| "claude_project_metadata_unreadable".to_string())?;
+fn collect_jsonl_files_with_limit(
+    root: &Path,
+    files: &mut Vec<PathBuf>,
+    entry_limit: u64,
+) -> Result<(), String> {
+    let mut pending_directories = vec![root.to_path_buf()];
+    let mut entries_read = 0_u64;
 
-        if file_type.is_dir() {
-            collect_jsonl_files(&path, files)?;
-        } else if file_type.is_file()
-            && path.extension().and_then(|extension| extension.to_str()) == Some(JSONL_EXTENSION)
-        {
-            files.push(path);
+    while let Some(directory) = pending_directories.pop() {
+        let entries =
+            fs::read_dir(directory).map_err(|_| "claude_projects_unreadable".to_string())?;
+
+        for entry in entries {
+            if entries_read >= entry_limit {
+                return Err("claude_project_entry_limit_reached".to_string());
+            }
+            entries_read += 1;
+
+            let entry = entry.map_err(|_| "claude_project_entry_unreadable".to_string())?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|_| "claude_project_metadata_unreadable".to_string())?;
+
+            if file_type.is_dir() {
+                pending_directories.push(path);
+            } else if file_type.is_file()
+                && path.extension().and_then(|extension| extension.to_str())
+                    == Some(JSONL_EXTENSION)
+            {
+                files.push(path);
+            }
         }
     }
 
@@ -1427,6 +1448,21 @@ mod tests {
 
         assert_eq!(snapshot.details["filesScanned"], 1);
         assert_eq!(snapshot.details["usageRecords"], 1);
+    }
+
+    #[test]
+    fn claude_project_discovery_stops_at_entry_limit() {
+        let dir = TestDir::new();
+        let projects_dir = dir.path.join(CLAUDE_PROJECTS_DIR);
+        fs::create_dir_all(&projects_dir).expect("projects directory is created");
+        fs::write(projects_dir.join("a.jsonl"), "").expect("first fixture is written");
+        fs::write(projects_dir.join("b.jsonl"), "").expect("second fixture is written");
+        let mut files = Vec::new();
+
+        assert_eq!(
+            collect_jsonl_files_with_limit(&projects_dir, &mut files, 1),
+            Err("claude_project_entry_limit_reached".to_string())
+        );
     }
 
     #[test]

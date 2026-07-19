@@ -8,7 +8,6 @@ Command return models:
 | --- | --- | --- |
 | `get_app_config` | `AppConfig` | Browser profile contents, cookies, tokens, local provider records |
 | `update_app_config` | `AppConfig` | Browser profile contents, cookies, tokens, local provider records |
-| `get_usage_snapshots` | `UsageSnapshot[]` | Raw local logs, raw page HTML/text, account identifiers |
 | `get_display_state` | `UsageDisplayState` | Raw local logs, raw page HTML/text, account identifiers |
 | `refresh_usage` | `UsageDisplayState` | Raw provider errors, raw local logs, raw page HTML/text |
 | `refresh_provider` | `UsageDisplayState` | Raw provider errors, raw local logs, raw page HTML/text |
@@ -17,7 +16,6 @@ Command return models:
 | `inspect_provider_profile` | `ProviderProfileInspection` | Browser profile paths and contents, cookies, tokens, auth data, account identifiers, password/autofill storage contents, and preference file contents |
 | `hide_main_window` | `WindowVisibility` | Usage data, browser profile data, cookies, tokens, and account identifiers |
 | `clear_cached_snapshots` | `UsageDisplayState` | Raw local logs, raw page HTML/text, account identifiers |
-| `clear_provider_profile` | `ClearedProviderProfile` | Browser profile paths and contents |
 | `reset_provider_session` | `ClearedProviderProfile` | Browser profile paths and contents |
 | `get_log_location` | `LogLocation` | Log contents |
 

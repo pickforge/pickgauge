@@ -34,7 +34,7 @@ reset this file.
 
 - Workflow YAML parse check:
   `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"`
-- `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets` (257 Rust tests)
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets` (260 Rust tests)
 - Filtered config serialization, browser process-tree, OAuth cache, and SQLite aggregation tests.
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets` with strict warnings after allowing four pre-existing lint classes.
 - `bun run build`

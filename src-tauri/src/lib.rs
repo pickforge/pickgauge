@@ -16,7 +16,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::Path,
-    process::{Child, ChildStdout},
+    process::{ChildStdin, ChildStdout},
     sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -890,16 +890,13 @@ fn launch_playwright_sidecar_login(
         .spawn()
         .map_err(|_| "Managed login sidecar is unavailable".to_string())?;
     let process_id = sessions.track_process(request.service, child, marker)?;
-    let launch_result = sessions.with_process(request.service, |child| {
-        write_sidecar_launch_request(child, request)?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Managed login sidecar did not acknowledge launch".to_string())?;
+    let launch_result = (|| {
+        let (mut stdin, stdout) = sessions.take_process_stdio(request.service)?;
+        write_sidecar_launch_request(&mut stdin, request)?;
         let line = read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT)?;
         browser_session::playwright_sidecar_launch_response(&line, request)?;
         Ok(())
-    });
+    })();
     if let Err(error) = launch_result {
         return Err(stop_tracked_sidecar(sessions, request.service, error));
     }
@@ -908,15 +905,11 @@ fn launch_playwright_sidecar_login(
 }
 
 fn write_sidecar_launch_request(
-    child: &mut Child,
+    stdin: &mut ChildStdin,
     request: &browser_session::PlaywrightSidecarLaunchRequest,
 ) -> Result<(), String> {
     let raw = serde_json::to_vec(request)
         .map_err(|_| "Could not serialize managed login sidecar request".to_string())?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "Managed login sidecar is unavailable".to_string())?;
     stdin
         .write_all(&raw)
         .and_then(|_| stdin.write_all(b"\n"))
@@ -1333,22 +1326,19 @@ fn run_playwright_sidecar_usage_refresh(
         .map_err(|_| "Managed usage sidecar is unavailable".to_string())?;
     sessions.track_process(request.service, child, marker)?;
 
-    let response = sessions.with_process(request.service, |child| {
-        write_sidecar_launch_request(child, request)?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Managed usage sidecar did not acknowledge refresh".to_string())?;
+    let response = (|| {
+        let (mut stdin, stdout) = sessions.take_process_stdio(request.service)?;
+        write_sidecar_launch_request(&mut stdin, request)?;
         let line = read_sidecar_stdout_line(stdout, PLAYWRIGHT_SIDECAR_ACK_TIMEOUT)?;
         browser_session::playwright_sidecar_usage_response(&line, request)
-    });
+    })();
     let response = match response {
         Ok(response) => response,
         Err(error) => return Err(stop_tracked_sidecar(sessions, request.service, error)),
     };
 
     sessions
-        .wait_service(request.service)
+        .stop_service(request.service, Duration::ZERO)
         .map_err(|_| "Managed usage sidecar did not finish refresh".to_string())?;
     Ok(response)
 }

@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     fmt, fs,
     path::{Path, PathBuf},
-    process::{Child, Command},
+    process::{Child, ChildStdin, ChildStdout, Command},
     sync::Mutex,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -411,15 +411,24 @@ impl BrowserSessionManager {
             return Err("Managed browser marker service does not match".to_string());
         }
 
-        if self.has_managed_process(service)? {
+        let mut processes = match self.processes.lock() {
+            Ok(processes) => processes,
+            Err(_) => {
+                terminate_managed_process_tree(&mut process);
+                return Err("Browser session state is unavailable".to_string());
+            }
+        };
+        let orphan_exists = match self.orphans.lock() {
+            Ok(orphans) => orphans.contains_key(&service),
+            Err(_) => {
+                terminate_managed_process_tree(&mut process);
+                return Err("Browser session state is unavailable".to_string());
+            }
+        };
+        if processes.contains_key(&service) || orphan_exists {
             terminate_managed_process_tree(&mut process);
             return Err("Managed browser process already exists".to_string());
         }
-
-        let mut processes = self
-            .processes
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())?;
         processes.insert(service, process);
         drop(processes);
 
@@ -460,11 +469,10 @@ impl BrowserSessionManager {
         Ok(BrowserSessionStopResult { service, status })
     }
 
-    pub fn with_process<T>(
+    pub fn take_process_stdio(
         &self,
         service: Service,
-        operation: impl FnOnce(&mut Child) -> Result<T, String>,
-    ) -> Result<T, String> {
+    ) -> Result<(ChildStdin, ChildStdout), String> {
         let mut processes = self
             .processes
             .lock()
@@ -472,25 +480,17 @@ impl BrowserSessionManager {
         let process = processes
             .get_mut(&service)
             .ok_or_else(|| "Managed browser process is unavailable".to_string())?;
-        operation(&mut process.child)
-    }
-
-    pub fn wait_service(&self, service: Service) -> Result<(), String> {
-        let mut processes = self
-            .processes
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())?;
-        let Some(process) = processes.get_mut(&service) else {
-            return Ok(());
-        };
-
-        process
+        let stdin = process
             .child
-            .wait()
-            .map_err(|_| "Could not reap managed browser process".to_string())?;
-        processes.remove(&service);
-        drop(processes);
-        self.write_registry_snapshot()
+            .stdin
+            .take()
+            .ok_or_else(|| "Managed browser process input is unavailable".to_string())?;
+        let stdout = process
+            .child
+            .stdout
+            .take()
+            .ok_or_else(|| "Managed browser process output is unavailable".to_string())?;
+        Ok((stdin, stdout))
     }
 
     pub fn stop_all(&self, timeout: Duration) -> Result<(), String> {
@@ -555,23 +555,6 @@ impl BrowserSessionManager {
 
         self.write_registry_snapshot()?;
         Ok(BrowserSessionStartupRecovery { orphaned_processes })
-    }
-
-    fn has_managed_process(&self, service: Service) -> Result<bool, String> {
-        let tracked = self
-            .processes
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())?
-            .contains_key(&service);
-
-        if tracked {
-            return Ok(true);
-        }
-
-        self.orphans
-            .lock()
-            .map_err(|_| "Browser session state is unavailable".to_string())
-            .map(|orphans| orphans.contains_key(&service))
     }
 
     fn stop_orphaned_service(
@@ -1659,8 +1642,11 @@ fn set_restrictive_directory_permissions(_path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::{
-        process::Command,
-        sync::atomic::{AtomicU64, Ordering},
+        process::{Command, Stdio},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc, Barrier,
+        },
         thread,
     };
 
@@ -1730,6 +1716,85 @@ mod tests {
             .stop_service(Service::Codex, Duration::from_secs(1))
             .expect("tracked process stops");
         assert_ne!(result.status, BrowserSessionStopStatus::NoManagedProcess);
+    }
+
+    #[test]
+    fn concurrent_tracking_keeps_one_owner_without_leaking_the_duplicate() {
+        let manager = Arc::new(BrowserSessionManager::default());
+        let barrier = Arc::new(Barrier::new(3));
+        let mut workers = Vec::new();
+
+        for _ in 0..2 {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+            workers.push(thread::spawn(move || {
+                let marker = BrowserSessionMarker::new(Service::Codex);
+                let child = sleeping_child(&marker);
+                let process_id = child.id();
+                barrier.wait();
+                (
+                    process_id,
+                    manager.track_process(Service::Codex, child, marker),
+                )
+            }));
+        }
+
+        barrier.wait();
+        let results = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("tracking worker completes"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            results.iter().filter(|(_, result)| result.is_ok()).count(),
+            1
+        );
+        assert_eq!(
+            results.iter().filter(|(_, result)| result.is_err()).count(),
+            1
+        );
+        manager
+            .stop_all(Duration::from_secs(1))
+            .expect("owned process stops");
+
+        #[cfg(unix)]
+        for (process_id, _) in results {
+            assert!(!process_group_exists(process_id));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extracted_sidecar_io_does_not_block_stop_all() {
+        let manager = Arc::new(BrowserSessionManager::default());
+        let marker = BrowserSessionMarker::new(Service::Claude);
+        let (key, value) = marker.env_pair();
+        let mut command = Command::new("sleep");
+        command
+            .arg("30")
+            .env(key, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        configure_process_group(&mut command);
+        let child = command.spawn().expect("sidecar process starts");
+        manager
+            .track_process(Service::Claude, child, marker)
+            .expect("sidecar process is tracked");
+        let _stdio = manager
+            .take_process_stdio(Service::Claude)
+            .expect("sidecar stdio is extracted");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let stop_manager = Arc::clone(&manager);
+
+        thread::spawn(move || {
+            let result = stop_manager.stop_all(Duration::from_secs(1));
+            let _ = sender.send(result);
+        });
+
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stop_all is not blocked by extracted stdio")
+            .expect("sidecar process stops");
     }
 
     #[test]

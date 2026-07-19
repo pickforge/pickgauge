@@ -1525,7 +1525,9 @@ fn refresh_due_with_headless_web(
             continue;
         }
 
-        let cli_snapshot = engine.cli_snapshot(service).map_err(map_usage_state_error)?;
+        let cli_snapshot = engine
+            .cli_snapshot(service)
+            .map_err(map_usage_state_error)?;
         if official_reading::managed_web_fallback_needed(
             config.providers.cli_enabled,
             config.providers.web_enabled,

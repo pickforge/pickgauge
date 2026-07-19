@@ -684,8 +684,8 @@ impl UsageEngine {
         &self,
         service: Service,
     ) -> Result<Option<UsageSnapshot>, String> {
-        let provider_id = cli_provider_id(service)
-            .ok_or_else(|| "Provider is not configured".to_string())?;
+        let provider_id =
+            cli_provider_id(service).ok_or_else(|| "Provider is not configured".to_string())?;
         self.refresh_provider_by_id(
             service,
             provider_id,
@@ -808,10 +808,8 @@ impl UsageEngine {
         self.finish_refresh(&provider_key)?;
 
         let mut state = self.lock()?;
-        let refreshed = apply_current_provider_snapshots(
-            &mut state,
-            vec![(provider_key, snapshot.clone())],
-        );
+        let refreshed =
+            apply_current_provider_snapshots(&mut state, vec![(provider_key, snapshot.clone())]);
         if refreshed {
             state.last_updated = now.clone();
         }

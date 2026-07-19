@@ -20,7 +20,11 @@ use crate::usage::UsageSnapshot;
 /// parse failure, login required, etc). Covers the "healthy CLI" state from
 /// product issue #48; every other CLI state below is represented by `false`.
 pub(crate) fn is_usable_official_snapshot(snapshot: &UsageSnapshot) -> bool {
-    snapshot.details.get("status").and_then(|value| value.as_str()) == Some("parsed")
+    snapshot
+        .details
+        .get("status")
+        .and_then(|value| value.as_str())
+        == Some("parsed")
 }
 
 /// True when a Web-source snapshot came from the CLI adapter rather than the
@@ -34,7 +38,10 @@ pub(crate) fn is_usable_official_snapshot(snapshot: &UsageSnapshot) -> bool {
 /// `via` is only present on a successfully parsed CLI reading.
 pub(crate) fn is_cli_official_snapshot(snapshot: &UsageSnapshot) -> bool {
     matches!(
-        snapshot.details.get("providerId").and_then(|value| value.as_str()),
+        snapshot
+            .details
+            .get("providerId")
+            .and_then(|value| value.as_str()),
         Some("codex.cli") | Some("claude.cli")
     )
 }
@@ -76,7 +83,11 @@ mod tests {
         UsageSnapshot {
             service: Service::Codex,
             remaining_percent: if status == "parsed" { Some(0.0) } else { None },
-            used_percent: if status == "parsed" { Some(100.0) } else { None },
+            used_percent: if status == "parsed" {
+                Some(100.0)
+            } else {
+                None
+            },
             reset_at: None,
             source: UsageSource::Web,
             confidence: if status == "parsed" {
@@ -141,7 +152,11 @@ mod tests {
         let parse_failed = cli_snapshot(UsageProviderError::ParseFailed.code());
         assert!(!is_usable_official_snapshot(&parse_failed));
         assert!(managed_web_fallback_needed(true, true, Some(&parse_failed)));
-        assert!(!managed_web_fallback_needed(true, false, Some(&parse_failed)));
+        assert!(!managed_web_fallback_needed(
+            true,
+            false,
+            Some(&parse_failed)
+        ));
     }
 
     // No CLI reading has been taken yet this cycle: treated the same as an

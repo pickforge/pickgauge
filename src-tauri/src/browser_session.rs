@@ -255,6 +255,7 @@ impl BrowserSessionManager {
     ) -> Result<u32, String> {
         let process_id = child.id();
         let marker_service = marker.service;
+        let tracked_marker = marker.clone();
         #[cfg(windows)]
         let (child, job) = own_windows_process(child)?;
         let mut process = ManagedBrowserProcess {
@@ -293,7 +294,7 @@ impl BrowserSessionManager {
         drop(processes);
 
         if let Err(error) = self.write_registry_snapshot() {
-            let _ = self.stop_service(service, Duration::from_secs(1));
+            let _ = self.stop_marked_process(&tracked_marker, Duration::from_secs(1));
             return Err(error);
         }
 
@@ -305,12 +306,40 @@ impl BrowserSessionManager {
         service: Service,
         timeout: Duration,
     ) -> Result<BrowserSessionStopResult, String> {
+        self.stop_service_inner(service, None, timeout)
+    }
+
+    pub fn stop_marked_process(
+        &self,
+        marker: &BrowserSessionMarker,
+        timeout: Duration,
+    ) -> Result<BrowserSessionStopResult, String> {
+        self.stop_service_inner(marker.service, Some(&marker.process_marker), timeout)
+    }
+
+    fn stop_service_inner(
+        &self,
+        service: Service,
+        expected_marker: Option<&str>,
+        timeout: Duration,
+    ) -> Result<BrowserSessionStopResult, String> {
         let mut processes = self
             .processes
             .lock()
             .map_err(|_| "Browser session state is unavailable".to_string())?;
 
-        if !processes.contains_key(&service) {
+        if let Some(expected_marker) = expected_marker {
+            let marker_matches = processes
+                .get(&service)
+                .map(|process| process.process_marker.as_str())
+                == Some(expected_marker);
+            if !marker_matches {
+                return Ok(BrowserSessionStopResult {
+                    service,
+                    status: BrowserSessionStopStatus::NoManagedProcess,
+                });
+            }
+        } else if !processes.contains_key(&service) {
             drop(processes);
             return self.stop_orphaned_service(service, timeout);
         }
@@ -331,14 +360,15 @@ impl BrowserSessionManager {
 
     pub fn take_process_stdio(
         &self,
-        service: Service,
+        marker: &BrowserSessionMarker,
     ) -> Result<(ChildStdin, ChildStdout), String> {
         let mut processes = self
             .processes
             .lock()
             .map_err(|_| "Browser session state is unavailable".to_string())?;
         let process = processes
-            .get_mut(&service)
+            .get_mut(&marker.service)
+            .filter(|process| process.process_marker == marker.process_marker)
             .ok_or_else(|| "Managed browser process is unavailable".to_string())?;
         let stdin = process
             .child
@@ -1393,6 +1423,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn stale_process_marker_cannot_take_or_stop_replacement() {
+        let manager = BrowserSessionManager::default();
+        let stale_marker = BrowserSessionMarker::new(Service::Claude);
+        let stale_child = sleeping_child_with_stdio(&stale_marker);
+        manager
+            .track_process(Service::Claude, stale_child, stale_marker.clone())
+            .expect("stale process is tracked");
+        manager
+            .stop_service(Service::Claude, Duration::from_secs(1))
+            .expect("stale process stops");
+
+        let replacement_marker = BrowserSessionMarker::new(Service::Claude);
+        let replacement_child = sleeping_child_with_stdio(&replacement_marker);
+        manager
+            .track_process(
+                Service::Claude,
+                replacement_child,
+                replacement_marker.clone(),
+            )
+            .expect("replacement process is tracked");
+
+        assert!(manager.take_process_stdio(&stale_marker).is_err());
+        assert_eq!(
+            manager
+                .stop_marked_process(&stale_marker, Duration::ZERO)
+                .expect("stale cleanup is a no-op")
+                .status,
+            BrowserSessionStopStatus::NoManagedProcess
+        );
+        let _stdio = manager
+            .take_process_stdio(&replacement_marker)
+            .expect("replacement keeps its stdio");
+        assert_ne!(
+            manager
+                .stop_marked_process(&replacement_marker, Duration::from_secs(1))
+                .expect("replacement process stops")
+                .status,
+            BrowserSessionStopStatus::NoManagedProcess
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn extracted_sidecar_io_does_not_block_stop_all() {
@@ -1408,10 +1480,10 @@ mod tests {
         configure_process_group(&mut command);
         let child = command.spawn().expect("sidecar process starts");
         manager
-            .track_process(Service::Claude, child, marker)
+            .track_process(Service::Claude, child, marker.clone())
             .expect("sidecar process is tracked");
         let _stdio = manager
-            .take_process_stdio(Service::Claude)
+            .take_process_stdio(&marker)
             .expect("sidecar stdio is extracted");
         let (sender, receiver) = std::sync::mpsc::channel();
         let stop_manager = Arc::clone(&manager);
@@ -2485,6 +2557,31 @@ mod tests {
         Command::new("cmd")
             .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
             .env(key, value)
+            .spawn()
+            .expect("sleep process starts")
+    }
+
+    #[cfg(unix)]
+    fn sleeping_child_with_stdio(marker: &BrowserSessionMarker) -> Child {
+        let (key, value) = marker.env_pair();
+        let mut command = Command::new("sleep");
+        command
+            .arg("30")
+            .env(key, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        configure_process_group(&mut command);
+        command.spawn().expect("sleep process starts")
+    }
+
+    #[cfg(not(unix))]
+    fn sleeping_child_with_stdio(marker: &BrowserSessionMarker) -> Child {
+        let (key, value) = marker.env_pair();
+        Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
+            .env(key, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .expect("sleep process starts")
     }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     io::{BufRead, BufReader, Read, Write},
-    process::{ChildStdout, Command},
+    process::{ChildStdout, Command, Stdio},
     sync::mpsc,
     thread,
     time::Duration,
@@ -357,16 +357,17 @@ fn execute<T>(
     let (env_key, env_value) = marker.env_pair();
     command.env(env_key, env_value);
     configure_process_group(&mut command);
+    command.stderr(Stdio::null());
     let child = command
         .spawn()
         .map_err(|_| operation.unavailable().to_string())?;
     let process_id = sessions
-        .track_process(request.service, child, marker)
+        .track_process(request.service, child, marker.clone())
         .map_err(|_| operation.process_state_unavailable().to_string())?;
 
     let response = (|| {
         let (mut stdin, stdout) = sessions
-            .take_process_stdio(request.service)
+            .take_process_stdio(&marker)
             .map_err(|_| operation.process_state_unavailable().to_string())?;
         write_request(&mut stdin, request, operation)?;
         drop(stdin);
@@ -377,18 +378,13 @@ fn execute<T>(
     let response = match response {
         Ok(response) => response,
         Err(error) => {
-            return Err(clean_up_after_failure(
-                sessions,
-                request.service,
-                operation,
-                error,
-            ));
+            return Err(clean_up_after_failure(sessions, &marker, operation, error));
         }
     };
 
     if !keep_tracked {
         sessions
-            .stop_service(request.service, Duration::ZERO)
+            .stop_marked_process(&marker, Duration::ZERO)
             .map_err(|_| operation.cleanup_failed().to_string())?;
     }
 
@@ -451,11 +447,11 @@ fn read_response_line(
 
 fn clean_up_after_failure(
     sessions: &BrowserSessionManager,
-    service: Service,
+    marker: &BrowserSessionMarker,
     operation: SidecarOperation,
     error: String,
 ) -> String {
-    match sessions.stop_service(service, PROFILE_STOP_TIMEOUT) {
+    match sessions.stop_marked_process(marker, PROFILE_STOP_TIMEOUT) {
         Ok(_) => error,
         Err(_) => operation.cleanup_failed().to_string(),
     }
@@ -690,6 +686,26 @@ mod tests {
                 .status,
             BrowserSessionStopStatus::NoManagedProcess
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stderr_backpressure_does_not_block_a_valid_response() {
+        let sessions = BrowserSessionManager::default();
+        let request = test_request(Service::Claude, true);
+        let response = response_line(&request, "checked", Some("usage"));
+        let mut command = shell_command(&format!(
+            "request=$(cat); head -c 1048576 /dev/zero >&2; printf '%s\\n' '{}'; sleep 30",
+            shell_quote(&response)
+        ));
+        command.stderr(Stdio::piped());
+
+        let result =
+            refresh_usage_with_timeout(command, &sessions, &request, Duration::from_secs(1))
+                .expect("stderr cannot block the protocol response");
+
+        assert_eq!(result.page_state, "usage");
+        assert_no_process(&sessions, Service::Claude);
     }
 
     #[cfg(unix)]

@@ -9,7 +9,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter};
 use time::{format_description::well_known::Rfc3339, Duration as TimeDuration, OffsetDateTime};
 
 pub const SNAPSHOTS_UPDATED_EVENT: &str = "usage://snapshots-updated";
@@ -814,20 +813,6 @@ impl UsageEngine {
             state.last_updated = now.clone();
         }
         Ok((state.display_state(&now), Some(snapshot)))
-    }
-
-    pub fn refresh_all_and_emit(&self, app: &AppHandle) -> Result<UsageDisplayState, String> {
-        let display_state = self.refresh_all()?;
-        app.emit(SNAPSHOTS_UPDATED_EVENT, &display_state)
-            .map_err(|error| format!("Could not emit usage update: {error}"))?;
-        Ok(display_state)
-    }
-
-    pub fn refresh_due_and_emit(&self, app: &AppHandle) -> Result<UsageDisplayState, String> {
-        let display_state = self.refresh_due()?;
-        app.emit(SNAPSHOTS_UPDATED_EVENT, &display_state)
-            .map_err(|error| format!("Could not emit usage update: {error}"))?;
-        Ok(display_state)
     }
 
     pub fn scheduler_sleep_duration(&self) -> Result<Duration, String> {

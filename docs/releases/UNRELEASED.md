@@ -8,6 +8,17 @@ reset this file.
 
 - Added a headless `pickgauge --version` command that prints the installed
   package version without starting the tray, GTK, or Tauri.
+- Fixed unsaved Settings actions disappearing at compact window sizes. The
+  save/discard controls now render at the app overlay layer instead of
+  inside the scrolling Settings surface (whose entrance animation made it a
+  `position: fixed` containing block), so they stay visible and unclipped at
+  every supported window size. The header Save button is now visible and
+  disabled while clean, and hidden without shifting layout while dirty;
+  exactly one primary Save action is presented at a time. The dirty-state
+  overlay shows the full unsaved-indicator/Discard/Save dock at wide widths
+  and a labeled Save pill (discard remains reachable via the existing
+  navigation-away guard) at compact widths, matching the app's existing
+  700px sidebar breakpoint.
 
 ## Internal/release changes
 
@@ -36,6 +47,16 @@ reset this file.
 
 ### Tested
 
+- Issue #47 (unsaved Settings actions at compact sizes): `bun run check`,
+  `bun run lint`, `bun run test` (74 frontend tests, including a new
+  `settingsSaveDisplayState` characterization suite covering clean/dirty
+  header-visibility and single-action rules), `bun run test:coverage`
+  (ratchet holds), `bun run build`, and `bun run test:browser-preview`
+  (extended with a headless-Chromium regression at the exact 937×747 and
+  1344×951 repro sizes from the issue, asserting the save overlay stays
+  fully inside the viewport bounds, plus a wide/compact content check for
+  the Discard button and Save label). Confirmed this new smoke fails against
+  the pre-fix code and passes against the fix.
 - Earlier unreleased work: `cargo test --locked --all-targets` (299 Rust
   tests); filtered local-provider tests (27), observation-reuse tests (3), and
   refresh-publication policy tests (10); strict `cargo clippy`; headless JSON

@@ -6,6 +6,7 @@
     profilePathFromInput,
     profilePathValue,
     serviceLabels,
+    settingsSaveDisplayState,
     webProviderControlState,
   } from "../display";
   import { setTheme } from "../theme";
@@ -15,11 +16,13 @@
     config = $bindable(),
     setStatus,
     onDirtyChange = () => {},
+    onSavingChange = () => {},
     bindActions = () => {},
   }: {
     config: AppConfig;
     setStatus: (message: string | null, error?: boolean) => void;
     onDirtyChange?: (dirty: boolean) => void;
+    onSavingChange?: (saving: boolean) => void;
     bindActions?: (actions: { save: () => Promise<boolean>; discard: () => void }) => void;
   } = $props();
 
@@ -37,9 +40,14 @@
   const dirty = $derived(
     savedJson !== "" && JSON.stringify($state.snapshot(config)) !== savedJson,
   );
+  const saveDisplay = $derived(settingsSaveDisplayState(dirty));
 
   $effect(() => {
     onDirtyChange(dirty);
+  });
+
+  $effect(() => {
+    onSavingChange(saving);
   });
 
   $effect(() => {
@@ -212,7 +220,15 @@
       <p class="eyebrow ember pf-eyebrow-row"><span class="pf-eyebrow-tick"></span>§ 03 · Settings</p>
       <h2>Make it yours</h2>
     </div>
-    <button class="btn btn-primary" type="button" disabled={saving} onclick={saveSettings}>
+    <button
+      class="btn btn-primary header-save"
+      class:header-save-hidden={saveDisplay.headerSaveHidden}
+      type="button"
+      disabled={saveDisplay.headerSaveDisabled}
+      aria-hidden={saveDisplay.headerSaveHidden}
+      tabindex={saveDisplay.headerSaveHidden ? -1 : 0}
+      onclick={saveSettings}
+    >
       <FloppyDisk size={15} />
       {saving ? "Saving…" : "Save settings"}
     </button>
@@ -476,16 +492,14 @@
     </div>
   </div>
 
-  {#if dirty}
-    <div class="save-bar glass" role="status">
-      <span class="save-dot"></span>
-      <span class="save-text">Unsaved changes</span>
-      <button class="btn btn-ghost btn-sm" type="button" onclick={discardSettings}>Discard</button>
-      <button class="btn btn-primary btn-sm" type="button" disabled={saving} onclick={saveSettings}>
-        {saving ? "Saving…" : "Save settings"}
-      </button>
-    </div>
-  {/if}
+  <!--
+    Dirty-state save/discard actions render at the app overlay layer
+    (App.svelte), not here. The scrolling `.content` ancestor carries a
+    transform via the `.fade-up` entrance animation, which makes it a
+    containing block for `position: fixed` descendants — a fixed element
+    placed inside it would be positioned/clipped relative to that scroller
+    instead of the app viewport. See issue #47.
+  -->
 </section>
 
 <style>
@@ -587,48 +601,13 @@
     gap: 8px;
   }
 
-  .save-bar {
-    position: fixed;
-    bottom: 48px;
-    right: 28px;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px 10px 16px;
-    border-radius: var(--radius-pill);
-    border-color: color-mix(in srgb, var(--ember) 35%, transparent);
-    box-shadow: var(--glow-ember-soft);
-    animation: save-bar-in 400ms var(--ease-forge) both;
-  }
-
-  @keyframes save-bar-in {
-    from {
-      opacity: 0;
-      transform: translateY(16px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .save-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: var(--radius-pill);
-    background: var(--ember);
-    animation: ember-pulse 2.4s var(--ease-forge) infinite;
+  .header-save-hidden {
+    visibility: hidden;
   }
 
   @media (max-width: 905px) {
     .settings-grid {
       grid-template-columns: minmax(0, 1fr);
     }
-  }
-
-  .save-text {
-    font-size: 13px;
-    font-weight: 600;
   }
 </style>

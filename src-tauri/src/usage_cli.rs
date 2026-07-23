@@ -14,6 +14,12 @@ use std::{
 const USAGE_JSON_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HeadlessCommand {
+    Version,
+    Usage(UsageCommand),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum UsageCommand {
     Human,
     Json,
@@ -62,25 +68,37 @@ struct UsageJsonWindow {
 
 pub fn try_run_from_env() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    #[cfg(windows)]
-    attach_parent_console_if_usage(&args);
     let command = match parse_args(&args) {
         Ok(command) => command,
         Err(()) => {
+            #[cfg(windows)]
+            attach_parent_console();
             print_help();
             return Some(2);
         }
     }?;
 
-    Some(run_usage(command))
+    #[cfg(windows)]
+    attach_parent_console();
+
+    Some(match command {
+        HeadlessCommand::Version => {
+            let stdout = io::stdout();
+            let mut stdout = stdout.lock();
+            match write_version(&mut stdout) {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("pickgauge: {error}");
+                    1
+                }
+            }
+        }
+        HeadlessCommand::Usage(command) => run_usage(command),
+    })
 }
 
 #[cfg(windows)]
-fn attach_parent_console_if_usage(args: &[OsString]) {
-    if args.first().map(OsString::as_os_str) != Some(OsStr::new("usage")) {
-        return;
-    }
-
+fn attach_parent_console() {
     use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
 
     unsafe {
@@ -88,20 +106,27 @@ fn attach_parent_console_if_usage(args: &[OsString]) {
     }
 }
 
-fn parse_args(args: &[OsString]) -> Result<Option<UsageCommand>, ()> {
-    if args.is_empty() {
-        return Ok(None);
-    }
-
-    if args[0].as_os_str() != OsStr::new("usage") {
-        return Ok(None);
-    }
-
+fn parse_args(args: &[OsString]) -> Result<Option<HeadlessCommand>, ()> {
     match args {
-        [_] => Ok(Some(UsageCommand::Human)),
-        [_, flag] if flag.as_os_str() == OsStr::new("--json") => Ok(Some(UsageCommand::Json)),
-        _ => Err(()),
+        [] => Ok(None),
+        [flag] if flag.as_os_str() == OsStr::new("--version") => Ok(Some(HeadlessCommand::Version)),
+        [command] if command.as_os_str() == OsStr::new("usage") => {
+            Ok(Some(HeadlessCommand::Usage(UsageCommand::Human)))
+        }
+        [command, flag]
+            if command.as_os_str() == OsStr::new("usage")
+                && flag.as_os_str() == OsStr::new("--json") =>
+        {
+            Ok(Some(HeadlessCommand::Usage(UsageCommand::Json)))
+        }
+        [command, ..] if command.as_os_str() == OsStr::new("usage") => Err(()),
+        _ => Ok(None),
     }
+}
+
+fn write_version(output: &mut impl Write) -> Result<(), String> {
+    writeln!(output, "pickgauge {}", env!("CARGO_PKG_VERSION"))
+        .map_err(|error| format!("Could not write version output: {error}"))
 }
 
 fn run_usage(command: UsageCommand) -> i32 {
@@ -316,16 +341,24 @@ mod tests {
     use crate::usage::{Service, UsageConfidence, UsageSource};
 
     #[test]
-    fn parses_usage_command_variants_and_rejects_unknown_arguments() {
+    fn parses_headless_command_variants_and_preserves_unknown_tray_arguments() {
         assert_eq!(parse_args(&[]), Ok(None));
         assert_eq!(parse_args(&[OsString::from("--hidden")]), Ok(None));
         assert_eq!(
+            parse_args(&[OsString::from("--version")]),
+            Ok(Some(HeadlessCommand::Version))
+        );
+        assert_eq!(
+            parse_args(&[OsString::from("--version"), OsString::from("extra")]),
+            Ok(None)
+        );
+        assert_eq!(
             parse_args(&[OsString::from("usage")]),
-            Ok(Some(UsageCommand::Human))
+            Ok(Some(HeadlessCommand::Usage(UsageCommand::Human)))
         );
         assert_eq!(
             parse_args(&[OsString::from("usage"), OsString::from("--json")]),
-            Ok(Some(UsageCommand::Json))
+            Ok(Some(HeadlessCommand::Usage(UsageCommand::Json)))
         );
         assert_eq!(
             parse_args(&[OsString::from("usage"), OsString::from("--yaml")]),
@@ -338,6 +371,18 @@ mod tests {
                 OsString::from("extra"),
             ]),
             Err(())
+        );
+    }
+
+    #[test]
+    fn writes_stable_package_version_line() {
+        let mut output = Vec::new();
+
+        write_version(&mut output).expect("version output writes");
+
+        assert_eq!(
+            String::from_utf8(output).expect("version output is UTF-8"),
+            format!("pickgauge {}\n", env!("CARGO_PKG_VERSION"))
         );
     }
 

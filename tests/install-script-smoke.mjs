@@ -32,13 +32,45 @@ function writeFixture(root) {
   writeExecutable(
     join(fixture, "PickGauge_9.9.9_amd64.AppImage"),
     `#!/bin/sh
-exit 0
+set -eu
+if [ -n "\${DISPLAY:-}" ] || [ -n "\${WAYLAND_DISPLAY:-}" ] || [ -n "\${XAUTHORITY:-}" ]; then
+  echo "display environment leaked into headless command" >&2
+  exit 70
+fi
+case "\${1:-}" in
+  --version)
+    [ "$#" -eq 1 ] || exit 64
+    printf 'pickgauge 9.9.9\\n'
+    ;;
+  usage)
+    if [ "$#" -eq 1 ]; then
+      printf 'Service      Plan             5h       Week     Resets                       Source   Staleness\\n'
+    elif [ "$#" -eq 2 ] && [ "\${2:-}" = "--json" ]; then
+      printf '{"version":1,"generatedAt":"2026-07-10T12:00:00Z","services":[]}\\n'
+    else
+      exit 64
+    fi
+    ;;
+  *)
+    exit 64
+    ;;
+esac
 `,
   );
   return fixture;
 }
 
 function writeFakeCurl(fakebin) {
+  writeExecutable(
+    join(fakebin, "uname"),
+    `#!/bin/sh
+case "\${1:-}" in
+  -s) printf 'Linux\\n' ;;
+  -m) printf 'x86_64\\n' ;;
+  *) exit 64 ;;
+esac
+`,
+  );
   writeExecutable(
     join(fakebin, "curl"),
     `#!/bin/sh
@@ -111,6 +143,34 @@ function runInstaller(root, fixture, extraEnv = {}) {
   });
 }
 
+function runInstalledHeadless(command, home, args) {
+  const env = {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_DATA_HOME: join(home, ".local", "share"),
+    XDG_CACHE_HOME: join(home, ".cache"),
+  };
+  delete env.DISPLAY;
+  delete env.WAYLAND_DISPLAY;
+  delete env.XAUTHORITY;
+
+  return execFileSync(command, args, {
+    encoding: "utf8",
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function assertHeadlessForwarding(command, home) {
+  assert.equal(runInstalledHeadless(command, home, ["--version"]), "pickgauge 9.9.9\n");
+  const humanHeader = runInstalledHeadless(command, home, ["usage"]).trim().split(/\s+/);
+  assert.deepEqual(humanHeader, ["Service", "Plan", "5h", "Week", "Resets", "Source", "Staleness"]);
+  const usage = JSON.parse(runInstalledHeadless(command, home, ["usage", "--json"]));
+  assert.equal(usage.version, 1);
+  assert.deepEqual(usage.services, []);
+}
+
 function runInstallerFailure(root, fixture, extraEnv = {}) {
   const fakebin = join(root, "fakebin");
   mkdirSync(fakebin, { recursive: true });
@@ -161,6 +221,7 @@ test("AppImage install writes a FUSE-aware wrapper, desktop entry, and icon", (r
   assert.match(readFileSync(launcher, "utf8"), /Icon=.*pickgauge/);
   assert.equal(existsSync(icon), true);
   assert.match(output, /Launch with `pickgauge`/);
+  assertHeadlessForwarding(command, home);
 });
 
 test("AppImage upgrade replaces old symlink command without overwriting the AppImage", (root) => {
@@ -178,6 +239,7 @@ test("AppImage upgrade replaces old symlink command without overwriting the AppI
   assert.equal(lstatSync(join(bin, "pickgauge")).isSymbolicLink(), false);
   assert.doesNotMatch(appImage, /APPIMAGE_EXTRACT_AND_RUN=1/);
   assert.match(command, /APPIMAGE_EXTRACT_AND_RUN=1/);
+  assertHeadlessForwarding(join(bin, "pickgauge"), join(root, "home"));
 });
 
 test("release API override does not receive the GitHub token", (root) => {

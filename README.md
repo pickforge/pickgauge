@@ -53,8 +53,13 @@ Your tray gauge can also answer one small, useful question before an agent wave:
 how much room is left in each pool?
 
 ```sh
+pickgauge --version
 pickgauge usage --json
 ```
+
+`pickgauge --version` prints the installed package version. Both commands are
+handled before the desktop tray, GTK, or Tauri starts, so they work without a
+display server.
 
 ```json
 {"version":1,"services":[{"service":"codex","remainingPercent":72,"status":"parsed"}]}

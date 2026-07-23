@@ -6,10 +6,14 @@ reset this file.
 
 ## User-facing changes
 
-(none yet)
+- Added a headless `pickgauge --version` command that prints the installed
+  package version without starting the tray, GTK, or Tauri.
 
 ## Internal/release changes
 
+- Added real-binary headless CLI coverage, deterministic AppImage installer
+  forwarding checks, and a Linux release gate that rejects broken headless
+  commands after AppImage repair, including the human `usage` table header.
 - Added a `usage_model` module that concentrates a service's validated quota
   windows, official status, plan, and headline selection into one typed
   model, replacing ad hoc `details`-bag re-parsing in the headless `usage
@@ -32,20 +36,54 @@ reset this file.
 
 ### Tested
 
-- `cargo test --locked --all-targets` (299 Rust tests).
-- Filtered local-provider tests (27), observation-reuse tests (3), and
-  refresh-publication policy tests (10).
-- `cargo clippy --all-targets --locked` with strict warnings (only the four
-  documented pre-existing lint classes allowed).
-- Headless `usage --json` v1 golden fixture (byte-identical).
-- `bun run test` (71 frontend tests plus install/sidecar suites) and `bun run
-  check`.
-- `bun run build`.
+- Earlier unreleased work: `cargo test --locked --all-targets` (299 Rust
+  tests); filtered local-provider tests (27), observation-reuse tests (3), and
+  refresh-publication policy tests (10); strict `cargo clippy`; headless JSON
+  golden fixture; `bun run test`, `bun run check`, and `bun run build`.
+- Focused Rust headless CLI tests (4 unit tests and 1 real-binary integration
+  test with display and user configuration paths isolated), including bare
+  human `usage` output.
+- `node tests/install-script-smoke.mjs` (4 deterministic installer tests,
+  including bare `usage` forwarding).
+- Headless AppImage validator smoke tests against deterministic executable
+  fixtures, covering valid human/JSON output, an invalid human header, GTK
+  panic-like stderr, malformed JSON, and an invalid usage schema.
+- `bun run test`, `bun run check`, and `bun run lint`; Node syntax checks for
+  the headless scripts; and `git diff --check` passed for this coverage update.
+- Earlier validation also included `rustfmt --check` on the new integration
+  test and a formatter comparison confirming only restored pre-existing
+  formatting differs in `usage_cli.rs`.
+- Backpressure regression comparison with a physical worktree-local `TMPDIR`:
+  `stderr_backpressure_does_not_block_a_valid_response` passed 1/5 current-worktree
+  runs (pass 51.763s; failures 1.526s, 1.287s, 1.303s, 1.305s) and 2/5
+  clean-base `e31d074` runs (passes 41.085s, 3.081s; failures 1.318s, 1.296s,
+  1.294s). The earlier timeout is
+  therefore classified as a non-reproduced baseline-adjacent flake rather than
+  a branch regression.
+- Filtered full Rust suite passed in 1.853s: 309 library tests plus the
+  real-binary integration test, with only
+  `startup_detects_and_stops_orphaned_process_from_registry` and
+  `startup_ignores_legacy_deferred_browser_sessions` skipped. The backpressure
+  test was not skipped and passed in this run. The two skipped tests remain
+  proven unchanged at base commit `e31d074` on macOS due `/proc` process-marker
+  visibility.
+- Release workflow run `29970550204` passed at exact candidate SHA `a68859a`:
+  the repaired Linux AppImage headless gate passed, as did the Windows, macOS
+  Intel, and macOS Apple Silicon build jobs. The exact Linux artifact then
+  passed direct and installed-wrapper `--version`, bare `usage`, and `usage
+  --json` checks on Elberte-PC with empty stderr and no GTK/panic markers.
+  Before/after process attribution confirmed that the headless commands left
+  no new process; the two observed PickGauge-named processes predated the
+  candidate by several days. The validated candidate remains installed with a
+  checksum-verified rollback backup.
 
 ### Not yet tested
 
 - Manual desktop smoke test of the dashboard, tray, and Settings.
+- An unfiltered full Rust suite on macOS; the two `/proc` process-marker
+  failures above remain unresolved and are unchanged from the base commit.
 
 ### Known blockers
 
-- None.
+- None for issue #53. The macOS-only baseline test limitation above remains
+  tracked separately from the Linux headless CLI regression.

@@ -239,6 +239,8 @@ function assertProfileStorageSafety(
   }
 }
 
+// TODO(#69): split option parsing and validation.
+// eslint-disable-next-line complexity -- Legacy CLI parser exceeds the enforced cap.
 function parseOptions(args) {
   const profileRoots = new Map();
   const options = {

@@ -6,6 +6,17 @@ reset this file.
 
 ## User-facing changes
 
+- Fixed the floating capsule still appearing in KDE's Alt+Tab switcher when
+  running under the `PICKGAUGE_X11=1` XWayland fallback. The KWin
+  `skipswitcher` window rule now applies to that session the same way it
+  already did for native Wayland; `ensure_float_rule` previously bailed out
+  whenever `GDK_BACKEND=x11` was set, so the XWayland path never received
+  any switcher exclusion (X11 has no standards-based Alt+Tab hint — only the
+  KWin rule can hide a window from it). README documents the honest per-
+  platform support boundaries: KDE Wayland/XWayland is fully handled;
+  Windows gets Tauri's native `skip_taskbar`; other Linux window managers
+  and macOS only get the standards-based/no-op hints Tauri provides, with no
+  app-managed desktop configuration.
 - Added a headless `pickgauge --version` command that prints the installed
   package version without starting the tray, GTK, or Tauri.
 - Fixed unsaved Settings actions disappearing at compact window sizes. The
@@ -47,6 +58,22 @@ reset this file.
 
 ### Tested
 
+- Issue #49 (KDE floating capsule stayed in the Alt+Tab switcher under the
+  XWayland fallback): added `kwin::is_kde_wayland_session` characterization
+  tests (native Wayland, compound `XDG_CURRENT_DESKTOP` values, the
+  `GDK_BACKEND=x11` XWayland-fallback regression case, plain X11, missing
+  session type, non-KDE Wayland compositors) and `group_has_key` scoping
+  tests; `cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
+  kwin::` (7 passed). Full `cargo test --manifest-path src-tauri/Cargo.toml
+  --locked --all-targets` run: 290 passed, the same 28 pre-existing failures
+  as `origin/main` (macOS `/tmp` symlink and `/proc` process-marker
+  environment artifacts, unrelated to this change — confirmed by running the
+  same command against `origin/main` directly). `bun run test` (74 vitest +
+  18 Node tests), `bun run check` (0 errors), `bun run lint` (clean), and
+  `bun run build` all passed. `bun run smoke:kde-tray` requires a live KDE
+  session with a registered StatusNotifier host and a built AppImage, so it
+  was not run in this sandboxed environment; real KDE Alt+Tab validation is
+  deferred to Elberte-PC.
 - Issue #47 (unsaved Settings actions at compact sizes): `bun run check`,
   `bun run lint`, `bun run test` (74 frontend tests, including a new
   `settingsSaveDisplayState` characterization suite covering clean/dirty
@@ -100,6 +127,9 @@ reset this file.
 
 ### Not yet tested
 
+- Issue #49: real KDE Wayland/XWayland Alt+Tab, taskbar, and pager behavior
+  for the float capsule — deferred to Elberte-PC, a live KDE session with
+  `qdbus`/`kwriteconfig6` available.
 - Manual desktop smoke test of the dashboard, tray, and Settings.
 - An unfiltered full Rust suite on macOS; the two `/proc` process-marker
   failures above remain unresolved and are unchanged from the base commit.

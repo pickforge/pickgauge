@@ -26,12 +26,16 @@ const findings = [];
 for (const result of report.results) {
   for (const entry of result.packages ?? []) {
     for (const group of entry.groups ?? []) {
-      const severity = Number.parseFloat(group.max_severity);
-      if (Number.isFinite(severity) && severity >= 7) {
+      const rawSeverity = group.max_severity;
+      const severityText = String(rawSeverity ?? "").trim();
+      const severity = Number(severityText);
+      const hasAdvisoryIds = Array.isArray(group.ids) && group.ids.length > 0;
+      const isUnscored = hasAdvisoryIds && (severityText === "" || !Number.isFinite(severity));
+      if (isUnscored || (Number.isFinite(severity) && severity >= 7)) {
         findings.push({
           ids: group.ids?.join(", ") ?? "unknown advisory",
           package: `${entry.package?.name ?? "unknown"}@${entry.package?.version ?? "unknown"}`,
-          severity,
+          rawSeverity,
           source: result.source?.path ?? "unknown source",
         });
       }
@@ -44,7 +48,7 @@ console.log(
 );
 for (const finding of findings) {
   console.error(
-    `${finding.ids}: ${finding.package} (CVSS ${finding.severity}) in ${finding.source}`,
+    `${finding.ids}: ${finding.package} (raw max_severity ${JSON.stringify(finding.rawSeverity)}) in ${finding.source}`,
   );
 }
 

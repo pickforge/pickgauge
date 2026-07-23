@@ -411,7 +411,7 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
 }
 
 fn managed_browser_service(service: Service) -> bool {
-    matches!(service, Service::Codex | Service::Claude)
+    service.supports_managed_browser()
 }
 
 fn prepare_log_dir(path: &Path) -> CommandResult<()> {

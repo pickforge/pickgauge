@@ -231,6 +231,10 @@ impl Service {
     pub(crate) fn is_runtime(self) -> bool {
         matches!(self, Self::Codex | Self::Claude | Self::Grok | Self::Ollama)
     }
+
+    pub(crate) fn supports_managed_browser(self) -> bool {
+        matches!(self, Self::Codex | Self::Claude)
+    }
 }
 
 impl UsageSource {
@@ -2306,6 +2310,16 @@ mod tests {
         }
 
         visit(label, details, &forbidden_keys, &forbidden_text);
+    }
+
+    #[test]
+    fn only_web_login_services_support_managed_browser_sessions() {
+        assert!(Service::Codex.supports_managed_browser());
+        assert!(Service::Claude.supports_managed_browser());
+        assert!(!Service::Grok.supports_managed_browser());
+        assert!(!Service::Ollama.supports_managed_browser());
+        assert!(Service::Grok.is_runtime());
+        assert!(Service::Ollama.is_runtime());
     }
 
     #[test]

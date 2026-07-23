@@ -18,6 +18,9 @@
     EVENT_SNAPSHOTS,
   } from "./lib/api";
   import { serviceLabels, settingsSaveDisplayState } from "./lib/display";
+  import { flagEnabled } from "./lib/flags";
+  import { mountUpdateDialog, type UpdateDialogHost } from "./lib/updateDialog";
+  import { shouldMountSharedUpdateDialog } from "./lib/updateRouting";
   import {
     browserPreviewSnapshots,
     browserPreviewStateFromSearch,
@@ -47,6 +50,8 @@
   let statusMessage = $state<string | null>(null);
   let statusIsError = $state(false);
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
+  let updateDialogEl: HTMLElement | undefined = $state();
+  const showUpdateDialog = shouldMountSharedUpdateDialog(flagEnabled("studioUpdateDialog"));
 
   const navItems: { id: View; label: string; icon: typeof Gauge }[] = [
     { id: "dashboard", label: "Dashboard", icon: Gauge },
@@ -101,6 +106,10 @@
   onMount(() => {
     let cancelled = false;
     const cleanups: (() => void)[] = [];
+
+    if (showUpdateDialog && updateDialogEl) {
+      mountUpdateDialog(updateDialogEl as unknown as UpdateDialogHost);
+    }
 
     if (!desktopApiAvailable()) {
       snapshots = browserPreviewSnapshots(browserPreviewStateFromSearch(window.location.search));
@@ -286,6 +295,10 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if showUpdateDialog}
+  <pickforge-update-dialog bind:this={updateDialogEl}></pickforge-update-dialog>
 {/if}
 
 <style>

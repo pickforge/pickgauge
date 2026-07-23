@@ -26,6 +26,10 @@ bun).
   without updating README's privacy section.
 - Follow the Pickforge design system: ember `#FF7A1A` accent, Geist/Geist Mono,
   tokens over raw values.
+- Async waits built on event listeners must re-check the awaited condition
+  right after the listener registers (the state can change in the gap) and
+  re-verify every condition on each event instead of trusting the event
+  payload alone — pickgauge#70's eligibility gate shipped both mistakes.
 
 ## Releasing
 

@@ -67,17 +67,23 @@ reset this file.
   test was not skipped and passed in this run. The two skipped tests remain
   proven unchanged at base commit `e31d074` on macOS due `/proc` process-marker
   visibility.
+- Release workflow run `29970550204` passed at exact candidate SHA `a68859a`:
+  the repaired Linux AppImage headless gate passed, as did the Windows, macOS
+  Intel, and macOS Apple Silicon build jobs. The exact Linux artifact then
+  passed direct and installed-wrapper `--version`, bare `usage`, and `usage
+  --json` checks on Elberte-PC with empty stderr and no GTK/panic markers.
+  Before/after process attribution confirmed that the headless commands left
+  no new process; the two observed PickGauge-named processes predated the
+  candidate by several days. The validated candidate remains installed with a
+  checksum-verified rollback backup.
 
 ### Not yet tested
 
-- Repaired packaged Linux AppImage headless gate in the release workflow.
-- Installed AppImage verification on Elberte-PC.
 - Manual desktop smoke test of the dashboard, tray, and Settings.
-- An unfiltered full Rust suite; the two macOS `/proc` process-marker failures
-  above remain unresolved.
+- An unfiltered full Rust suite on macOS; the two `/proc` process-marker
+  failures above remain unresolved and are unchanged from the base commit.
 
 ### Known blockers
 
-- Required packaged AppImage and installed Elberte-PC validation is still
-  pending. The unfiltered full Rust suite is also not clean because of the two
-  macOS process-marker failures above.
+- None for issue #53. The macOS-only baseline test limitation above remains
+  tracked separately from the Linux headless CLI regression.

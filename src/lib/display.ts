@@ -69,6 +69,10 @@ export function localActivitySummary(snapshot: UsageSnapshot, locales?: Intl.Loc
     return null;
   }
 
+  if (snapshot.details.providerId === "ollama.local") {
+    return ollamaAvailabilitySummary(snapshot, locales);
+  }
+
   const totalTokens =
     detailNumber(snapshot, "totalTokens") ??
     (detailNumber(snapshot, "inputTokens") ?? 0) +
@@ -113,6 +117,31 @@ export function localActivitySummary(snapshot: UsageSnapshot, locales?: Intl.Loc
   }
 
   return `Local activity: ${parts.join(" | ")}`;
+}
+
+export function ollamaAvailabilitySummary(
+  snapshot: UsageSnapshot,
+  locales?: Intl.LocalesArgument,
+) {
+  if (snapshot.details.providerId !== "ollama.local" || snapshot.details.status !== "parsed") {
+    return null;
+  }
+
+  const modelCount = detailNumber(snapshot, "modelCount") ?? 0;
+  const loadedModelCount = detailNumber(snapshot, "loadedModelCount");
+  const parts = [
+    "Daemon running",
+    `${formatCount(modelCount, locales)} installed ${plural(modelCount, "model")}`,
+  ];
+
+  if (loadedModelCount !== null) {
+    parts.push(
+      `${formatCount(loadedModelCount, locales)} loaded ${plural(loadedModelCount, "model")}`,
+    );
+  }
+
+  parts.push("no account quota");
+  return parts.join(" · ");
 }
 
 export function formatTimestamp(value: string) {

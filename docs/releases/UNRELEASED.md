@@ -6,6 +6,23 @@ reset this file.
 
 ## User-facing changes
 
+- Expanded provider coverage to Grok and Ollama through safe local/official
+  sources only (no browser cookie/profile import, no scraping):
+  - **Grok** reads the Grok CLI bearer from `~/.grok/auth.json` and calls
+    `GET grok.com/rest/subscriptions`. Truthfully plan-only today — active
+    tier + optional billing-period end, with `remainingPercent`/`usedPercent`
+    left null (`remainingPercentReason: grok_cli_plan_only`). Tokens are
+    never refreshed or written back; sign in with the Grok CLI when they
+    expire.
+  - **Ollama** probes the local daemon (honors loopback `OLLAMA_HOST`,
+    default `127.0.0.1:11434`; non-loopback hosts are rejected as
+    `unsafe_path`). Reports running/installed/loaded model counts and an
+    optional Cloud plan from `/api/me` when present. Ollama has no account
+    quota percentage — gauges stay null (`quotaSupported: false`).
+  - Settings toggles for both services; defaults on for fresh installs and
+    missing keys. Headless `pickgauge usage --json` includes them under the
+    existing schema v1 (additive rows only). Floating capsule still shows
+    percentage gauges only.
 - Fixed the floating capsule still appearing in KDE's Alt+Tab switcher when
   running under the `PICKGAUGE_X11=1` XWayland fallback. The KWin
   `skipswitcher` window rule now applies to that session the same way it

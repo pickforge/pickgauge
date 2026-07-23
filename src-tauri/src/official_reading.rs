@@ -38,7 +38,7 @@ pub(crate) fn is_cli_official_snapshot(snapshot: &UsageSnapshot) -> bool {
             .details
             .get("providerId")
             .and_then(|value| value.as_str()),
-        Some("codex.cli") | Some("claude.cli")
+        Some("codex.cli") | Some("claude.cli") | Some("grok.cli")
     )
 }
 

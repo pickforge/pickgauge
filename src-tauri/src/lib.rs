@@ -5,6 +5,7 @@ mod browser_session;
 mod config;
 mod official_reading;
 mod observation_reuse;
+mod ollama_provider;
 mod refresh_publication;
 mod sidecar;
 mod snapshot_store;
@@ -410,7 +411,7 @@ fn browser_profile_service(service: Service) -> browser_profile::BrowserProfileS
 }
 
 fn managed_browser_service(service: Service) -> bool {
-    service.is_runtime()
+    matches!(service, Service::Codex | Service::Claude)
 }
 
 fn prepare_log_dir(path: &Path) -> CommandResult<()> {

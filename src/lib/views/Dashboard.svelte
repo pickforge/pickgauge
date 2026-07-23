@@ -212,7 +212,25 @@
     if (snapshot.remainingPercent !== null) {
       return null;
     }
-    return detailString(snapshot, "plan");
+    const plan = detailString(snapshot, "plan");
+    if (plan) {
+      return plan;
+    }
+    return snapshot.service === "grok" ? "Plan unavailable" : null;
+  }
+
+  function planOnlyNote(snapshot: UsageSnapshot) {
+    if (snapshot.details.via === "daemon" || snapshot.details.providerId === "ollama.local") {
+      return "No account quota from the local daemon";
+    }
+    if (snapshot.service === "grok") {
+      return "Usage percent unavailable from the Grok CLI";
+    }
+    return "Usage —";
+  }
+
+  function supportsOfficialBrowserActions(service: Service) {
+    return service === "codex" || service === "claude";
   }
 
   function serviceStateMessage(snapshot: UsageSnapshot) {
@@ -365,41 +383,49 @@
               <span class={`status-dot ${providerStatusKind(snapshot)}`} aria-hidden="true"></span>
               <h3>{serviceLabels[snapshot.service]}</h3>
             </div>
-              <div class="header-actions">
-                <button
-                  class="icon-btn"
-                  type="button"
-                  title={`Refresh official ${serviceLabels[snapshot.service]} usage`}
-                  aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
-                  disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
-                  onclick={() => refreshOfficialUsage(snapshot.service)}
-                >
-                  <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
-                    <ArrowsClockwise size={13} />
-                  </span>
-                </button>
-                <button
-                  class="icon-btn"
-                  type="button"
-                  title={`Open ${serviceLabels[snapshot.service]} official usage page`}
-                  aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
-                  disabled={openingService === snapshot.service}
-                  onclick={() => openOfficialPage(snapshot.service)}
-                >
-                  <ArrowSquareOut size={13} />
-                </button>
-              </div>
+              {#if supportsOfficialBrowserActions(snapshot.service)}
+                <div class="header-actions">
+                  <button
+                    class="icon-btn"
+                    type="button"
+                    title={`Refresh official ${serviceLabels[snapshot.service]} usage`}
+                    aria-label={`Refresh official ${serviceLabels[snapshot.service]} usage`}
+                    disabled={webControls.officialRefreshDisabled || refreshingOfficial === snapshot.service}
+                    onclick={() => refreshOfficialUsage(snapshot.service)}
+                  >
+                    <span class="btn-icon" class:spinning={refreshingOfficial === snapshot.service}>
+                      <ArrowsClockwise size={13} />
+                    </span>
+                  </button>
+                  <button
+                    class="icon-btn"
+                    type="button"
+                    title={`Open ${serviceLabels[snapshot.service]} official usage page`}
+                    aria-label={`Open official ${serviceLabels[snapshot.service]} usage page`}
+                    disabled={openingService === snapshot.service}
+                    onclick={() => openOfficialPage(snapshot.service)}
+                  >
+                    <ArrowSquareOut size={13} />
+                  </button>
+                </div>
+              {/if}
           </header>
 
           {#if planOnly(snapshot)}
             <div class="plan-row">
               <span class="window-label">Plan</span>
               <strong>{planOnly(snapshot)}</strong>
-              <span class="plan-note">Usage —</span>
+              <span class="plan-note">{planOnlyNote(snapshot)}</span>
             </div>
             {#if billingPeriodEnd(snapshot)}
               <p class="note muted">Billing period ends {billingPeriodEnd(snapshot)}</p>
             {/if}
+          {:else if snapshot.service === "ollama" && snapshot.details.status === "parsed"}
+            <div class="plan-row">
+              <span class="window-label">Daemon</span>
+              <strong>Running</strong>
+              <span class="plan-note">{planOnlyNote(snapshot)}</span>
+            </div>
           {:else}
             <div class="quota-list">
               {#each windowsFor(snapshot) as win (win.key)}

@@ -168,6 +168,12 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
     ? snapshot.details.status
     : fallbackWebStatus(snapshot);
 
+  if (
+    snapshot.details.providerId === "grok.cli" &&
+    (status === "login_required" || status === "not_configured")
+  ) {
+    return "Sign in with the Grok CLI";
+  }
 
   if (snapshot.details.providerId === "ollama.local" && status === "login_required") {
     return "Ollama daemon requires sign-in outside PickGauge";
@@ -175,6 +181,10 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
 
   if (snapshot.details.providerId === "ollama.local" && status === "not_configured") {
     return "Ollama isn't running";
+  }
+
+  if (snapshot.details.providerId === "ollama.local" && status === "unsafe_path") {
+    return "OLLAMA_HOST must stay on loopback";
   }
 
   return statusMessage(status);
@@ -236,10 +246,13 @@ export type UsageDisplayState = {
 };
 
 export function floatDisplaySnapshots(snapshots: UsageSnapshot[]) {
+  // Float rings are percentage gauges. Plan-only / availability-only readings
+  // (Grok CLI plan, Ollama daemon) stay on the dashboard, not the capsule.
   return snapshots.filter(
     (snapshot) =>
-      (snapshot.service === "codex" || snapshot.service === "claude") &&
-      !(snapshot.remainingPercent === null && deriveUsageModel(snapshot).plan !== null),
+      snapshot.remainingPercent !== null ||
+      (deriveUsageModel(snapshot).plan === null &&
+        snapshot.details.status !== "parsed"),
   );
 }
 
@@ -356,8 +369,8 @@ export const defaultConfig: AppConfig = {
   enabledServices: {
     codex: true,
     claude: true,
-    grok: false,
-    ollama: false,
+    grok: true,
+    ollama: true,
   },
   providers: {
     localEnabled: true,

@@ -3,6 +3,7 @@ use crate::{
     local_provider::{
         ClaudeLocalProvider, CodexLocalProvider, LocalObservationReuse, LocalQuotaCalibration,
     },
+    ollama_provider::OllamaLocalProvider,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -19,7 +20,8 @@ pub const REFRESH_FINISHED_EVENT: &str = "usage://refresh-finished";
 pub const PROVIDER_ERROR_EVENT: &str = "usage://provider-error";
 const PROVIDER_BACKOFF_BASE_SECONDS: u64 = 30;
 const PROVIDER_BACKOFF_MAX_SECONDS: u64 = 15 * 60;
-const RUNTIME_SERVICES: [Service; 2] = [Service::Codex, Service::Claude];
+const RUNTIME_SERVICES: [Service; 4] =
+    [Service::Codex, Service::Claude, Service::Grok, Service::Ollama];
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -127,6 +129,8 @@ pub enum UsageProviderId {
     ClaudeLocal,
     ClaudeWeb,
     ClaudeCli,
+    GrokCli,
+    OllamaLocal,
     Fake,
 }
 
@@ -224,7 +228,7 @@ impl Service {
     }
 
     pub(crate) fn is_runtime(self) -> bool {
-        matches!(self, Self::Codex | Self::Claude)
+        matches!(self, Self::Codex | Self::Claude | Self::Grok | Self::Ollama)
     }
 }
 
@@ -266,8 +270,12 @@ impl UsageProviderId {
             (Service::Codex, UsageSource::Web) => Some(Self::CodexWeb),
             (Service::Claude, UsageSource::Local) => Some(Self::ClaudeLocal),
             (Service::Claude, UsageSource::Web) => Some(Self::ClaudeWeb),
-            (Service::Grok | Service::Ollama, _) => None,
-            (Service::Codex | Service::Claude, UsageSource::Fake) => Some(Self::Fake),
+            (Service::Grok, UsageSource::Local | UsageSource::Web) => None,
+            (Service::Ollama, UsageSource::Local) => Some(Self::OllamaLocal),
+            (Service::Ollama, UsageSource::Web) => None,
+            (Service::Codex | Service::Claude | Service::Grok | Service::Ollama, UsageSource::Fake) => {
+                Some(Self::Fake)
+            }
             (_, UsageSource::Merged) => None,
         }
     }
@@ -280,6 +288,8 @@ impl UsageProviderId {
             Self::ClaudeLocal => "claude.local",
             Self::ClaudeWeb => "claude.web",
             Self::ClaudeCli => "claude.cli",
+            Self::GrokCli => "grok.cli",
+            Self::OllamaLocal => "ollama.local",
             Self::Fake => "fake",
         }
     }
@@ -1014,7 +1024,8 @@ impl UsageEngineState {
         snapshots.sort_by_key(|snapshot| match snapshot.service {
             Service::Codex => 0,
             Service::Claude => 1,
-            Service::Grok | Service::Ollama => 2,
+            Service::Grok => 2,
+            Service::Ollama => 3,
         });
 
         UsageDisplayState {
@@ -1061,7 +1072,8 @@ fn headless_display_state(state: &UsageEngineState, now: &str) -> UsageDisplaySt
     display_state.snapshots.sort_by_key(|snapshot| match snapshot.service {
         Service::Codex => 0,
         Service::Claude => 1,
-        Service::Grok | Service::Ollama => 2,
+        Service::Grok => 2,
+        Service::Ollama => 3,
     });
     display_state
 }
@@ -1436,7 +1448,8 @@ impl AppConfig {
         match service {
             Service::Codex => self.enabled_services.codex,
             Service::Claude => self.enabled_services.claude,
-            Service::Grok | Service::Ollama => false,
+            Service::Grok => self.enabled_services.grok,
+            Service::Ollama => self.enabled_services.ollama,
         }
     }
 }
@@ -1502,9 +1515,8 @@ impl UsageProvider for CliUsageProvider {
         match self.service {
             Service::Codex => UsageProviderId::CodexCli,
             Service::Claude => UsageProviderId::ClaudeCli,
-            Service::Grok | Service::Ollama => {
-                unreachable!("deferred services have no CLI provider")
-            }
+            Service::Grok => UsageProviderId::GrokCli,
+            Service::Ollama => unreachable!("Ollama has no CLI provider"),
         }
     }
 
@@ -1648,6 +1660,16 @@ fn providers_for_config_with_reuse(
         }
     }
 
+    if config.enabled_services.grok && config.providers.cli_enabled {
+        providers.push(Arc::new(CliUsageProvider {
+            service: Service::Grok,
+        }));
+    }
+
+    if config.enabled_services.ollama && config.providers.local_enabled {
+        providers.push(Arc::new(OllamaLocalProvider::new()));
+    }
+
     providers
 }
 
@@ -1655,7 +1677,8 @@ fn cli_provider_id(service: Service) -> Option<UsageProviderId> {
     match service {
         Service::Codex => Some(UsageProviderId::CodexCli),
         Service::Claude => Some(UsageProviderId::ClaudeCli),
-        Service::Grok | Service::Ollama => None,
+        Service::Grok => Some(UsageProviderId::GrokCli),
+        Service::Ollama => None,
     }
 }
 
@@ -2276,13 +2299,13 @@ mod tests {
     }
 
     #[test]
-    fn legacy_deferred_toggles_produce_only_codex_and_claude_state() {
-        let legacy_config = AppConfig {
+    fn disabled_provider_toggles_keep_only_selected_services() {
+        let config = AppConfig {
             enabled_services: crate::config::ServiceToggles {
                 codex: true,
                 claude: true,
-                grok: true,
-                ollama: true,
+                grok: false,
+                ollama: false,
             },
             providers: crate::config::ProviderSettings {
                 local_enabled: false,
@@ -2291,7 +2314,7 @@ mod tests {
             },
             ..AppConfig::default()
         };
-        let engine = UsageEngine::new(legacy_config.clone());
+        let engine = UsageEngine::new(config.clone());
 
         let display_state = engine.refresh_all().expect("refresh succeeds");
         assert_eq!(
@@ -2312,9 +2335,9 @@ mod tests {
             .iter()
             .all(|provider| provider.service().is_runtime()));
 
-        let headless = UsageEngine::new_headless(legacy_config);
+        let headless = UsageEngine::new_headless(config);
         headless.refresh_all().expect("headless refresh succeeds");
-        let legacy_snapshot = |service| UsageSnapshot {
+        let foreign_snapshot = |service| UsageSnapshot {
             service,
             remaining_percent: Some(50.0),
             used_percent: Some(50.0),
@@ -2330,11 +2353,11 @@ mod tests {
         let persisted = HashMap::from([
             (
                 "grok.web".to_string(),
-                legacy_snapshot(Service::Grok),
+                foreign_snapshot(Service::Grok),
             ),
             (
                 "ollama.local".to_string(),
-                legacy_snapshot(Service::Ollama),
+                foreign_snapshot(Service::Ollama),
             ),
         ]);
         let headless_state = headless
@@ -2585,34 +2608,57 @@ mod tests {
     }
 
     #[test]
-    fn deferred_provider_refresh_is_rejected_before_callback() {
+    fn grok_has_no_managed_web_source_refresh_path() {
         let engine = UsageEngine::new(AppConfig {
             enabled_services: crate::config::ServiceToggles {
                 codex: false,
                 claude: false,
                 grok: true,
-                ollama: true,
+                ollama: false,
             },
             ..AppConfig::default()
         });
         let refresh_calls = AtomicUsize::new(0);
 
-        for (service, source) in [
-            (Service::Grok, UsageSource::Web),
-            (Service::Ollama, UsageSource::Local),
-        ] {
-            let error = engine
-                .refresh_provider_source_with_snapshot(service, source, |_| {
-                    refresh_calls.fetch_add(1, Ordering::Relaxed);
-                    Err(UsageProviderError::Internal)
-                })
-                .expect_err("deferred provider is rejected");
+        let error = engine
+            .refresh_provider_source_with_snapshot(Service::Grok, UsageSource::Web, |_| {
+                refresh_calls.fetch_add(1, Ordering::Relaxed);
+                Err(UsageProviderError::Internal)
+            })
+            .expect_err("grok has no managed web source id");
 
-            assert_eq!(error, "Provider source cannot be refreshed directly");
-        }
-
+        assert_eq!(error, "Provider source cannot be refreshed directly");
         assert_eq!(refresh_calls.load(Ordering::Relaxed), 0);
-        assert!(engine.snapshots().expect("snapshots load").is_empty());
+    }
+
+    #[test]
+    fn ollama_local_source_refresh_path_is_registered() {
+        let engine = UsageEngine::new(AppConfig {
+            enabled_services: crate::config::ServiceToggles {
+                codex: false,
+                claude: false,
+                grok: false,
+                ollama: true,
+            },
+            providers: crate::config::ProviderSettings {
+                local_enabled: true,
+                web_enabled: false,
+                cli_enabled: false,
+            },
+            ..AppConfig::default()
+        });
+
+        let providers = engine
+            .lock()
+            .expect("state locks")
+            .providers
+            .iter()
+            .map(|provider| (provider.service(), provider.provider_id()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            providers,
+            vec![(Service::Ollama, UsageProviderId::OllamaLocal)]
+        );
     }
 
     #[test]
@@ -2636,8 +2682,8 @@ mod tests {
     }
 
     #[test]
-    fn tray_states_ignore_legacy_deferred_snapshots() {
-        let legacy_snapshot = |service, remaining_percent| UsageSnapshot {
+    fn tray_states_include_runtime_percent_snapshots_in_service_order() {
+        let percent_snapshot = |service, remaining_percent| UsageSnapshot {
             service,
             remaining_percent: Some(remaining_percent),
             used_percent: Some(100.0 - remaining_percent),
@@ -2652,18 +2698,24 @@ mod tests {
         };
         let display_state = UsageDisplayState {
             snapshots: vec![
-                legacy_snapshot(Service::Grok, 72.0),
-                legacy_snapshot(Service::Ollama, 41.0),
+                percent_snapshot(Service::Grok, 72.0),
+                percent_snapshot(Service::Ollama, 41.0),
             ],
             updated_at: "2026-07-09T20:00:00Z".to_string(),
         };
 
         assert_eq!(
             display_state.tray_states(),
-            vec![TrayGaugeState {
-                service: Service::Codex,
-                remaining_percent: None,
-            }]
+            vec![
+                TrayGaugeState {
+                    service: Service::Grok,
+                    remaining_percent: Some(72.0),
+                },
+                TrayGaugeState {
+                    service: Service::Ollama,
+                    remaining_percent: Some(41.0),
+                },
+            ]
         );
     }
 
@@ -2883,7 +2935,7 @@ mod tests {
     }
 
     #[test]
-    fn providers_for_config_ignores_legacy_deferred_toggles() {
+    fn providers_for_config_registers_grok_cli_and_ollama_local() {
         let config = AppConfig {
             enabled_services: crate::config::ServiceToggles {
                 codex: false,
@@ -2899,7 +2951,58 @@ mod tests {
             ..AppConfig::default()
         };
 
-        assert!(providers_for_config(&config, &LocalProviderRoots::default()).is_empty());
+        let providers = providers_for_config(&config, &LocalProviderRoots::default());
+        assert_eq!(
+            providers
+                .iter()
+                .map(|provider| (provider.service(), provider.provider_id()))
+                .collect::<Vec<_>>(),
+            vec![
+                (Service::Grok, UsageProviderId::GrokCli),
+                (Service::Ollama, UsageProviderId::OllamaLocal),
+            ]
+        );
+    }
+
+    #[test]
+    fn tray_states_exclude_successful_plan_only_grok_snapshots() {
+        let display_state = UsageDisplayState {
+            snapshots: vec![
+                UsageSnapshot {
+                    service: Service::Grok,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::Medium,
+                    last_updated: "2026-07-09T20:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": "grok.cli",
+                        "plan": "Grok Pro",
+                    }),
+                },
+                UsageSnapshot {
+                    service: Service::Codex,
+                    remaining_percent: Some(72.0),
+                    used_percent: Some(28.0),
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::High,
+                    last_updated: "2026-07-09T20:00:00Z".to_string(),
+                    details: serde_json::json!({ "status": "parsed" }),
+                },
+            ],
+            updated_at: "2026-07-09T20:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            display_state.tray_states(),
+            vec![TrayGaugeState {
+                service: Service::Codex,
+                remaining_percent: Some(72.0),
+            }]
+        );
     }
 
     // Regression for the global CLI-or-web gate (#48/#51 CAND-2): CLI and
@@ -3986,11 +4089,21 @@ mod tests {
                 .code(),
             "claude.web"
         );
-        for service in [Service::Grok, Service::Ollama] {
-            for source in [UsageSource::Local, UsageSource::Web, UsageSource::Fake] {
-                assert_eq!(UsageProviderId::for_service_source(service, source), None);
-            }
-        }
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Ollama, UsageSource::Local)
+                .expect("ollama local id")
+                .code(),
+            "ollama.local"
+        );
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Grok, UsageSource::Web),
+            None
+        );
+        assert_eq!(
+            UsageProviderId::for_service_source(Service::Ollama, UsageSource::Web),
+            None
+        );
+        assert_eq!(UsageProviderId::GrokCli.code(), "grok.cli");
         assert_eq!(
             UsageProviderId::for_service_source(Service::Codex, UsageSource::Fake)
                 .expect("fake id")

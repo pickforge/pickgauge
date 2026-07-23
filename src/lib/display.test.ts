@@ -145,6 +145,24 @@ describe("frontend confidence and source labels", () => {
     ).toBe("Local daemon");
   });
 
+  it("summarizes Ollama availability without inventing quota", () => {
+    expect(
+      localActivitySummary(
+        snapshot({
+          service: "ollama",
+          source: "local",
+          remainingPercent: null,
+          details: {
+            providerId: "ollama.local",
+            status: "parsed",
+            modelCount: 2,
+            loadedModelCount: 1,
+          },
+        }),
+      ),
+    ).toBe("Daemon running · 2 installed models · 1 loaded model · no account quota");
+  });
+
   it("keeps confidence labels stable", () => {
     expect(confidenceLabels).toEqual({
       high: "High",

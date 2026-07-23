@@ -1,5 +1,4 @@
-//! Official usage readings via the installed Codex and Claude CLIs' OAuth
-//! credentials.
+//! Official usage readings via installed CLIs' own OAuth credentials.
 //!
 //! Instead of scraping dashboards in a headless browser, this reads the tokens
 //! those CLIs already stored on disk and calls the same usage endpoints they
@@ -10,6 +9,8 @@
 //!           usage:   GET  https://chatgpt.com/backend-api/codex/usage
 //! - Claude  refresh: POST https://platform.claude.com/v1/oauth/token (client 9d1c250a-…)
 //!           usage:   GET  https://api.anthropic.com/api/oauth/usage
+//! - Grok    usage:   GET  https://grok.com/rest/subscriptions
+//!           (bearer from ~/.grok/auth.json; never refreshed or written back)
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -33,6 +34,8 @@ const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
+
+const GROK_SUBSCRIPTIONS_URL: &str = "https://grok.com/rest/subscriptions";
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 // Refresh a token this many ms before its stated expiry.
@@ -191,7 +194,8 @@ pub fn refresh(service: Service, now: &str) -> Result<UsageSnapshot, UsageProvid
     match service {
         Service::Codex => refresh_codex(now),
         Service::Claude => refresh_claude(now),
-        Service::Grok | Service::Ollama => Err(UsageProviderError::Disabled),
+        Service::Grok => refresh_grok(now),
+        Service::Ollama => Err(UsageProviderError::Internal),
     }
 }
 
@@ -264,9 +268,8 @@ fn base_details(service: Service) -> Value {
     let provider_id = match service {
         Service::Codex => UsageProviderId::CodexCli,
         Service::Claude => UsageProviderId::ClaudeCli,
-        Service::Grok | Service::Ollama => {
-            unreachable!("deferred services cannot build CLI snapshots")
-        }
+        Service::Grok => UsageProviderId::GrokCli,
+        Service::Ollama => unreachable!("Ollama has no CLI provider"),
     };
     json!({
         "status": "parsed",
@@ -551,12 +554,147 @@ fn claude_window(window: Option<&Value>) -> Option<Window> {
     Some(Window { used, reset })
 }
 
+// ---------------------------------------------------------------- Grok
+
+fn refresh_grok(now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+    let access = read_grok_access_token()?;
+    grok_subscriptions(&access, now)
+}
+
+fn read_grok_access_token() -> Result<String, UsageProviderError> {
+    let path = home()?.join(".grok/auth.json");
+    let raw = std::fs::read_to_string(&path).map_err(|_| UsageProviderError::NotConfigured)?;
+    let auth: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
+    grok_access_token_from_auth(&auth).ok_or(UsageProviderError::NotConfigured)
+}
+
+fn grok_access_token_from_auth(auth: &Value) -> Option<String> {
+    let entries = auth.as_object()?;
+    if let Some((_, entry)) = entries
+        .iter()
+        .find(|(entry_key, _)| entry_key.starts_with("https://auth.x.ai"))
+    {
+        return grok_entry_access_token(entry);
+    }
+
+    entries.values().find_map(grok_entry_access_token)
+}
+
+fn grok_entry_access_token(entry: &Value) -> Option<String> {
+    entry
+        .get("key")
+        .and_then(Value::as_str)
+        .filter(|access| !access.is_empty())
+        .map(str::to_string)
+}
+
+fn grok_subscriptions(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+    let response = client()?
+        .get(GROK_SUBSCRIPTIONS_URL)
+        .bearer_auth(access)
+        .send()
+        .map_err(|_| UsageProviderError::NetworkUnavailable)?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(map_status_error(status));
+    }
+    let body: Value = response
+        .json()
+        .map_err(|_| UsageProviderError::ParseFailed)?;
+    parse_grok_body(&body, now)
+}
+
+fn parse_grok_body(body: &Value, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+    let subscriptions = body
+        .get("subscriptions")
+        .and_then(Value::as_array)
+        .ok_or(UsageProviderError::ParseFailed)?;
+    let subscription = subscriptions
+        .iter()
+        .find(|subscription| {
+            active_grok_subscription_tier(subscription)
+                .is_some_and(|tier| tier.starts_with("SUBSCRIPTION_TIER_GROK_"))
+        })
+        .or_else(|| {
+            subscriptions
+                .iter()
+                .find(|subscription| active_grok_subscription_tier(subscription).is_some())
+        })
+        .ok_or(UsageProviderError::MissingData)?;
+    let tier =
+        active_grok_subscription_tier(subscription).ok_or(UsageProviderError::ParseFailed)?;
+    let billing_period_end = subscription
+        .get("billingPeriodEnd")
+        .and_then(Value::as_str)
+        .filter(|value| OffsetDateTime::parse(value, &Rfc3339).is_ok())
+        .map(str::to_string);
+    let mut details = base_details(Service::Grok);
+    let details_object = details
+        .as_object_mut()
+        .ok_or(UsageProviderError::Internal)?;
+    details_object.insert("plan".to_string(), Value::String(grok_plan_name(tier)));
+    details_object.insert("quotaSupported".to_string(), Value::Bool(false));
+    details_object.insert(
+        "remainingPercentReason".to_string(),
+        Value::String("grok_cli_plan_only".to_string()),
+    );
+    if let Some(billing_period_end) = billing_period_end {
+        details_object.insert(
+            "billingPeriodEnd".to_string(),
+            Value::String(billing_period_end),
+        );
+    }
+
+    // The subscriptions endpoint truthfully exposes plan/billing metadata only.
+    // Never invent remaining/used percentages from it.
+    Ok(UsageSnapshot {
+        service: Service::Grok,
+        remaining_percent: None,
+        used_percent: None,
+        reset_at: None,
+        source: UsageSource::Web,
+        confidence: UsageConfidence::Medium,
+        last_updated: now.to_string(),
+        details,
+    })
+}
+
+fn active_grok_subscription_tier(subscription: &Value) -> Option<&str> {
+    let tier = subscription.get("tier").and_then(Value::as_str)?;
+    (subscription.get("status").and_then(Value::as_str) == Some("SUBSCRIPTION_STATUS_ACTIVE")
+        && (tier.starts_with("SUBSCRIPTION_TIER_GROK_")
+            || tier.starts_with("SUBSCRIPTION_TIER_X_")))
+    .then_some(tier)
+}
+
+fn grok_plan_name(tier: &str) -> String {
+    let tier = tier.strip_prefix("SUBSCRIPTION_TIER_").unwrap_or(tier);
+    tier.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!(
+                    "{}{}",
+                    first.to_ascii_uppercase(),
+                    chars.as_str().to_ascii_lowercase()
+                ),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_CACHE_TEST_ID: AtomicU64 = AtomicU64::new(0);
+
+    const GROK_SUBSCRIPTIONS_FIXTURE: &str =
+        include_str!("../tests/fixtures/grok-cli/subscriptions-success.json");
 
     fn test_stamp() -> CredentialFileStamp {
         CredentialFileStamp {
@@ -756,12 +894,90 @@ mod tests {
     }
 
     #[test]
-    fn deferred_cli_collection_is_disabled() {
-        for service in [Service::Grok, Service::Ollama] {
-            assert_eq!(
-                refresh(service, "2026-07-09T20:00:00Z"),
-                Err(UsageProviderError::Disabled)
-            );
-        }
+    fn prefers_active_grok_subscription_over_active_x_tier() {
+        let body: Value = serde_json::from_str(GROK_SUBSCRIPTIONS_FIXTURE).unwrap();
+        let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();
+
+        assert_eq!(snapshot.service, Service::Grok);
+        assert_eq!(snapshot.remaining_percent, None);
+        assert_eq!(snapshot.used_percent, None);
+        assert_eq!(snapshot.reset_at, None);
+        assert_eq!(snapshot.source, UsageSource::Web);
+        assert_eq!(snapshot.confidence, UsageConfidence::Medium);
+        assert_eq!(snapshot.details["status"], "parsed");
+        assert_eq!(snapshot.details["providerId"], "grok.cli");
+        assert_eq!(snapshot.details["source"], "web");
+        assert_eq!(snapshot.details["via"], "cli");
+        assert_eq!(snapshot.details["plan"], "Grok Pro");
+        assert_eq!(snapshot.details["billingPeriodEnd"], "2026-08-24T20:20:59Z");
+        assert_eq!(snapshot.details["quotaSupported"], false);
+        assert_eq!(snapshot.details["remainingPercentReason"], "grok_cli_plan_only");
+        assert!(snapshot.details.get("windows").is_none());
+    }
+
+    #[test]
+    fn parses_an_active_x_tier_subscription() {
+        let body = json!({
+            "subscriptions": [{
+                "tier": "SUBSCRIPTION_TIER_X_PREMIUM",
+                "status": "SUBSCRIPTION_STATUS_ACTIVE"
+            }]
+        });
+
+        let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();
+
+        assert_eq!(snapshot.details["plan"], "X Premium");
+        assert!(snapshot.details.get("billingPeriodEnd").is_none());
+        assert_eq!(snapshot.remaining_percent, None);
+    }
+
+    #[test]
+    fn grok_missing_subscriptions_is_parse_failed() {
+        assert_eq!(
+            parse_grok_body(&json!({}), "2026-07-09T20:00:00Z"),
+            Err(UsageProviderError::ParseFailed)
+        );
+    }
+
+    #[test]
+    fn grok_without_an_active_grok_subscription_is_missing_data() {
+        let body = json!({
+            "subscriptions": [{
+                "tier": "SUBSCRIPTION_TIER_GROK_PRO",
+                "status": "SUBSCRIPTION_STATUS_INACTIVE"
+            }]
+        });
+
+        assert_eq!(
+            parse_grok_body(&body, "2026-07-09T20:00:00Z"),
+            Err(UsageProviderError::MissingData)
+        );
+    }
+
+    #[test]
+    fn prefers_current_grok_auth_entry_over_legacy_entries() {
+        let auth = json!({
+            "https://accounts.x.ai/sign-in": { "key": "legacy" },
+            "https://auth.x.ai::current-client": { "key": "current" }
+        });
+
+        assert_eq!(grok_access_token_from_auth(&auth).as_deref(), Some("current"));
+    }
+
+    #[test]
+    fn uses_legacy_grok_auth_entry_when_current_entry_is_absent() {
+        let auth = json!({
+            "https://accounts.x.ai/sign-in": { "key": "legacy" }
+        });
+
+        assert_eq!(grok_access_token_from_auth(&auth).as_deref(), Some("legacy"));
+    }
+
+    #[test]
+    fn ollama_has_no_cli_collection_path() {
+        assert_eq!(
+            refresh(Service::Ollama, "2026-07-09T20:00:00Z"),
+            Err(UsageProviderError::Internal)
+        );
     }
 }

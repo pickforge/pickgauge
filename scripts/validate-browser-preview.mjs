@@ -48,6 +48,7 @@ try {
 
     await validateDesktopOnlyControlFallbacks(browser);
     await validateSettingsLayout(browser);
+    await validateSettingsSaveOverlay(browser);
     await validateFloatCapsule(browser);
   } finally {
     await browser.close();
@@ -295,6 +296,108 @@ async function validateSettingsLayout(browser) {
       );
       assert.equal(columnCount, expectedColumns, `${width}px settings column count`);
       await assertNoHorizontalOverflow(page, { label: `${width}px`, width }, "settings");
+    } finally {
+      await context.close();
+    }
+  }
+}
+
+// Regression coverage for issue #47: the dirty-state save/discard actions
+// must stay a fixed-position child of the viewport, not a scrolling/
+// transformed Settings ancestor, at every supported window size.
+async function validateSettingsSaveOverlay(browser) {
+  for (const { width, height, label } of [
+    // Repro sizes from the issue: the bar disappeared here...
+    { width: 937, height: 747, label: "compact-repro" },
+    // ...and only reappeared here, before the fix.
+    { width: 1344, height: 951, label: "wide-repro" },
+  ]) {
+    const context = await browser.newContext({ viewport: { width, height } });
+    const page = await context.newPage();
+    try {
+      await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+      await openSettingsView(page);
+
+      // Scoped to the stable .header-save class, not role+name: once the
+      // header goes aria-hidden it drops out of the accessibility tree, and
+      // a role-based locator would silently re-resolve to the overlay's
+      // Save button instead (Playwright locators re-query on every call).
+      const headerSave = page.locator(".header-save");
+      await headerSave.waitFor();
+      assert.equal(await headerSave.isDisabled(), true, `${label} clean header Save should be disabled`);
+      assert.equal(
+        await page.locator(".settings-save-overlay").count(),
+        0,
+        `${label} clean state should not render the save overlay`,
+      );
+
+      // The switch's checkbox input is visually hidden behind a styled
+      // track (see .switch input in app.css); click the label text instead
+      // of the zero-size input so the native label-for-input toggle fires.
+      await page.getByText("Local estimates", { exact: true }).click();
+
+      const overlay = page.locator(".settings-save-overlay");
+      await overlay.waitFor();
+      assert.equal(
+        await headerSave.isVisible(),
+        false,
+        `${label} dirty header Save should be hidden`,
+      );
+
+      const bounds = await overlay.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          top: rect.top,
+          left: rect.left,
+          right: rect.right,
+          bottom: rect.bottom,
+          viewportWidth: document.documentElement.clientWidth,
+          viewportHeight: document.documentElement.clientHeight,
+        };
+      });
+
+      assert.ok(bounds.top >= 0 && bounds.left >= 0, `${label} save overlay clipped above/left of viewport: ${JSON.stringify(bounds)}`);
+      assert.ok(
+        bounds.right <= bounds.viewportWidth + 1 && bounds.bottom <= bounds.viewportHeight + 1,
+        `${label} save overlay clipped below/right of viewport: ${JSON.stringify(bounds)}`,
+      );
+      assert.equal(await overlay.isVisible(), true, `${label} save overlay should be visible`);
+
+      await assertNoHorizontalOverflow(page, { label, width }, "settings-dirty");
+    } finally {
+      await context.close();
+    }
+  }
+
+  await validateSettingsSaveOverlayResponsiveContent(browser);
+}
+
+async function validateSettingsSaveOverlayResponsiveContent(browser) {
+  for (const { width, label, expectDiscard } of [
+    { width: 680, label: "compact", expectDiscard: false },
+    { width: 1000, label: "wide", expectDiscard: true },
+  ]) {
+    const context = await browser.newContext({ viewport: { width, height: 700 } });
+    const page = await context.newPage();
+    try {
+      await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+      await openSettingsView(page);
+      // The switch's checkbox input is visually hidden behind a styled
+      // track (see .switch input in app.css); click the label text instead
+      // of the zero-size input so the native label-for-input toggle fires.
+      await page.getByText("Local estimates", { exact: true }).click();
+
+      const overlay = page.locator(".settings-save-overlay");
+      await overlay.waitFor();
+      const discard = overlay.getByRole("button", { name: "Discard" });
+      assert.equal(
+        await discard.isVisible(),
+        expectDiscard,
+        `${label} overlay Discard visibility mismatch`,
+      );
+
+      const save = overlay.getByRole("button", { name: /^Save/ });
+      assert.equal(await save.isVisible(), true, `${label} overlay Save should be visible`);
     } finally {
       await context.close();
     }

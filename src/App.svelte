@@ -2,6 +2,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import ClockCounterClockwise from "phosphor-svelte/lib/ClockCounterClockwise";
+  import FloppyDisk from "phosphor-svelte/lib/FloppyDisk";
   import Gauge from "phosphor-svelte/lib/Gauge";
   import GearSix from "phosphor-svelte/lib/GearSix";
   import logoUrl from "../assets/branding/pickgauge-mark-128.svg";
@@ -16,7 +17,7 @@
     EVENT_SETTINGS,
     EVENT_SNAPSHOTS,
   } from "./lib/api";
-  import { serviceLabels } from "./lib/display";
+  import { serviceLabels, settingsSaveDisplayState } from "./lib/display";
   import {
     browserPreviewSnapshots,
     browserPreviewStateFromSearch,
@@ -35,8 +36,10 @@
 
   let view = $state<View>("dashboard");
   let settingsDirty = $state(false);
+  let settingsSaving = $state(false);
   let pendingView = $state<View | null>(null);
   let settingsActions: { save: () => Promise<boolean>; discard: () => void } | null = null;
+  const settingsSaveDisplay = $derived(settingsSaveDisplayState(settingsDirty));
   let config = $state<AppConfig>(defaultConfig);
   let snapshots = $state<UsageSnapshot[]>(fallbackSnapshots);
   let loading = $state(true);
@@ -217,6 +220,7 @@
           bind:config
           {setStatus}
           onDirtyChange={(dirty) => (settingsDirty = dirty)}
+          onSavingChange={(saving) => (settingsSaving = saving)}
           bindActions={(actions) => (settingsActions = actions)}
         />
       {/if}
@@ -232,6 +236,30 @@
     </div>
   </footer>
 </div>
+
+{#if view === "settings" && settingsSaveDisplay.overlayVisible}
+  <div class="settings-save-overlay glass" role="status" aria-live="polite">
+    <span class="save-dot" aria-hidden="true"></span>
+    <span class="save-text">Unsaved changes</span>
+    <button
+      class="btn btn-ghost btn-sm save-discard"
+      type="button"
+      onclick={() => settingsActions?.discard()}
+    >
+      Discard
+    </button>
+    <button
+      class="btn btn-primary btn-sm"
+      type="button"
+      disabled={settingsSaving}
+      onclick={() => settingsActions?.save()}
+    >
+      <FloppyDisk size={15} />
+      <span class="save-label-wide">{settingsSaving ? "Saving…" : "Save settings"}</span>
+      <span class="save-label-compact">{settingsSaving ? "Saving…" : "Save"}</span>
+    </button>
+  </div>
+{/if}
 
 {#if pendingView}
   <div class="dialog-backdrop" role="presentation" onclick={() => (pendingView = null)}>
@@ -433,6 +461,55 @@
     color: var(--bad);
   }
 
+  /*
+   * Rendered here (outside .app / .content) so it stays a fixed-position
+   * child of the viewport instead of the scrolling Settings surface, whose
+   * .fade-up entrance transform would otherwise clip or reposition it. See
+   * issue #47.
+   */
+  .settings-save-overlay {
+    position: fixed;
+    bottom: 48px;
+    right: 28px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px 10px 16px;
+    border-radius: var(--radius-pill);
+    border-color: color-mix(in srgb, var(--ember) 35%, transparent);
+    box-shadow: var(--glow-ember-soft);
+    animation: settings-save-overlay-in 400ms var(--ease-forge) both;
+  }
+
+  @keyframes settings-save-overlay-in {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .save-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--ember);
+    animation: ember-pulse 2.4s var(--ease-forge) infinite;
+  }
+
+  .save-text {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .save-label-compact {
+    display: none;
+  }
+
   @media (max-width: 700px) {
     .sidebar {
       width: 60px;
@@ -458,6 +535,23 @@
 
     .loading {
       grid-template-columns: 1fr;
+    }
+
+    .settings-save-overlay {
+      bottom: 20px;
+      right: 16px;
+      gap: 8px;
+      padding: 10px 14px;
+    }
+
+    .save-text,
+    .save-discard,
+    .save-label-wide {
+      display: none;
+    }
+
+    .save-label-compact {
+      display: inline;
     }
   }
 </style>

@@ -24,7 +24,8 @@
         "decorations": false,
         "transparent": false,
         "backgroundColor": "#0a0a0b",
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

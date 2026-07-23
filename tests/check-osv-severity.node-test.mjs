@@ -15,7 +15,7 @@ function run(fixture, ...lockfiles) {
   });
 }
 
-test("blocks a scored-high advisory", () => {
+test("blocks a scored-high advisory even when it is informational", () => {
   const result = run("scored-high.json", "bun.lock");
 
   assert.equal(result.status, 1);
@@ -38,6 +38,26 @@ test("blocks missing, empty, and non-numeric advisory scores", () => {
   assert.match(result.stderr, /GHSA-MISSING-0001.*raw max_severity undefined/);
   assert.match(result.stderr, /GHSA-EMPTY-0001.*raw max_severity ""/);
   assert.match(result.stderr, /GHSA-NONNUMERIC-0001.*raw max_severity "unknown"/);
+});
+
+test("skips unscored informational and withdrawn advisories", () => {
+  const result = run("informational.json", "src-tauri/Cargo.lock");
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Skipped informational RUSTSEC-UNMAINTAINED-0001/);
+  assert.match(result.stdout, /Skipped informational RUSTSEC-WITHDRAWN-0001/);
+  assert.equal(result.stderr, "");
+});
+
+test("blocks an unscored group unless every advisory is informational", () => {
+  const result = run("unscored-non-informational.json", "src-tauri/Cargo.lock");
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /RUSTSEC-UNMAINTAINED-0001, RUSTSEC-UNSCORED-0001.*raw max_severity undefined/,
+  );
+  assert.doesNotMatch(result.stdout, /Skipped informational/);
 });
 
 test("fails when an expected lockfile is missing from the report", () => {

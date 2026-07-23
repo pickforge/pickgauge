@@ -22,22 +22,51 @@ for (const lockfile of expectedLockfiles) {
   }
 }
 
+const vulnerabilitiesById = new Map();
+for (const result of report.results) {
+  for (const entry of result.packages ?? []) {
+    for (const vulnerability of entry.vulnerabilities ?? []) {
+      if (vulnerability.id) {
+        vulnerabilitiesById.set(vulnerability.id, vulnerability);
+      }
+    }
+  }
+}
+
 const findings = [];
+const informationalFindings = [];
 for (const result of report.results) {
   for (const entry of result.packages ?? []) {
     for (const group of entry.groups ?? []) {
       const rawSeverity = group.max_severity;
       const severityText = String(rawSeverity ?? "").trim();
       const severity = Number(severityText);
-      const hasAdvisoryIds = Array.isArray(group.ids) && group.ids.length > 0;
-      const isUnscored = hasAdvisoryIds && (severityText === "" || !Number.isFinite(severity));
-      if (isUnscored || (Number.isFinite(severity) && severity >= 7)) {
-        findings.push({
-          ids: group.ids?.join(", ") ?? "unknown advisory",
-          package: `${entry.package?.name ?? "unknown"}@${entry.package?.version ?? "unknown"}`,
-          rawSeverity,
-          source: result.source?.path ?? "unknown source",
+      const ids = Array.isArray(group.ids) ? group.ids : [];
+      const isUnscored = ids.length > 0 && (severityText === "" || !Number.isFinite(severity));
+      const isInformational =
+        isUnscored &&
+        ids.every((id) => {
+          const vulnerability = vulnerabilitiesById.get(id);
+          return Boolean(
+            vulnerability &&
+              (vulnerability.database_specific?.informational ||
+                vulnerability.affected?.some(
+                  (affected) => affected.database_specific?.informational,
+                ) ||
+                vulnerability.withdrawn),
+          );
         });
+      const finding = {
+        ids: ids.join(", ") || "unknown advisory",
+        package: `${entry.package?.name ?? "unknown"}@${entry.package?.version ?? "unknown"}`,
+        rawSeverity,
+        source: result.source?.path ?? "unknown source",
+      };
+
+      if (isInformational) {
+        informationalFindings.push(finding);
+      } else if (isUnscored || (Number.isFinite(severity) && severity >= 7)) {
+        findings.push(finding);
       }
     }
   }
@@ -46,6 +75,11 @@ for (const result of report.results) {
 console.log(
   `OSV scanned ${expectedLockfiles.length} lockfiles; high/critical findings: ${findings.length}`,
 );
+for (const finding of informationalFindings) {
+  console.log(
+    `Skipped informational ${finding.ids}: ${finding.package} in ${finding.source}`,
+  );
+}
 for (const finding of findings) {
   console.error(
     `${finding.ids}: ${finding.package} (raw max_severity ${JSON.stringify(finding.rawSeverity)}) in ${finding.source}`,

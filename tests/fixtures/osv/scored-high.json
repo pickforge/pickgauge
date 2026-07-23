@@ -5,6 +5,18 @@
       "packages": [
         {
           "package": { "name": "high-risk-package", "version": "1.0.0" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-HIGH-0001",
+              "affected": [
+                {
+                  "database_specific": {
+                    "informational": "notice"
+                  }
+                }
+              ]
+            }
+          ],
           "groups": [
             { "ids": ["GHSA-HIGH-0001"], "max_severity": "9.8" }
           ]

@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "source": { "path": "/workspace/bun.lock" },
+      "packages": [
+        {
+          "package": { "name": "unscored-package", "version": "1.0.0" },
+          "groups": [
+            { "ids": ["GHSA-MISSING-0001"] },
+            { "ids": ["GHSA-EMPTY-0001"], "max_severity": "" },
+            { "ids": ["GHSA-NONNUMERIC-0001"], "max_severity": "unknown" }
+          ]
+        }
+      ]
+    }
+  ]
+}

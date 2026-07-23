@@ -1,0 +1,15 @@
+{
+  "results": [
+    {
+      "source": { "path": "/workspace/bun.lock" },
+      "packages": [
+        {
+          "package": { "name": "high-risk-package", "version": "1.0.0" },
+          "groups": [
+            { "ids": ["GHSA-HIGH-0001"], "max_severity": "9.8" }
+          ]
+        }
+      ]
+    }
+  ]
+}

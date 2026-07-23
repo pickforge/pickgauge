@@ -52,6 +52,8 @@ reset this file.
 
 ## Internal/release changes
 
+- Added blocking CI gates for Rust and frontend complexity, coverage, secrets,
+  and high/critical dependency advisories, with one required aggregate status.
 - Added the shared `@pickforge/tauri-updater` dialog behind the `studioUpdateDialog`
   flag (default off; `@pickforge/flags`), part of
   pickforge/pickforge-platform#36. While off, the legacy `window.confirm`

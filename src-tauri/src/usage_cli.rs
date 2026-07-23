@@ -241,8 +241,8 @@ fn write_human_table(response: &UsageJsonResponse) -> Result<(), String> {
     let mut stdout = stdout.lock();
     writeln!(
         stdout,
-        "{:<12} {:<16} {:<8} {:<8} {:<28} {:<8} {}",
-        "Service", "Plan", "5h", "Week", "Resets", "Source", "Staleness"
+        "{:<12} {:<16} {:<8} {:<8} {:<28} {:<8} Staleness",
+        "Service", "Plan", "5h", "Week", "Resets", "Source"
     )
     .map_err(|error| format!("Could not write usage table: {error}"))?;
 
@@ -476,6 +476,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split plan-only and availability row assertions.
+    #[allow(clippy::cognitive_complexity)]
     fn plan_only_and_availability_rows_fit_usage_json_v1_without_schema_bump() {
         let generated_at = "2026-07-09T12:00:05Z";
         let display_state = UsageDisplayState {

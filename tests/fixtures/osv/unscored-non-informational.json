@@ -1,0 +1,41 @@
+{
+  "results": [
+    {
+      "source": {
+        "path": "/workspace/src-tauri/Cargo.lock"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "mixed-unscored-package",
+            "version": "1.0.0"
+          },
+          "vulnerabilities": [
+            {
+              "id": "RUSTSEC-UNMAINTAINED-0001",
+              "affected": [
+                {
+                  "database_specific": {
+                    "informational": "unmaintained"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "RUSTSEC-UNSCORED-0001",
+              "database_specific": {}
+            }
+          ],
+          "groups": [
+            {
+              "ids": [
+                "RUSTSEC-UNMAINTAINED-0001",
+                "RUSTSEC-UNSCORED-0001"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

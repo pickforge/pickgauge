@@ -243,7 +243,7 @@ fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
 fn reject_overlapping_profile_paths(paths: &BrowserProfilePaths) -> Result<(), String> {
     let service_paths = [&paths.codex, &paths.claude];
 
-    if service_paths.iter().any(|path| &paths.root == *path) {
+    if service_paths.contains(&&paths.root) {
         return Err("Browser profile root must not be a service profile path".to_string());
     }
 

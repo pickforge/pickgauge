@@ -16,7 +16,7 @@
     "prepare:sidecar": "node scripts/prepare-playwright-sidecar.mjs",
     "test:installer": "node tests/install-script-smoke.mjs",
     "test:headless-appimage-validator": "node tests/headless-appimage-validator-smoke.mjs",
-    "test": "node tests/install-script-smoke.mjs && node tests/headless-appimage-validator-smoke.mjs && vitest run && node --test sidecars/playwright/*.node-test.mjs && node scripts/prepare-playwright-sidecar.mjs --check && node scripts/validate-playwright-sidecar-package.mjs",
+    "test": "node tests/install-script-smoke.mjs && node tests/headless-appimage-validator-smoke.mjs && node --test tests/*.node-test.mjs && vitest run && node --test sidecars/playwright/*.node-test.mjs && node scripts/prepare-playwright-sidecar.mjs --check && node scripts/validate-playwright-sidecar-package.mjs",
     "test:coverage": "vitest run --coverage",
     "test:browser-preview": "node scripts/validate-browser-preview.mjs",
     "test:auth-profile-helper": "node scripts/validate-playwright-auth-profile-helper.mjs",
@@ -51,6 +51,6 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.60.1",
     "vite": "^7.2.4",
-    "vitest": "^4.1.8"
+    "vitest": "4.1.8"
   }
 }

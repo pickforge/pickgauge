@@ -1859,6 +1859,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split protocol-shape assertions into focused helpers.
+    #[allow(clippy::cognitive_complexity)]
     fn playwright_sidecar_launch_request_serializes_to_protocol_shape() {
         let profile_path = "/tmp/pickgauge/browser-profiles/codex";
         let plan = chromium_launch_plan(Service::Codex, profile_path);
@@ -1918,6 +1920,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split protocol-shape assertions into focused helpers.
+    #[allow(clippy::cognitive_complexity)]
     fn playwright_sidecar_refresh_request_serializes_to_headless_protocol_shape() {
         let profile_path = "/tmp/pickgauge/browser-profiles/claude";
         let plan = chromium_launch_plan(Service::Claude, profile_path);

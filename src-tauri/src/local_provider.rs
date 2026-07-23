@@ -174,6 +174,8 @@ impl ClaudeLocalProvider {
         self
     }
 
+    // TODO(#69): split observation mapping from snapshot construction.
+    #[allow(clippy::too_many_lines)]
     pub fn refresh_snapshot(&self, now: &str) -> UsageSnapshot {
         let provider_id = UsageProviderId::ClaudeLocal;
         let window = self
@@ -1295,6 +1297,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split fixture assertions by behavior.
+    #[allow(clippy::cognitive_complexity)]
     fn claude_local_provider_parses_synthetic_usage_fixture() {
         let provider = ClaudeLocalProvider::new(fixture_root());
 
@@ -1519,6 +1523,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split fixture assertions by behavior.
+    #[allow(clippy::cognitive_complexity)]
     fn codex_local_provider_parses_synthetic_state_database() {
         let dir = TestDir::new();
         create_codex_state_db(

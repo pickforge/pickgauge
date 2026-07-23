@@ -1,0 +1,45 @@
+{
+  "results": [
+    {
+      "source": {
+        "path": "/workspace/src-tauri/Cargo.lock"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "informational-package",
+            "version": "1.0.0"
+          },
+          "vulnerabilities": [
+            {
+              "id": "RUSTSEC-UNMAINTAINED-0001",
+              "affected": [
+                {
+                  "database_specific": {
+                    "informational": "unmaintained"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "RUSTSEC-WITHDRAWN-0001",
+              "withdrawn": "2026-07-01T00:00:00Z"
+            }
+          ],
+          "groups": [
+            {
+              "ids": [
+                "RUSTSEC-UNMAINTAINED-0001"
+              ]
+            },
+            {
+              "ids": [
+                "RUSTSEC-WITHDRAWN-0001"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

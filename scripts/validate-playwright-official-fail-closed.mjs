@@ -113,6 +113,8 @@ if (validationRootCleanupFailed) {
   throw new Error("Temporary official fail-closed validation root must be removed");
 }
 
+// TODO(#69): split scenario setup from response validation.
+// eslint-disable-next-line complexity -- Legacy smoke helper exceeds the enforced cap.
 async function validateHeadlessRefresh({
   args = launchArgs,
   expectedPageState = null,

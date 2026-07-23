@@ -6,6 +6,7 @@ import { api, desktopApiAvailable, EVENT_SETTINGS } from "./lib/api";
 import { flagEnabled } from "./lib/flags";
 import { initTheme, setTheme, type ThemeSetting } from "./lib/theme";
 import { checkForUpdatesWhenVisible } from "./lib/updater";
+import { shouldRunLegacyUpdateCheck } from "./lib/updateRouting";
 import type { AppConfig } from "./lib/usage";
 import "./app.css";
 
@@ -66,10 +67,11 @@ function mountApp() {
       void setTheme(event.payload.ui.theme as ThemeSetting);
     });
     // App.svelte itself mounts the shared update dialog when
-    // `studioUpdateDialog` is on (see its `showUpdateDialog` check); running
-    // the legacy `window.confirm` flow here too would double-prompt, so it
-    // only runs while the flag is off.
-    if (windowLabel === "main" && !flagEnabled("studioUpdateDialog")) {
+    // `studioUpdateDialog` is on (see its `showUpdateDialog` check, driven by
+    // the same ./lib/updateRouting predicates); running the legacy
+    // `window.confirm` flow here too would double-prompt, so it only runs
+    // while the flag is off.
+    if (shouldRunLegacyUpdateCheck(windowLabel, flagEnabled("studioUpdateDialog"))) {
       void checkForUpdatesWhenVisible();
     }
   } else {

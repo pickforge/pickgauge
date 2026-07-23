@@ -20,6 +20,7 @@
   import { serviceLabels, settingsSaveDisplayState } from "./lib/display";
   import { flagEnabled } from "./lib/flags";
   import { mountUpdateDialog, type UpdateDialogHost } from "./lib/updateDialog";
+  import { shouldMountSharedUpdateDialog } from "./lib/updateRouting";
   import {
     browserPreviewSnapshots,
     browserPreviewStateFromSearch,
@@ -50,7 +51,7 @@
   let statusIsError = $state(false);
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
   let updateDialogEl: HTMLElement | undefined = $state();
-  const showUpdateDialog = flagEnabled("studioUpdateDialog");
+  const showUpdateDialog = shouldMountSharedUpdateDialog(flagEnabled("studioUpdateDialog"));
 
   const navItems: { id: View; label: string; icon: typeof Gauge }[] = [
     { id: "dashboard", label: "Dashboard", icon: Gauge },

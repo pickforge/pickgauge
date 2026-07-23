@@ -28,6 +28,7 @@ export const MAIN_WINDOW_LABEL = "main";
 export interface EligibilityWindow {
   label: string;
   isVisible(): Promise<boolean>;
+  isFocused(): Promise<boolean>;
   onFocusChanged(handler: (event: { payload: boolean }) => void): Promise<() => void>;
 }
 
@@ -39,11 +40,16 @@ export interface UpdateDialogHost {
 }
 
 /**
- * Resolves eligible only for the packaged app's main window once it is
- * visible. The floating capsule (`label !== "main"`) and a hidden main
- * window (tray/login-start) never resolve true from here; a hidden main
- * window waits for its first focus before resolving, exactly mirroring the
- * pre-existing `checkForUpdatesWhenVisible` deferral in ./updater.ts.
+ * Resolves eligible only for the packaged app's main window once it is both
+ * visible AND focused, per the design contract. The floating capsule
+ * (`label !== "main"`) never resolves true from here. A hidden or unfocused
+ * main window (tray/login-start) waits: every focus-changed event re-queries
+ * both `isVisible()` and `isFocused()` rather than trusting the event payload
+ * alone, and once the listener is registered its current state is re-checked
+ * once more so a window that became visible+focused during that registration
+ * gap can't hang forever waiting for a focus event that already happened.
+ * This mirrors the pre-existing `checkForUpdatesWhenVisible` deferral in
+ * ./updater.ts, strengthened with the focus check.
  */
 export function createMainWindowEligibility(
   win: EligibilityWindow,
@@ -55,29 +61,55 @@ export function createMainWindowEligibility(
         return false;
       }
 
-      if (await win.isVisible().catch(() => false)) {
+      const currentlyEligible = async () => {
+        const [visible, focused] = await Promise.all([
+          win.isVisible().catch(() => false),
+          win.isFocused().catch(() => false),
+        ]);
+        return visible && focused;
+      };
+
+      if (await currentlyEligible()) {
         return true;
       }
 
       return new Promise<boolean>((resolve) => {
-        let started = false;
+        let settled = false;
         let unlisten: (() => void) | undefined;
+
+        const finish = (value: boolean) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          unlisten?.();
+          resolve(value);
+        };
 
         void win
           .onFocusChanged(({ payload: focused }) => {
-            if (!focused || started) {
+            if (!focused) {
               return;
             }
-            started = true;
-            unlisten?.();
-            resolve(true);
+            void currentlyEligible().then((eligible) => {
+              if (eligible) {
+                finish(true);
+              }
+            });
           })
           .then((fn) => {
             unlisten = fn;
-            if (started) {
-              fn();
-            }
-          });
+            // The window may have become visible and focused while the
+            // listener was being registered; re-check once so that gap
+            // can't leave whenEligible() hanging past an already-happened
+            // focus.
+            void currentlyEligible().then((eligible) => {
+              if (eligible) {
+                finish(true);
+              }
+            });
+          })
+          .catch(() => finish(false));
       });
     },
   };

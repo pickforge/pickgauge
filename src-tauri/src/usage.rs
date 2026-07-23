@@ -10,6 +10,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
+    thread,
     time::Duration,
 };
 use time::{format_description::well_known::Rfc3339, Duration as TimeDuration, OffsetDateTime};
@@ -593,9 +594,13 @@ impl UsageEngine {
             )
         };
 
-        let mut refreshed = Vec::new();
         let now = self.clock.now_rfc3339();
 
+        // Phase 1: decide which providers are due and mark them active.
+        // Phase 2 runs the independent network/disk work concurrently so an
+        // offline credentialed install does not pay N * per-provider timeout
+        // before headless `usage --json` returns.
+        let mut pending = Vec::new();
         for provider in providers {
             let provider_key = provider.provider_key();
             let source = provider.source();
@@ -620,7 +625,33 @@ impl UsageEngine {
                 continue;
             }
 
-            let snapshot = match provider.refresh(&now) {
+            pending.push(provider);
+        }
+
+        let refresh_now = now.clone();
+        let handles: Vec<_> = pending
+            .into_iter()
+            .map(|provider| {
+                let refresh_now = refresh_now.clone();
+                thread::spawn(move || {
+                    let result = provider.refresh(&refresh_now);
+                    (provider, result)
+                })
+            })
+            .collect();
+
+        // Phase 3: join in spawn order (registration/service order) so the
+        // published snapshot map stays deterministic.
+        let mut refreshed = Vec::new();
+        for handle in handles {
+            let (provider, result) = handle
+                .join()
+                .map_err(|_| "Provider refresh worker panicked".to_string())?;
+            let provider_key = provider.provider_key();
+            let source = provider.source();
+            let is_placeholder = provider.is_placeholder();
+
+            let snapshot = match result {
                 Ok(snapshot) => {
                     self.record_provider_success(&provider_key)?;
                     snapshot
@@ -1848,6 +1879,8 @@ mod tests {
             atomic::{AtomicU64, AtomicUsize, Ordering},
             Mutex as TestMutex,
         },
+        thread,
+        time::{Duration as StdDuration, Instant},
     };
 
     struct FixedClock {
@@ -2738,6 +2771,98 @@ mod tests {
                 service: Service::Codex,
                 remaining_percent: None,
             }]
+        );
+    }
+
+    #[test]
+    fn refresh_all_runs_independent_providers_concurrently() {
+        struct SlowProvider {
+            service: Service,
+            delay: StdDuration,
+            remaining_percent: f32,
+        }
+
+        impl UsageProvider for SlowProvider {
+            fn provider_id(&self) -> UsageProviderId {
+                UsageProviderId::Fake
+            }
+
+            fn service(&self) -> Service {
+                self.service
+            }
+
+            fn source(&self) -> UsageSource {
+                UsageSource::Fake
+            }
+
+            fn refresh(&self, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
+                thread::sleep(self.delay);
+                Ok(UsageSnapshot {
+                    service: self.service,
+                    remaining_percent: Some(self.remaining_percent),
+                    used_percent: Some(100.0 - self.remaining_percent),
+                    reset_at: None,
+                    source: UsageSource::Fake,
+                    confidence: UsageConfidence::Unknown,
+                    last_updated: now.to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": self.provider_id().code(),
+                        "source": self.source().code(),
+                    }),
+                })
+            }
+        }
+
+        let engine = UsageEngine::with_clock(
+            config_with_services(true, true),
+            Box::new(FixedClock {
+                now: "2026-07-09T20:00:00Z".to_string(),
+            }),
+        );
+        {
+            let mut state = engine
+                .inner
+                .lock()
+                .expect("usage engine state lock");
+            // Replace the default fakes with deliberately slow providers so the
+            // wall-clock assertion proves independent refreshes overlap.
+            state.providers = vec![
+                Arc::new(SlowProvider {
+                    service: Service::Codex,
+                    delay: StdDuration::from_millis(200),
+                    remaining_percent: 72.0,
+                }),
+                Arc::new(SlowProvider {
+                    service: Service::Claude,
+                    delay: StdDuration::from_millis(200),
+                    remaining_percent: 41.0,
+                }),
+            ];
+        }
+
+        let started = Instant::now();
+        let display_state = engine.refresh_all().expect("concurrent refresh succeeds");
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            display_state
+                .snapshots
+                .iter()
+                .map(|snapshot| (snapshot.service, snapshot.remaining_percent))
+                .collect::<Vec<_>>(),
+            vec![
+                (Service::Codex, Some(72.0)),
+                (Service::Claude, Some(41.0)),
+            ]
+        );
+        assert!(
+            elapsed < StdDuration::from_millis(350),
+            "independent providers should finish in ~max delay, not ~sum; took {elapsed:?}"
+        );
+        assert!(
+            elapsed >= StdDuration::from_millis(150),
+            "expected both providers to actually sleep; took {elapsed:?}"
         );
     }
 

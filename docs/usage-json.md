@@ -2,11 +2,14 @@
 
 `pickgauge usage --json` refreshes the local CLI, local-file, and daemon
 providers, overlays the latest sanitized browser readings saved by the running
-tray app, prints one JSON object, and exits. It never starts Tauri, opens a
+tray app, prints one JSON object, and exits. It never starts Tauri, GTK, opens a
 window, or launches a browser.
 
-On Windows, invoke the command from Command Prompt or PowerShell so PickGauge
-can attach to the parent console and write its output.
+`pickgauge --version` is also headless and prints exactly `pickgauge <version>`
+followed by a newline. Other top-level arguments continue to launch the tray.
+
+On Windows, invoke either headless command from Command Prompt or PowerShell so
+PickGauge can attach to the parent console and write its output.
 
 ## Version 1
 

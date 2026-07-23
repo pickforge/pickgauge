@@ -21,8 +21,10 @@ reset this file.
     quota percentage — gauges stay null (`quotaSupported: false`).
   - Settings toggles for both services; defaults on for fresh installs and
     missing keys. Headless `pickgauge usage --json` includes them under the
-    existing schema v1 (additive rows only). Floating capsule still shows
-    percentage gauges only.
+    existing schema v1 (additive rows only). Floating capsule and tray gauge
+    still show percentage gauges only — healthy plan-only / availability-only
+    readings (Grok CLI plan, Ollama daemon with no Cloud plan) stay on the
+    dashboard and no longer pollute the tray rotation as empty rings.
 - Fixed the floating capsule still appearing in KDE's Alt+Tab switcher when
   running under the `PICKGAUGE_X11=1` XWayland fallback. The KWin
   `skipswitcher` window rule now applies to that session the same way it
@@ -50,6 +52,13 @@ reset this file.
 
 ## Internal/release changes
 
+- Headless `usage --json` refreshes independent providers concurrently
+  (join-all, emit in fixed service order) so an offline credentialed install
+  pays ~max per-provider timeout instead of the sequential sum.
+- Grok CLI transport gained injectable auth-path + subscriptions-URL seams so
+  missing/malformed auth, 401, non-200, malformed body, and timeout map to the
+  existing NotConfigured/ParseFailed/LoginRequired/NetworkUnavailable taxonomy
+  under loopback mock coverage.
 - Added real-binary headless CLI coverage, deterministic AppImage installer
   forwarding checks, and a Linux release gate that rejects broken headless
   commands after AppImage repair, including the human `usage` table header.
@@ -57,9 +66,10 @@ reset this file.
   windows, official status, plan, and headline selection into one typed
   model, replacing ad hoc `details`-bag re-parsing in the headless `usage
   --json` projection and the persisted snapshot cache. Headless-v1 JSON is
-  unchanged (golden test stays byte-identical); the persisted snapshot cache
-  now stores the sanitized model instead of each provider's unrestricted
-  `details` bag (cache version bumped, self-healing on next refresh).
+  schema-identical (golden test compares parsed Values); the persisted
+  snapshot cache now stores the sanitized model instead of each provider's
+  unrestricted `details` bag (cache version bumped, self-healing on next
+  refresh).
 - Concentrated startup, manual, scheduled, targeted, and cache-clear refresh
   publication behind one lifecycle policy. Accepted display states now share
   one ordered snapshot-event, history, cache, cue, provider-error, and

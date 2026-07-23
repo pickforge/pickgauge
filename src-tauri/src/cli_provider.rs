@@ -557,13 +557,26 @@ fn claude_window(window: Option<&Value>) -> Option<Window> {
 // ---------------------------------------------------------------- Grok
 
 fn refresh_grok(now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let access = read_grok_access_token()?;
-    grok_subscriptions(&access, now)
+    refresh_grok_from(
+        &home()?.join(".grok/auth.json"),
+        GROK_SUBSCRIPTIONS_URL,
+        client()?,
+        now,
+    )
 }
 
-fn read_grok_access_token() -> Result<String, UsageProviderError> {
-    let path = home()?.join(".grok/auth.json");
-    let raw = std::fs::read_to_string(&path).map_err(|_| UsageProviderError::NotConfigured)?;
+fn refresh_grok_from(
+    auth_path: &Path,
+    subscriptions_url: &str,
+    http: &reqwest::blocking::Client,
+    now: &str,
+) -> Result<UsageSnapshot, UsageProviderError> {
+    let access = read_grok_access_token_from(auth_path)?;
+    grok_subscriptions_from(http, subscriptions_url, &access, now)
+}
+
+fn read_grok_access_token_from(path: &Path) -> Result<String, UsageProviderError> {
+    let raw = std::fs::read_to_string(path).map_err(|_| UsageProviderError::NotConfigured)?;
     let auth: Value = serde_json::from_str(&raw).map_err(|_| UsageProviderError::ParseFailed)?;
     grok_access_token_from_auth(&auth).ok_or(UsageProviderError::NotConfigured)
 }
@@ -588,9 +601,14 @@ fn grok_entry_access_token(entry: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn grok_subscriptions(access: &str, now: &str) -> Result<UsageSnapshot, UsageProviderError> {
-    let response = client()?
-        .get(GROK_SUBSCRIPTIONS_URL)
+fn grok_subscriptions_from(
+    http: &reqwest::blocking::Client,
+    subscriptions_url: &str,
+    access: &str,
+    now: &str,
+) -> Result<UsageSnapshot, UsageProviderError> {
+    let response = http
+        .get(subscriptions_url)
         .bearer_auth(access)
         .send()
         .map_err(|_| UsageProviderError::NetworkUnavailable)?;
@@ -689,7 +707,12 @@ fn grok_plan_name(tier: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::atomic::{AtomicU64, Ordering},
+        thread,
+    };
 
     static NEXT_CACHE_TEST_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -979,5 +1002,199 @@ mod tests {
             refresh(Service::Ollama, "2026-07-09T20:00:00Z"),
             Err(UsageProviderError::Internal)
         );
+    }
+
+    fn write_temp_auth(contents: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "pickgauge-grok-auth-{}-{}",
+            std::process::id(),
+            NEXT_CACHE_TEST_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, contents).expect("temp auth write succeeds");
+        path
+    }
+
+    fn test_http_client(timeout: Duration) -> reqwest::blocking::Client {
+        reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .no_proxy()
+            .build()
+            .expect("test http client builds")
+    }
+
+    fn serve_one_http_response(status_line: &str, body: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test port binds");
+        let address = listener.local_addr().expect("test port address");
+        let status_line = status_line.to_string();
+        let body = body.to_string();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request accepted");
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request);
+            let response = format!(
+                "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("response written");
+        });
+        format!("http://{address}/rest/subscriptions")
+    }
+
+    fn serve_hung_http() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test port binds");
+        let address = listener.local_addr().expect("test port address");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("hung request accepted");
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request);
+            thread::sleep(Duration::from_millis(250));
+        });
+        format!("http://{address}/rest/subscriptions")
+    }
+
+    #[test]
+    fn grok_missing_auth_file_is_not_configured() {
+        let missing = std::env::temp_dir().join(format!(
+            "pickgauge-grok-auth-missing-{}-{}",
+            std::process::id(),
+            NEXT_CACHE_TEST_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&missing);
+
+        assert_eq!(
+            refresh_grok_from(
+                &missing,
+                GROK_SUBSCRIPTIONS_URL,
+                &test_http_client(Duration::from_millis(100)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::NotConfigured)
+        );
+    }
+
+    #[test]
+    fn grok_malformed_auth_json_is_parse_failed() {
+        let path = write_temp_auth("{not-json");
+
+        assert_eq!(
+            refresh_grok_from(
+                &path,
+                GROK_SUBSCRIPTIONS_URL,
+                &test_http_client(Duration::from_millis(100)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::ParseFailed)
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grok_auth_without_access_token_is_not_configured() {
+        let path = write_temp_auth(r#"{"https://auth.x.ai::client":{}}"#);
+
+        assert_eq!(
+            refresh_grok_from(
+                &path,
+                GROK_SUBSCRIPTIONS_URL,
+                &test_http_client(Duration::from_millis(100)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::NotConfigured)
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grok_expired_token_response_is_login_required() {
+        let path = write_temp_auth(r#"{"https://auth.x.ai::client":{"key":"expired-token"}}"#);
+        let url = serve_one_http_response("HTTP/1.1 401 Unauthorized", r#"{"error":"expired"}"#);
+
+        assert_eq!(
+            refresh_grok_from(
+                &path,
+                &url,
+                &test_http_client(Duration::from_secs(2)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::LoginRequired)
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grok_other_non_success_response_is_parse_failed() {
+        let path = write_temp_auth(r#"{"https://auth.x.ai::client":{"key":"token"}}"#);
+        let url = serve_one_http_response("HTTP/1.1 500 Internal Server Error", r#"{"error":"boom"}"#);
+
+        assert_eq!(
+            refresh_grok_from(
+                &path,
+                &url,
+                &test_http_client(Duration::from_secs(2)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::ParseFailed)
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grok_malformed_body_json_is_parse_failed() {
+        let path = write_temp_auth(r#"{"https://auth.x.ai::client":{"key":"token"}}"#);
+        let url = serve_one_http_response("HTTP/1.1 200 OK", "{not-json");
+
+        assert_eq!(
+            refresh_grok_from(
+                &path,
+                &url,
+                &test_http_client(Duration::from_secs(2)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::ParseFailed)
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grok_request_timeout_is_network_unavailable() {
+        let path = write_temp_auth(r#"{"https://auth.x.ai::client":{"key":"token"}}"#);
+        let url = serve_hung_http();
+
+        assert_eq!(
+            refresh_grok_from(
+                &path,
+                &url,
+                &test_http_client(Duration::from_millis(100)),
+                "2026-07-09T20:00:00Z",
+            ),
+            Err(UsageProviderError::NetworkUnavailable)
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grok_live_loopback_subscriptions_parse_plan_only() {
+        let path = write_temp_auth(r#"{"https://auth.x.ai::client":{"key":"token"}}"#);
+        let url = serve_one_http_response("HTTP/1.1 200 OK", GROK_SUBSCRIPTIONS_FIXTURE);
+
+        let snapshot = refresh_grok_from(
+            &path,
+            &url,
+            &test_http_client(Duration::from_secs(2)),
+            "2026-07-09T20:00:00Z",
+        )
+        .expect("loopback subscriptions parse");
+
+        assert_eq!(snapshot.details["plan"], "Grok Pro");
+        assert_eq!(snapshot.remaining_percent, None);
+        let _ = std::fs::remove_file(path);
     }
 }

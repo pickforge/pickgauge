@@ -105,13 +105,13 @@ fn strip_sentry_debug_image_paths(debug_meta: &mut sentry::protocol::DebugMeta) 
 }
 
 fn sentry_file_name(path: &str) -> String {
-    let trimmed = path.trim_end_matches(|ch| ch == '/' || ch == '\\');
+    let trimmed = path.trim_end_matches(['/', '\\']);
     if trimmed.is_empty() {
         return path.to_string();
     }
 
     trimmed
-        .rsplit(|ch| ch == '/' || ch == '\\')
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(trimmed)
         .to_string()
@@ -2180,6 +2180,8 @@ pub fn run() {
     run_tray();
 }
 
+// TODO(#69): split tray setup into focused builders.
+#[allow(clippy::too_many_lines)]
 fn run_tray() {
     let context = tauri::generate_context!();
     let release = format!(
@@ -2368,6 +2370,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split sanitizer assertions by debug-image variant.
+    #[allow(clippy::cognitive_complexity)]
     fn sentry_event_sanitizer_strips_debug_image_paths() {
         let apple_uuid = "2df005a8-67ab-4d33-98f2-52f9f6de4d15";
         let symbolic_id = "494f3aea-88fa-4296-9644-fa8ef5d139b6-1234";

@@ -23,7 +23,23 @@ export default defineConfig(
   },
   {
     rules: {
+      complexity: ["error", 15],
+      "max-depth": ["error", 4],
+      "max-lines-per-function": [
+        "error",
+        { max: 100, skipBlankLines: true, skipComments: true },
+      ],
       "no-empty": ["error", { allowEmptyCatch: true }],
+    },
+  },
+  {
+    files: [
+      "**/*.{test,spec}.{js,mjs,ts,svelte}",
+      "**/*.node-test.mjs",
+      "tests/**/*.{js,mjs,ts,svelte}",
+    ],
+    rules: {
+      "max-lines-per-function": "off",
     },
   },
   {

@@ -53,5 +53,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Threading",
 ] }
 
+[lints.clippy]
+cognitive_complexity = "deny"
+too_many_lines = "deny"
+
 [profile.release]
 debug = "line-tables-only"

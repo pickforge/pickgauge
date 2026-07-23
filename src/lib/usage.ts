@@ -190,6 +190,8 @@ export function providerStatusMessage(snapshot: UsageSnapshot) {
   return statusMessage(status);
 }
 
+// TODO(#69): split status classification into named policy predicates.
+// eslint-disable-next-line complexity -- Legacy status classifier exceeds the enforced cap.
 export function providerStatusKind(snapshot: UsageSnapshot): "ok" | "warn" | "bad" | "idle" {
   const status = snapshot.details.webStatus ?? snapshot.details.status;
 
@@ -486,6 +488,8 @@ export function browserPreviewStateFromSearch(search: string): BrowserPreviewSta
     : "default";
 }
 
+// TODO(#69): replace preview branching with scenario builders.
+// eslint-disable-next-line complexity -- Legacy preview fixture factory exceeds the enforced cap.
 export function browserPreviewSnapshots(state: BrowserPreviewState): UsageSnapshot[] {
   switch (state) {
     case "official-usage":

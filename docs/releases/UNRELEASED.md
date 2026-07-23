@@ -52,6 +52,8 @@ reset this file.
 
 ## Internal/release changes
 
+- Added blocking CI gates for Rust and frontend complexity, coverage, secrets,
+  and high/critical dependency advisories, with one required aggregate status.
 - Headless `usage --json` refreshes independent providers concurrently
   (join-all, emit in fixed service order) so an offline credentialed install
   pays ~max per-provider timeout instead of the sequential sum.

@@ -5,12 +5,12 @@
 //! call.
 //!
 //! Endpoints/clients discovered from the shipped CLI binaries:
-//! - Codex   refresh: POST https://auth.openai.com/oauth/token (client app_EMoamEEZ73f0CkXaXp7hrann)
-//!           usage:   GET  https://chatgpt.com/backend-api/codex/usage
-//! - Claude  refresh: POST https://platform.claude.com/v1/oauth/token (client 9d1c250a-…)
-//!           usage:   GET  https://api.anthropic.com/api/oauth/usage
-//! - Grok    usage:   GET  https://grok.com/rest/subscriptions
-//!           (bearer from ~/.grok/auth.json; never refreshed or written back)
+//! - Codex refresh: POST https://auth.openai.com/oauth/token (client app_EMoamEEZ73f0CkXaXp7hrann)
+//!   usage: GET https://chatgpt.com/backend-api/codex/usage
+//! - Claude refresh: POST https://platform.claude.com/v1/oauth/token (client 9d1c250a-…)
+//!   usage: GET https://api.anthropic.com/api/oauth/usage
+//! - Grok usage: GET https://grok.com/rest/subscriptions
+//!   (bearer from ~/.grok/auth.json; never refreshed or written back)
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -917,6 +917,8 @@ mod tests {
     }
 
     #[test]
+    // TODO(#69): split subscription selection assertions by source.
+    #[allow(clippy::cognitive_complexity)]
     fn prefers_active_grok_subscription_over_active_x_tier() {
         let body: Value = serde_json::from_str(GROK_SUBSCRIPTIONS_FIXTURE).unwrap();
         let snapshot = parse_grok_body(&body, "2026-07-09T20:00:00Z").unwrap();

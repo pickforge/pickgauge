@@ -64,6 +64,8 @@ export function plural(value: number, singular: string, pluralValue = `${singula
   return value === 1 ? singular : pluralValue;
 }
 
+// TODO(#69): split provider-specific activity summaries.
+// eslint-disable-next-line complexity -- Legacy display projection exceeds the enforced cap.
 export function localActivitySummary(snapshot: UsageSnapshot, locales?: Intl.LocalesArgument) {
   if (snapshot.source !== "local" || snapshot.remainingPercent !== null) {
     return null;

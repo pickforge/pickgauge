@@ -366,6 +366,8 @@ mod tests {
     }"#;
 
     #[test]
+    // TODO(#69): split availability and quota assertions.
+    #[allow(clippy::cognitive_complexity)]
     fn availability_snapshot_never_fabricates_quota_percentages() {
         let snapshot = availability_snapshot("2026-07-09T12:00:00Z", 2, Some(1), Some("pro".into()));
 

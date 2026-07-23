@@ -11,6 +11,8 @@ const allowedServices = new Set(["codex", "claude"]);
 const allowedActions = new Set(["launchLogin", "refreshUsage"]);
 const navigationTimeoutMs = 30_000;
 
+// TODO(#69): split request validation by protocol action.
+// eslint-disable-next-line complexity -- Legacy protocol validator exceeds the enforced cap.
 export function validateLaunchRequest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return rejected("invalid_request");

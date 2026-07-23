@@ -25,15 +25,24 @@ case "\${1:-}" in
     printf 'pickgauge ${packageVersion}\\n'
     ;;
   usage)
-    case "\${PICKGAUGE_VALIDATOR_SCENARIO:-valid}" in
-      valid) printf '{"version":1,"services":[]}\\n' ;;
-      gtk-stderr)
-        printf 'Gtk-WARNING: cannot open display\\nthread main panicked at GTK initialization\\n' >&2
-        printf '{"version":1,"services":[]}\\n'
-        ;;
-      malformed) printf 'not-json\\n' ;;
-      invalid-schema) printf '{"version":2,"services":{}}\\n' ;;
-    esac
+    if [ "$#" -eq 1 ]; then
+      case "\${PICKGAUGE_VALIDATOR_SCENARIO:-valid}" in
+        invalid-human-header) printf 'Service Plan Week 5h Resets Source Staleness\\n' ;;
+        *) printf 'Service      Plan             5h       Week     Resets                       Source   Staleness\\n' ;;
+      esac
+    elif [ "$#" -eq 2 ] && [ "\${2:-}" = "--json" ]; then
+      case "\${PICKGAUGE_VALIDATOR_SCENARIO:-valid}" in
+        gtk-stderr)
+          printf 'Gtk-WARNING: cannot open display\\nthread main panicked at GTK initialization\\n' >&2
+          printf '{"version":1,"services":[]}\\n'
+          ;;
+        malformed) printf 'not-json\\n' ;;
+        invalid-schema) printf '{"version":2,"services":{}}\\n' ;;
+        *) printf '{"version":1,"services":[]}\\n' ;;
+      esac
+    else
+      exit 64
+    fi
     ;;
   *) exit 64 ;;
 esac
@@ -60,6 +69,12 @@ try {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
     assert.match(result.stdout, /Validated headless AppImage:/);
+  });
+
+  test("rejects an invalid human usage header", () => {
+    const result = run("invalid-human-header");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /usage table header mismatch/);
   });
 
   test("rejects GTK panic-like stderr", () => {

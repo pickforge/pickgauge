@@ -13,7 +13,7 @@ reset this file.
 
 - Added real-binary headless CLI coverage, deterministic AppImage installer
   forwarding checks, and a Linux release gate that rejects broken headless
-  commands after AppImage repair.
+  commands after AppImage repair, including the human `usage` table header.
 - Added a `usage_model` module that concentrates a service's validated quota
   windows, official status, plan, and headline selection into one typed
   model, replacing ad hoc `details`-bag re-parsing in the headless `usage
@@ -41,14 +41,18 @@ reset this file.
   refresh-publication policy tests (10); strict `cargo clippy`; headless JSON
   golden fixture; `bun run test`, `bun run check`, and `bun run build`.
 - Focused Rust headless CLI tests (4 unit tests and 1 real-binary integration
-  test with display and user configuration paths isolated).
-- `node tests/install-script-smoke.mjs` (4 deterministic installer tests).
+  test with display and user configuration paths isolated), including bare
+  human `usage` output.
+- `node tests/install-script-smoke.mjs` (4 deterministic installer tests,
+  including bare `usage` forwarding).
 - Headless AppImage validator smoke tests against deterministic executable
-  fixtures, covering valid output, GTK panic-like stderr, malformed JSON, and
-  an invalid usage schema.
-- Node syntax checks, `rustfmt --check` on the new integration test, a
-  formatter comparison confirming only restored pre-existing formatting differs
-  in `usage_cli.rs`, and `git diff --check`.
+  fixtures, covering valid human/JSON output, an invalid human header, GTK
+  panic-like stderr, malformed JSON, and an invalid usage schema.
+- `bun run test`, `bun run check`, and `bun run lint`; Node syntax checks for
+  the headless scripts; and `git diff --check` passed for this coverage update.
+- Earlier validation also included `rustfmt --check` on the new integration
+  test and a formatter comparison confirming only restored pre-existing
+  formatting differs in `usage_cli.rs`.
 - Backpressure regression comparison with a physical worktree-local `TMPDIR`:
   `stderr_backpressure_does_not_block_a_valid_response` passed 1/5 current-worktree
   runs (pass 51.763s; failures 1.526s, 1.287s, 1.303s, 1.305s) and 2/5

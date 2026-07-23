@@ -43,8 +43,13 @@ case "\${1:-}" in
     printf 'pickgauge 9.9.9\\n'
     ;;
   usage)
-    [ "$#" -eq 2 ] && [ "\${2:-}" = "--json" ] || exit 64
-    printf '{"version":1,"generatedAt":"2026-07-10T12:00:00Z","services":[]}\\n'
+    if [ "$#" -eq 1 ]; then
+      printf 'Service      Plan             5h       Week     Resets                       Source   Staleness\\n'
+    elif [ "$#" -eq 2 ] && [ "\${2:-}" = "--json" ]; then
+      printf '{"version":1,"generatedAt":"2026-07-10T12:00:00Z","services":[]}\\n'
+    else
+      exit 64
+    fi
     ;;
   *)
     exit 64
@@ -159,6 +164,8 @@ function runInstalledHeadless(command, home, args) {
 
 function assertHeadlessForwarding(command, home) {
   assert.equal(runInstalledHeadless(command, home, ["--version"]), "pickgauge 9.9.9\n");
+  const humanHeader = runInstalledHeadless(command, home, ["usage"]).trim().split(/\s+/);
+  assert.deepEqual(humanHeader, ["Service", "Plan", "5h", "Week", "Resets", "Source", "Staleness"]);
   const usage = JSON.parse(runInstalledHeadless(command, home, ["usage", "--json"]));
   assert.equal(usage.version, 1);
   assert.deepEqual(usage.services, []);

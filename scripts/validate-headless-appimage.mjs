@@ -55,6 +55,15 @@ try {
     throw new Error(`--version output mismatch: expected ${JSON.stringify(expectedVersion)}, got ${JSON.stringify(version)}`);
   }
 
+  const humanUsage = run(["usage"]);
+  const humanHeader = humanUsage.split(/\r?\n/, 1)[0].trim().split(/\s+/);
+  const expectedHeader = ["Service", "Plan", "5h", "Week", "Resets", "Source", "Staleness"];
+  if (humanHeader.length !== expectedHeader.length || humanHeader.some((column, index) => column !== expectedHeader[index])) {
+    throw new Error(
+      `usage table header mismatch: expected ${JSON.stringify(expectedHeader)}, got ${JSON.stringify(humanHeader)}`,
+    );
+  }
+
   const usageOutput = run(["usage", "--json"]);
   let usage;
   try {

@@ -41,7 +41,7 @@ fn run_headless(home: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
-fn real_binary_runs_version_and_usage_json_without_a_display() {
+fn real_binary_runs_version_and_usage_without_a_display() {
     let home = isolated_home();
 
     let version = run_headless(&home, &["--version"]);
@@ -52,10 +52,32 @@ fn real_binary_runs_version_and_usage_json_without_a_display() {
         format!("pickgauge {}\n", env!("CARGO_PKG_VERSION")).as_bytes()
     );
 
-    let usage = run_headless(&home, &["usage", "--json"]);
-    assert!(usage.status.success(), "usage --json failed: {usage:?}");
-    assert_eq!(usage.stderr, b"");
-    let document: Value = serde_json::from_slice(&usage.stdout).expect("usage output is JSON");
+    let human_usage = run_headless(&home, &["usage"]);
+    assert!(
+        human_usage.status.success(),
+        "bare usage failed: {human_usage:?}"
+    );
+    assert_eq!(human_usage.stderr, b"");
+    let human_output = String::from_utf8(human_usage.stdout).expect("usage output is UTF-8");
+    let header: Vec<_> = human_output
+        .lines()
+        .next()
+        .expect("usage output has a table header")
+        .split_whitespace()
+        .collect();
+    assert_eq!(
+        header,
+        ["Service", "Plan", "5h", "Week", "Resets", "Source", "Staleness"]
+    );
+
+    let usage_json = run_headless(&home, &["usage", "--json"]);
+    assert!(
+        usage_json.status.success(),
+        "usage --json failed: {usage_json:?}"
+    );
+    assert_eq!(usage_json.stderr, b"");
+    let document: Value =
+        serde_json::from_slice(&usage_json.stdout).expect("usage output is JSON");
     assert_eq!(document.get("version"), Some(&Value::from(1)));
     assert!(
         document.get("services").is_some_and(Value::is_array),

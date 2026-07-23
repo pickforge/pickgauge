@@ -230,7 +230,7 @@
       onclick={saveSettings}
     >
       <FloppyDisk size={15} />
-      {saving ? "Saving…" : "Save settings"}
+      Save settings
     </button>
   </header>
 

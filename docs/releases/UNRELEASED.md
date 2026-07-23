@@ -52,6 +52,17 @@ reset this file.
 
 ## Internal/release changes
 
+- Added the shared `@pickforge/tauri-updater` dialog behind the `studioUpdateDialog`
+  flag (default off; `@pickforge/flags`), part of
+  pickforge/pickforge-platform#36. While off, the legacy `window.confirm`
+  updater in `src/lib/updater.ts` is untouched. When on, `src/lib/updateDialog.ts`
+  mounts the shared controller only on the visible main window: a Tauri
+  window-label check excludes the floating capsule outright, and a hidden
+  main window (tray/login-start) defers the check until its first focus
+  event, mirroring the pre-existing `checkForUpdatesWhenVisible` deferral.
+  One controller per process enforces a single check. A dev-only fixture
+  (`?updateDialogFixture=available|downloading`, tree-shaken from production
+  builds) stands in for a visual baseline since PickGauge has no VRT harness.
 - Headless `usage --json` refreshes independent providers concurrently
   (join-all, emit in fixed service order) so an offline credentialed install
   pays ~max per-provider timeout instead of the sequential sum.
@@ -152,8 +163,18 @@ reset this file.
   candidate by several days. The validated candidate remains installed with a
   checksum-verified rollback backup.
 
+- pickforge/pickforge-platform#36 (PR 5, PickGauge integration): `bun run
+  lint`, `bun run check`, `bun run test` (85 vitest tests including
+  `flags.test.ts` and `updateDialog.test.ts`, covering flag-off default,
+  eligibility for an already-visible main window, capsule exclusion by
+  window label, and hidden-main-window deferral until focus), and `bun run
+  test:coverage` (ratchet holds). No Rust touched.
+
 ### Not yet tested
 
+- pickforge/pickforge-platform#36 (PR 5): owner-gated packaged-update smoke
+  (old build to staged newer build) and design-lead visual acceptance from
+  the dev-only fixture; both deferred to a later PR per the issue's PR plan.
 - Issue #49: real KDE Wayland/XWayland Alt+Tab, taskbar, and pager behavior
   for the float capsule — deferred to Elberte-PC, a live KDE session with
   `qdbus`/`kwriteconfig6` available.

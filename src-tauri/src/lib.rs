@@ -1656,6 +1656,27 @@ fn main_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
 /// The floating capsule lives above every other window, never takes focus,
 /// and opens the main window on click. Created lazily so disabling it in
 /// settings simply hides the window.
+///
+/// Task-switcher/taskbar exclusion is platform-dependent — Tauri's
+/// `skip_taskbar` and `focusable(false)` below are the portable baseline,
+/// but they are not sufficient (or available) everywhere:
+/// - **Windows**: `skip_taskbar` is natively supported and sufficient on its
+///   own.
+/// - **Linux/KDE (Wayland and its XWayland fallback)**: `skip_taskbar` only
+///   sets the standard `_NET_WM_STATE_SKIP_TASKBAR`/`SKIP_PAGER` X11 hints,
+///   which say nothing about KWin's Alt+Tab switcher, and GTK's Wayland
+///   backend does not implement them at all. `kwin::ensure_float_rule`
+///   additionally installs a KWin `skipswitcher` window rule so the capsule
+///   is excluded from Alt+Tab too (see `kwin.rs` for the full rationale).
+/// - **Other Linux window managers**: only get the standards-based
+///   `skip_taskbar`/`focusable(false)` hints above; there is no
+///   app-managed, WM-specific configuration for non-KDE compositors.
+/// - **macOS**: Tauri documents `skip_taskbar` as unsupported here, and this
+///   build has no NSPanel/non-activating-window treatment for the capsule.
+///   Cmd+Tab switches between applications, not per-window, so the capsule
+///   does not appear there regardless; it can still surface in per-app
+///   window cycling (Cmd+`) and Mission Control, which is an accepted
+///   limitation, not a bug.
 fn ensure_float_window(app: &AppHandle, visible: bool) {
     if let Some(window) = app.get_webview_window(FLOAT_WINDOW_LABEL) {
         if visible {

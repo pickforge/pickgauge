@@ -43,9 +43,18 @@ PickGauge ships a full Tauri 2 + Svelte 5 GUI in the Pickforge "one ember on a c
 
 - **Dashboard** — half-arc gauges per service with confidence, source, and freshness labels, plus local activity stats and a 14-day token chart.
 - **History** — local Codex and Claude Code usage grouped by **days, weeks, or months** (scanned from local activity files, up to a year back), with per-period totals and a gauge trail of the lowest remaining percentage per day (stored in a local SQLite history at `~/.local/share/com.pickforge.pickgauge/history.db`).
-- **Floating button** — a draggable always-on-top capsule with live mini-gauges. Click it to open the app, right-click to refresh. It never takes keyboard focus. On Wayland the app runs under XWayland so always-on-top works (set `PICKGAUGE_NATIVE_WAYLAND=1` to opt out).
+- **Floating button** — a draggable always-on-top capsule with live mini-gauges. Click it to open the app, right-click to refresh. It never takes keyboard focus. Runs natively on Wayland by default; set `PICKGAUGE_X11=1` to fall back to XWayland on compositors without window rules (see below).
 - **Sounds, not notifications** — short synthesized chimes when a gauge crosses below the low-usage threshold and when it recovers (toggle in Settings). PickGauge never posts desktop notifications.
 - **Settings** — services, providers, refresh rhythm, quota calibration, browser profiles, autostart, sounds, and the floating button, all persisted locally.
+
+**Task-switcher / taskbar visibility.** The capsule is meant to stay out of the taskbar, pager, and window switcher — support is platform-dependent and documented honestly, not assumed:
+
+| Platform | Mechanism | Status |
+| --- | --- | --- |
+| Linux/KDE, Wayland or its `PICKGAUGE_X11=1` XWayland fallback | App-managed KWin `skipswitcher`/`skiptaskbar`/`skippager` window rule, alongside Tauri's `skip_taskbar` | Supported |
+| Other Linux desktops/window managers | Tauri's standards-based `skip_taskbar` (X11 `_NET_WM_STATE_SKIP_TASKBAR`/`SKIP_PAGER`) only, no app-managed desktop config | Partial — Alt+Tab-equivalent exclusion is desktop-specific and untested outside KDE |
+| Windows | Tauri's native `skip_taskbar` | Supported, but the Windows build itself remains untested (see Install) |
+| macOS | None — Tauri does not implement `skip_taskbar` on macOS | Cmd+Tab is application-level, not per-window, so the capsule doesn't appear there regardless; it may still surface in per-app window cycling (Cmd+`) and Mission Control, and the macOS build itself remains untested |
 
 ## The gauge your agents read
 

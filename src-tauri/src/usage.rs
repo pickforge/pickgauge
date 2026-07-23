@@ -315,12 +315,18 @@ impl UsageDisplayState {
             .iter()
             .filter(|snapshot| snapshot.service.is_runtime())
             .filter(|snapshot| {
+                // Match the float capsule: percentage gauges always rotate,
+                // and non-parsed rows (errors / no-data) stay visible. Healthy
+                // plan-only / availability-only readings (status == "parsed",
+                // no remaining percent) stay on the dashboard only — otherwise
+                // a default-on Ollama daemon with no Cloud plan permanently
+                // pollutes the tray as an empty "unknown remaining" ring.
                 snapshot.remaining_percent.is_some()
                     || snapshot
                         .details
-                        .get("plan")
+                        .get("status")
                         .and_then(serde_json::Value::as_str)
-                        .is_none()
+                        != Some("parsed")
             })
             .map(|snapshot| TrayGaugeState {
                 service: snapshot.service,
@@ -3002,6 +3008,68 @@ mod tests {
                 service: Service::Codex,
                 remaining_percent: Some(72.0),
             }]
+        );
+    }
+
+    #[test]
+    fn tray_states_exclude_healthy_plan_absent_parsed_ollama_but_keep_errors() {
+        let display_state = UsageDisplayState {
+            snapshots: vec![
+                UsageSnapshot {
+                    service: Service::Ollama,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Local,
+                    confidence: UsageConfidence::Medium,
+                    last_updated: "2026-07-09T20:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": "ollama.local",
+                        "modelCount": 2,
+                        "quotaSupported": false,
+                        "remainingPercentReason": "ollama_has_no_account_quota",
+                    }),
+                },
+                UsageSnapshot {
+                    service: Service::Grok,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::Unknown,
+                    last_updated: "2026-07-09T20:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "login_required",
+                        "providerId": "grok.cli",
+                    }),
+                },
+                UsageSnapshot {
+                    service: Service::Codex,
+                    remaining_percent: Some(72.0),
+                    used_percent: Some(28.0),
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::High,
+                    last_updated: "2026-07-09T20:00:00Z".to_string(),
+                    details: serde_json::json!({ "status": "parsed" }),
+                },
+            ],
+            updated_at: "2026-07-09T20:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            display_state.tray_states(),
+            vec![
+                TrayGaugeState {
+                    service: Service::Codex,
+                    remaining_percent: Some(72.0),
+                },
+                TrayGaugeState {
+                    service: Service::Grok,
+                    remaining_percent: None,
+                },
+            ]
         );
     }
 

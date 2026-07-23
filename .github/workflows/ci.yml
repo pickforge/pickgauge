@@ -42,6 +42,7 @@ jobs:
             scan
             source
             --recursive
+            --all-packages
             --format=json
             --output-file=/github/workspace/osv-results.json
             ./

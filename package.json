@@ -35,10 +35,6 @@
     "playwright": "^1.60.0",
     "svelte": "^5.43.0"
   },
-  "overrides": {
-    "brace-expansion": "5.0.8",
-    "js-yaml": "4.3.0"
-  },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@pickforge/tauri-release": "^0.3.0",
@@ -53,6 +49,6 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.60.1",
     "vite": "^7.2.4",
-    "vitest": "^4.1.8"
+    "vitest": "4.1.8"
   }
 }

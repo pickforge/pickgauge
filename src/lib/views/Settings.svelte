@@ -249,14 +249,24 @@
         Claude Code
       </label>
       <label class="switch">
+        <input type="checkbox" bind:checked={config.enabledServices.grok} />
+        <span class="track"></span>
+        Grok
+      </label>
+      <label class="switch">
+        <input type="checkbox" bind:checked={config.enabledServices.ollama} />
+        <span class="track"></span>
+        Ollama
+      </label>
+      <label class="switch">
         <input type="checkbox" bind:checked={config.providers.localEnabled} />
         <span class="track"></span>
-        Local estimates
+        Local estimates / daemon probes
       </label>
       <label class="switch">
         <input type="checkbox" bind:checked={config.providers.cliEnabled} />
         <span class="track"></span>
-        Official readings via Codex/Claude CLI sessions
+        Official readings via CLI sessions
       </label>
       <label class="switch">
         <input
@@ -268,8 +278,12 @@
         Official Codex/Claude web readings
       </label>
       <p class="hint">
-        CLI and web readings use provider-supported Codex and Claude Code sessions. PickGauge
-        never imports browser cookies or account credentials.
+        CLI readings reuse Codex, Claude Code, and Grok logins already on this machine
+        (<code>~/.codex/auth.json</code>, <code>~/.claude/.credentials.json</code>,
+        <code>~/.grok/auth.json</code>). Grok reports plan only — no fabricated usage percent.
+        Ollama probes the local daemon (honors loopback <code>OLLAMA_HOST</code>) for
+        availability and model counts; it has no account quota. PickGauge never imports
+        browser cookies or account credentials.
       </p>
     </div>
 

@@ -167,9 +167,9 @@ describe("provider status kind", () => {
 });
 
 describe("usage fixtures and redaction", () => {
-  it("keeps deferred services off while preserving legacy config fields", () => {
-    expect(defaultConfig.enabledServices.grok).toBe(false);
-    expect(defaultConfig.enabledServices.ollama).toBe(false);
+  it("enables runtime services by default while preserving profile path fields", () => {
+    expect(defaultConfig.enabledServices.grok).toBe(true);
+    expect(defaultConfig.enabledServices.ollama).toBe(true);
     expect(defaultConfig.providers.webEnabled).toBe(false);
     expect(defaultConfig.browserProfiles).toEqual({
       rootPath: null,
@@ -218,12 +218,48 @@ describe("usage fixtures and redaction", () => {
   });
 
 
-  it("keeps deferred services out of the floating capsule", () => {
+  it("keeps plan-only and availability-only readings out of the floating capsule", () => {
     const codex = snapshot({ service: "codex", remainingPercent: 72 });
     const claude = snapshot({ service: "claude", remainingPercent: 61 });
-    const grok = snapshot({ service: "grok", remainingPercent: 50 });
-    const ollama = snapshot({ service: "ollama", remainingPercent: 40 });
+    const grokPlan = snapshot({
+      service: "grok",
+      remainingPercent: null,
+      details: { status: "parsed", plan: "Grok Pro", providerId: "grok.cli" },
+    });
+    const ollamaRunning = snapshot({
+      service: "ollama",
+      remainingPercent: null,
+      details: { status: "parsed", providerId: "ollama.local", modelCount: 2 },
+    });
+    const grokError = snapshot({
+      service: "grok",
+      remainingPercent: null,
+      details: { status: "login_required", providerId: "grok.cli" },
+    });
 
-    expect(floatDisplaySnapshots([codex, claude, grok, ollama])).toEqual([codex, claude]);
+    expect(floatDisplaySnapshots([codex, claude, grokPlan, ollamaRunning, grokError])).toEqual([
+      codex,
+      claude,
+      grokError,
+    ]);
+  });
+
+  it("labels Grok CLI and Ollama host errors honestly", () => {
+    expect(
+      providerStatusMessage(
+        snapshot({
+          service: "grok",
+          details: { status: "not_configured", providerId: "grok.cli" },
+        }),
+      ),
+    ).toBe("Sign in with the Grok CLI");
+    expect(
+      providerStatusMessage(
+        snapshot({
+          service: "ollama",
+          details: { status: "unsafe_path", providerId: "ollama.local" },
+        }),
+      ),
+    ).toBe("OLLAMA_HOST must stay on loopback");
   });
 });

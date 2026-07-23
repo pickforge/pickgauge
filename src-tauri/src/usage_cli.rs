@@ -474,4 +474,75 @@ mod tests {
             expected
         );
     }
+
+    #[test]
+    fn plan_only_and_availability_rows_fit_usage_json_v1_without_schema_bump() {
+        let generated_at = "2026-07-09T12:00:05Z";
+        let display_state = UsageDisplayState {
+            snapshots: vec![
+                UsageSnapshot {
+                    service: Service::Grok,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Web,
+                    confidence: UsageConfidence::Medium,
+                    last_updated: "2026-07-09T12:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": "grok.cli",
+                        "plan": "Grok Pro",
+                        "quotaSupported": false,
+                        "remainingPercentReason": "grok_cli_plan_only",
+                    }),
+                },
+                UsageSnapshot {
+                    service: Service::Ollama,
+                    remaining_percent: None,
+                    used_percent: None,
+                    reset_at: None,
+                    source: UsageSource::Local,
+                    confidence: UsageConfidence::Medium,
+                    last_updated: "2026-07-09T12:00:00Z".to_string(),
+                    details: serde_json::json!({
+                        "status": "parsed",
+                        "providerId": "ollama.local",
+                        "via": "daemon",
+                        "modelCount": 2,
+                        "loadedModelCount": 1,
+                        "quotaSupported": false,
+                        "remainingPercentReason": "ollama_has_no_account_quota",
+                    }),
+                },
+            ],
+            updated_at: generated_at.to_string(),
+        };
+
+        let response = usage_json_response(&display_state, generated_at);
+        assert_eq!(response.version, 1);
+        assert_eq!(response.services.len(), 2);
+
+        let grok = &response.services[0];
+        assert_eq!(grok.service, "grok");
+        assert_eq!(grok.plan.as_deref(), Some("Grok Pro"));
+        assert_eq!(grok.remaining_percent, None);
+        assert_eq!(grok.used_percent, None);
+        assert!(grok.windows.five_hour.is_none());
+        assert!(grok.windows.week.is_none());
+        assert!(grok.windows.fable.is_none());
+
+        let ollama = &response.services[1];
+        assert_eq!(ollama.service, "ollama");
+        assert_eq!(ollama.plan, None);
+        assert_eq!(ollama.remaining_percent, None);
+        assert_eq!(ollama.used_percent, None);
+        assert!(ollama.windows.five_hour.is_none());
+        assert!(ollama.windows.week.is_none());
+        assert!(ollama.windows.fable.is_none());
+
+        let encoded = serde_json::to_value(&response).expect("response serializes");
+        assert_eq!(encoded["version"], 1);
+        assert!(encoded["services"][0].get("modelCount").is_none());
+        assert!(encoded["services"][1].get("quotaSupported").is_none());
+    }
 }

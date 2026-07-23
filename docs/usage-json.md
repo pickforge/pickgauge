@@ -43,7 +43,7 @@ PickGauge can attach to the parent console and write its output.
 `version` is the schema version. Consumers should reject unknown versions.
 `generatedAt`, `resetAt`, and `lastUpdated` are RFC 3339 timestamps.
 
-Each enabled service appears once, ordered Codex then Claude Code.
+Each enabled service appears once, ordered Codex, Claude Code, Grok, then Ollama.
 Disabled services are omitted. `status` is the sanitized provider status:
 `parsed`, `login_required`, `not_configured`, `missing_data`,
 `network_unavailable`, and related error codes are all valid values. Provider
@@ -53,8 +53,9 @@ errors still produce a row and the command exits successfully.
 A `null` percentage means the provider has no gauge, not that the pool is
 empty. `windows.fiveHour` and `windows.week` are copied from provider window
 data when available; they are otherwise `null`. Claude may also provide
-`windows.fable` for its separate Fable weekly allowance. `plan` may be present
-without any percentage.
+`windows.fable` for its separate Fable weekly allowance. `plan` may be present without any percentage (Grok CLI is plan-only today).
+Ollama rows report daemon availability through `status`/`plan` and keep
+`remainingPercent`/`usedPercent`/`windows` null — Ollama has no account quota.
 
 `source` is `web`, `local`, or `merged`; `confidence` is `high`, `medium`,
 `low`, or `unknown`. `staleSeconds` is the non-negative age of `lastUpdated`

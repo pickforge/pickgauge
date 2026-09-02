@@ -1,53 +1,22 @@
-# AGENTS
+# PickGauge
 
-Repo-local guide for agents working in PickGauge — local AI-usage visibility
-from the tray (Tauri v2: Rust backend + sidecar, SvelteKit/Svelte 5 frontend,
-bun).
+Linux/KDE tray app that shows how much Codex, Claude Code, Grok and Ollama quota is left. Tauri v2 with a Rust backend, Svelte 5 with Vite (no SvelteKit), Bun, plus a Playwright sidecar for the opt-in web readings.
 
-## Commands
+```
+bun install
+bun run tauri dev      # tray-first: the main window starts hidden
+bun run lint           # ESLint, frontend and scripts only
+bun run check          # svelte-check
+bun run test           # frontend + sidecar suites
+cargo test --manifest-path src-tauri/Cargo.toml --workspace --locked --all-targets
+cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --locked --all-targets -- -D warnings
+```
 
-- `bun install` then `bun run tauri dev` to develop.
-- `bun run check` type-checks the Svelte frontend (`build` alone is just
-  `vite build`); `bun run test` runs the JS suite; `bun run test:coverage`
-  enforces the frontend coverage ratchet; `cargo test --manifest-path
-  src-tauri/Cargo.toml --locked --all-targets` covers the Rust side. Run these
-  before calling work done.
-- Write tests in the same PR as behavior changes. For bugs, start with a
-  failing regression test when practical. For risky refactors, add
-  characterization tests first.
-- Do not lower coverage thresholds without explicit maintainer approval.
-- Keep durable business/domain behavior in the existing Rust core or shared
-  `src/lib` layers, not UI components. Do not add DDD ceremony.
+The Rust half is most of the app and none of the `bun` scripts touch it, so run both sides before calling something done. Run `bun run prepare:sidecar` after changing `sidecars/playwright/`. The `run` skill in `.agents/skills/run` explains how to launch an isolated copy for screenshots without touching your real tray.
 
-## Invariants
+Worth knowing:
 
-- Privacy-first: provider tokens are read, never stored or logged; web reads
-  are opt-in and use isolated profiles. Never widen what the app touches
-  without updating README's privacy section.
-- Follow the Pickforge design system: ember `#FF7A1A` accent, Geist/Geist Mono,
-  tokens over raw values.
-- Async waits built on event listeners must re-check the awaited condition
-  right after the listener registers (the state can change in the gap) and
-  re-verify every condition on each event instead of trusting the event
-  payload alone — pickgauge#70's eligibility gate shipped both mistakes.
-
-## Releasing
-
-- Keep [`docs/releases/UNRELEASED.md`](docs/releases/UNRELEASED.md) current on
-  PRs with user-facing or release-relevant changes. Track user-facing changes,
-  internal/release changes, what was tested, what was not tested yet, and known
-  blockers. At release time, copy and polish it into the GitHub release
-  description, then reset the draft.
-- Bump the version in `src-tauri/tauri.conf.json`, `package.json`,
-  `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`; land on `main`, tag
-  `vX.Y.Z`, and push the tag. CI builds Linux/macOS/Windows bundles, signs the
-  updater artifacts, and uploads them with `latest.json` to a draft release.
-- The GitHub release description is the single source of release notes. After
-  CI finishes, polish the draft and publish it manually. pickforge.dev/pickgauge
-  shows the latest published release via the GitHub API — no website change
-  needed for a normal release.
-- Only touch `landing-page` (`src/pages/products.ts`) when install methods,
-  platforms, or positioning change.
-## Workspace policy
-
-For substantial work, read `../AGENTS.md` (workspace root) and use the `plan-issue` workflow — GitHub Issues are the canonical plan/progress tracker.
+- Privacy is the product. Tokens are read at refresh time, never stored or logged, and web reads stay opt-in in app-owned browser profiles. If you widen what the app reads or writes, update the README privacy section in the same PR.
+- Releases bump the version in four places: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`.
+- This repo lints with ESLint, not oxlint.
+- Only touch `landing-page/src/pages/products.ts` when install methods, platforms or positioning change.

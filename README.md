@@ -1,3 +1,10 @@
+> **PickGauge is retired.** Since 2026-09 there are no further updates or releases.
+> Pickforge Studio now works on one product, [Pickforge](https://pickforge.dev), an
+> open source, local-first suite that makes coding agents effective in mobile projects.
+> The last release, [v0.3.0](https://github.com/pickforge/pickgauge/releases/tag/v0.3.0),
+> stays downloadable, and installed copies keep working offline.
+> This repository is archived and read-only, and the `pickgauge` npm package is deprecated.
+
 <p align="center">
   <img src="assets/branding/pickgauge-lockup-horizontal.svg" alt="PickGauge" width="560">
 </p>

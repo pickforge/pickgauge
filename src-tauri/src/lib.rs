@@ -3436,11 +3436,15 @@ mod tests {
             .expect("claude percentage renders dynamic icon");
 
         assert!(codex
-            .chunks_exact(4)
-            .any(|pixel| pixel == TRAY_CODEX_ACCENT));
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel == &TRAY_CODEX_ACCENT));
         assert!(claude
-            .chunks_exact(4)
-            .any(|pixel| pixel == TRAY_CLAUDE_ACCENT));
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel == &TRAY_CLAUDE_ACCENT));
     }
 
     #[test]
@@ -3448,6 +3452,10 @@ mod tests {
         let rgba = tray_icon_rgba_for(tray_state(Service::Claude, Some(20.0)), 20.0)
             .expect("low percentage renders dynamic icon");
 
-        assert!(rgba.chunks_exact(4).any(|pixel| pixel == TRAY_LOW_ACCENT));
+        assert!(rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel == &TRAY_LOW_ACCENT));
     }
 }
